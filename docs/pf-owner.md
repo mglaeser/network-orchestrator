@@ -44,8 +44,10 @@ of rules awaiting withdrawal cannot grant discovery readiness during a pause.
 The scheduled Python interpreter, package and its dependency environment must
 be administrator-owned under protected ancestors. A root job must not import
 from a user-writable checkout, user Homebrew directory, or user-owned virtual
-environment. Python isolated mode is mandatory. The provisioner handles the
-release environment; the PF module checks the executable and package boundary
+environment. Python isolated mode is mandatory. A separately reviewed
+administrator bootstrap installs the protected interpreter and package
+environment. The provisioner installs captured networking policy, the backend
+and schedules; the PF module checks the executable and package boundary
 before any live operation, plus the actual prefix/base prefix, absolute Python
 search paths, imported stdlib/dependency/extension files and JSON schemas. A
 venv symlink does not make a user-owned Homebrew interpreter safe. Provisioning

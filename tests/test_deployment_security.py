@@ -22,6 +22,7 @@ from netorch.storage import Store, UnsafeState
 from tests.test_deployment import FakeTools, config, fake_platform, make_bundle, manifest
 
 __all__ = ["config", "fake_platform", "manifest"]
+NATIVE_PLATFORM_GUARD = implementation._require_platform
 
 
 def test_direct_model_cannot_escape_closed_schema(manifest: dict[str, Any]) -> None:
@@ -476,3 +477,82 @@ def test_root_operational_record_replacement_during_capture_blocks_rollback(
             state, "root", expected_current_digest=metadata["bundle_digest"], runner=tools
         )
     assert tools.calls == []
+
+
+@pytest.mark.parametrize("fault", ["writable", "replaced-symlink", "acl"])
+def test_root_rollback_revalidates_predecessor_interpreter_before_transition(
+    tmp_path: Path,
+    manifest: dict[str, Any],
+    config: Any,
+    fake_platform: None,
+    monkeypatch: pytest.MonkeyPatch,
+    fault: str,
+) -> None:
+    predecessor = tmp_path / "predecessor-python"
+    predecessor.write_bytes(b"previous managed interpreter")
+    predecessor.chmod(0o700)
+    manifest["jobs"][1]["argv"][0] = str(predecessor)
+    first, original = make_bundle(tmp_path, manifest, config, "first")
+    tools = FakeTools()
+    install_bundle(first, "root", expected_digest=original["bundle_digest"], runner=tools)
+    newer = copy.deepcopy(manifest)
+    newer["jobs"][1]["argv"][0] = str(tmp_path / "current-python")
+    second, changed = make_bundle(tmp_path, newer, config, "second")
+    install_bundle(second, "root", expected_digest=changed["bundle_digest"], runner=tools)
+    state = Path(manifest["root"]["state_directory"])
+    before = {
+        name: (state / name).read_bytes()
+        for name in ("installation-receipt.json", "installation-journal.json")
+    }
+    forwarding = Path(manifest["forwarding"]["directory"])
+    intent = {"schema_version": 1, "operator_paused": True, "suspensions": {"other": "retain"}}
+    Store(forwarding).write("operator-intent.json", intent)
+    if fault == "writable":
+        predecessor.chmod(0o777)
+    elif fault == "replaced-symlink":
+        predecessor.unlink()
+        predecessor.symlink_to(tmp_path / "foreign-python")
+    else:
+        refuse_acl(monkeypatch, predecessor)
+    leaf_guard = implementation._protected_executable
+    native_fstat = os.fstat
+    checked: list[Path] = []
+
+    def synthetic_root_leaf(fd: int) -> os.stat_result:
+        info = native_fstat(fd)
+        fields = list(info)
+        fields[4] = 0
+        return os.stat_result(fields)
+
+    def interpreter_guard(path: Path) -> None:
+        if path == predecessor:
+            checked.append(path)
+            leaf_guard(path)
+
+    def platform(scope: str, value: Any) -> int:
+        job = next(item for item in value.jobs if item.scope == "root")
+        if job.argv[0] == str(predecessor):
+            # Invoke the real predecessor platform contract. Only the lab's
+            # native OS/current-code ancestry and root UID are modelled; the
+            # selected predecessor leaf executes the actual ACL/O_NOFOLLOW/
+            # metadata guard. These are test seams, never installer options.
+            with monkeypatch.context() as probe:
+                probe.setattr(implementation.sys, "platform", "darwin")
+                probe.setattr(implementation.sys, "executable", str(predecessor))
+                probe.setattr(os, "geteuid", lambda: 0)
+                probe.setattr(os, "fstat", synthetic_root_leaf)
+                probe.setattr(implementation, "_check_tree", lambda *args, **kwargs: None)
+                probe.setattr(implementation, "_protected_executable", interpreter_guard)
+                return NATIVE_PLATFORM_GUARD(scope, value)
+        return os.geteuid()
+
+    monkeypatch.setattr(implementation, "_require_platform", platform)
+    tools.calls.clear()
+    with pytest.raises((DeploymentError, OSError)):
+        rollback_install(
+            state, "root", expected_current_digest=changed["bundle_digest"], runner=tools
+        )
+    assert checked == [predecessor]
+    assert tools.calls == []
+    assert {name: (state / name).read_bytes() for name in before} == before
+    assert Store(forwarding).read("operator-intent.json") == intent

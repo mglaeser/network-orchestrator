@@ -173,6 +173,11 @@ restores the previous jobs. Root rollback also uses its own owner installer to
 restore reviewed desired policy/backend; it never clears admissions or pause.
 Only one predecessor is retained in the receipt to bound journal growth. Older
 release files can be retained according to the site's separate cleanup policy.
+A committed rollback revalidates the predecessor's interpreter and platform
+contract before any transition or native effect. Retained receipts do not prove
+current executable trust. A root predecessor must still use the invoking trusted
+interpreter; relocating or replacing that runtime is a separate maintenance step.
+
 A release rollback is not an application-data restore or kernel-state proof.
 
 An interrupted rollback also stops and retains its phase. An unexpected foreign

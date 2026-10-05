@@ -971,6 +971,10 @@ def rollback_install(
         deployment = parse_deployment(canonical_bytes(receipt["deployment"]))
         uid = _require_platform(scope, deployment)
         old_deployment = parse_deployment(canonical_bytes(previous["deployment"]))
+        # A retained receipt proves past completion, not current executable
+        # trust. Validate the restored scheduler before any transition effect,
+        # just as failed-install recovery validates its predecessor.
+        _require_platform(scope, old_deployment)
         installation = deployment.installation(scope)
         old_installation = old_deployment.installation(scope)
         if installation != old_installation or (
