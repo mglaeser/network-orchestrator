@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import stat
 import time
 from dataclasses import dataclass
@@ -13,9 +14,10 @@ from .codec import canonical_bytes, strict_load, strict_loads
 from .config import config_digest, profile_digest, to_dict
 from .discovery_plan import DiscoveryAction, discovery_digest
 from .model import Config
+from .pf_owner import reject_acl
 from .planner import Action
 from .process import OutputLimit, ProcessTimeout, run
-from .state import Observation, Snapshot, observation_from_dict, snapshot_from_dict
+from .state import Admission, Observation, Snapshot, observation_from_dict, snapshot_from_dict
 
 
 class OwnerFailure(RuntimeError):
@@ -102,6 +104,21 @@ class ProcessOwner:
             ),
             timeout=10,
         )
+        if response.returncode == 78 and operation == "reconcile":
+            maintenance = strict_loads(response.stdout)
+            if (
+                maintenance
+                == {
+                    "protocol_version": 1,
+                    "owner": self.owner,
+                    "error": "native-publication-maintenance",
+                }
+                and type(maintenance["protocol_version"]) is int
+                and self.config.profile(payload["profile"]).kind == "publication"
+            ):
+                raise ExternalOwnerRequired(
+                    "native publication requires explicit application maintenance"
+                )
         if response.returncode:
             raise OwnerFailure("owner did not return a successful complete response")
         data = strict_loads(response.stdout.decode("utf-8"))
@@ -194,6 +211,112 @@ class SnapshotFileOwner:
         raise ExternalOwnerRequired("discovery owner work is required; no publication was made")
 
 
+def _root_report(path: Path) -> Any:
+    for parent in path.parents:
+        info = parent.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
+            raise OwnerFailure("root report ancestors must be root-owned and protected")
+        reject_acl(parent)
+    reject_acl(path)
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        info = os.fstat(fd)
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_uid != 0
+            or info.st_nlink != 1
+            or info.st_mode & 0o022
+        ):
+            raise OwnerFailure("invalid protected root report")
+        with os.fdopen(os.dup(fd), "rb") as stream:
+            raw = stream.read(1_048_577)
+        final = path.lstat()
+
+        def captured(item: os.stat_result) -> tuple[int, ...]:
+            return (
+                item.st_dev,
+                item.st_ino,
+                item.st_mode,
+                item.st_uid,
+                item.st_gid,
+                item.st_nlink,
+                item.st_size,
+                item.st_mtime_ns,
+                item.st_ctime_ns,
+            )
+
+        if captured(final) != captured(info) or captured(os.fstat(fd)) != captured(info):
+            raise OwnerFailure("root report changed during capture")
+        reject_acl(path)
+        return strict_loads(raw)
+    finally:
+        os.close(fd)
+
+
+@dataclass
+class RootReportOwner(SnapshotFileOwner):
+    """Read protected independent-owner evidence; never invoke its executable."""
+
+    def observe(self) -> Snapshot:
+        try:
+            return snapshot_from_dict(_root_report(self.path))
+        except (OSError, ValueError, RuntimeError):
+            return _unknown(self.config, self.owner, "inaccessible")
+
+
+def effective_admissions(
+    config: Config,
+    clients: dict[str, OwnerClient],
+    snapshot: Snapshot,
+    user_admissions: dict[str, Admission],
+    now: float,
+) -> dict[str, Admission]:
+    """Derive root readiness from protected fresh root proof, never user approval.
+
+    This is a read-only view for downstream dependency planning. It cannot admit
+    a root profile or ask root to activate one. Only independently admitted,
+    currently verified root exposure can become ready in the user plan.
+    """
+    result = {
+        key: item
+        for key, item in user_admissions.items()
+        if key
+        in {
+            profile.id
+            for profile in config.profiles
+            if config.profile_owner(profile).privilege == "user"
+        }
+    }
+    for profile in config.profiles:
+        owner = config.profile_owner(profile)
+        client = clients.get(owner.id)
+        if owner.privilege != "external-root" or not isinstance(client, RootReportOwner):
+            continue
+        observation = snapshot.profiles.get(profile.id)
+        if observation is None:
+            continue
+        evidence = observation.at(now, profile.safety.max_age_seconds)
+        proof = evidence.data.get("admission_digest")
+        if (
+            evidence.state == "present"
+            and evidence.data.get("admitted") is True
+            and evidence.data.get("root_ready") is True
+            and isinstance(proof, str)
+            and re.fullmatch(r"[0-9a-f]{64}", proof)
+            and evidence.data.get("policy_digest") == profile_digest(config, profile)
+            and snapshot.network_generation is not None
+            and evidence.data.get("network_generation") == snapshot.network_generation
+        ):
+            result[profile.id] = Admission(
+                profile.id,
+                profile_digest(config, profile),
+                "independent-root:" + owner.id,
+                evidence.observed_at,
+                True,
+            )
+    return result
+
+
 def load_bindings(config: Config, path: Path) -> dict[str, OwnerClient]:
     value = _secure_binding_file(path)
     if not isinstance(value, dict) or set(value) != {"schema_version", "owners"}:
@@ -224,6 +347,14 @@ def load_bindings(config: Config, path: Path) -> dict[str, OwnerClient]:
             if not isinstance(raw["path"], str) or not os.path.isabs(raw["path"]):
                 raise OwnerFailure("snapshot path must be absolute")
             result[owner.id] = SnapshotFileOwner(config, owner.id, Path(raw["path"]))
+        elif raw.get("kind") == "root-report" and set(raw) == {"id", "kind", "path"}:
+            if (
+                owner.privilege != "external-root"
+                or not isinstance(raw["path"], str)
+                or not os.path.isabs(raw["path"])
+            ):
+                raise OwnerFailure("root report belongs to a protected independent root owner")
+            result[owner.id] = RootReportOwner(config, owner.id, Path(raw["path"]))
         else:
             raise OwnerFailure("unknown owner binding type or fields")
     return result

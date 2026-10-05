@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "owner": "camera-manager",
+  "executable": "/Library/ExampleVendor/bin/container",
+  "accepted_version": "1.5.0",
+  "account": {"uid": 501, "gid": 20, "home": "/operator"},
+  "networks": [
+    {
+      "scope": "wired-lan",
+      "name": "example-network",
+      "gateway": "198.51.100.1",
+      "helper_domain": "gui/501",
+      "helper_label": "org.example.vendor-helper",
+      "helper_executable": "/Library/ExampleVendor/libexec/network-helper",
+      "helper_uid": 501
+    }
+  ],
+  "contracts": [
+    {
+      "service": "resolver",
+      "name": "example-resolver",
+      "scope": "wired-lan",
+      "configuration_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "mounts": [{"path": "/operator/state/workloads/resolver", "kind": "directory", "uid": 501, "device": 0, "inode": 0}],
+      "receipts": []
+    },
+    {
+      "service": "web-proxy",
+      "name": "example-web-proxy",
+      "scope": "wired-lan",
+      "configuration_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "mounts": [{"path": "/operator/state/workloads/web-proxy", "kind": "directory", "uid": 501, "device": 0, "inode": 0}],
+      "receipts": []
+    },
+    {
+      "service": "media-controller",
+      "name": "example-media-controller",
+      "scope": "wired-lan",
+      "configuration_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "mounts": [{"path": "/operator/state/workloads/media-controller", "kind": "directory", "uid": 501, "device": 0, "inode": 0}],
+      "receipts": []
+    },
+    {
+      "service": "camera",
+      "name": "example-camera",
+      "scope": "wired-lan",
+      "configuration_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "mounts": [{"path": "/operator/state/workloads/camera", "kind": "directory", "uid": 501, "device": 0, "inode": 0}],
+      "receipts": []
+    }
+  ],
+  "policy": "/operator/install/netorch/current/data/network.json",
+  "admissions": "/operator/state/netorch/admissions.json",
+  "intent": "/operator/state/netorch/intent.json",
+  "state_dir": "/operator/state/netorch",
+  "legacy_risk_acknowledged": false
+}

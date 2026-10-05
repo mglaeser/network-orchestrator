@@ -64,6 +64,7 @@ class Profile:
     target_ports: PortRange | None
     safety: Safety
     owner: str | None = None
+    fallback_publication: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

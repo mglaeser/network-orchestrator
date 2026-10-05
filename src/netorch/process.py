@@ -10,6 +10,7 @@ import subprocess
 import time
 from contextlib import suppress
 from dataclasses import dataclass
+from typing import Any
 
 
 class ProcessError(RuntimeError):
@@ -37,6 +38,9 @@ def run(
     input_data: bytes = b"",
     timeout: float = 5.0,
     max_output: int = 1_048_576,
+    run_uid: int | None = None,
+    run_gid: int | None = None,
+    account_home: str | None = None,
 ) -> Result:
     """Capture a process group within explicit time/input/output bounds.
 
@@ -47,8 +51,8 @@ def run(
     if (
         not isinstance(argv, list)
         or not argv
-        or not os.path.isabs(argv[0])
         or any(not isinstance(arg, str) or "\0" in arg for arg in argv)
+        or not os.path.isabs(argv[0])
         or isinstance(timeout, bool)
         or not isinstance(timeout, (int, float))
         or not math.isfinite(timeout)
@@ -57,8 +61,25 @@ def run(
         or max_output <= 0
         or not isinstance(input_data, bytes)
         or len(input_data) > max_output
+        or (run_uid is not None and (type(run_uid) is not int or run_uid <= 0))
+        or (run_gid is not None and (type(run_gid) is not int or run_gid < 0))
+        or ((run_uid is None) != (run_gid is None))
+        or (
+            account_home is not None
+            and (
+                not isinstance(account_home, str)
+                or not os.path.isabs(account_home)
+                or "\0" in account_home
+            )
+        )
     ):
         raise ValueError("invalid bounded command")
+    credentials: dict[str, Any] = {}
+    if run_uid is not None:
+        if os.geteuid() != 0 and (run_uid != os.geteuid() or run_gid != os.getegid()):
+            raise PermissionError("account mismatch")
+        if os.geteuid() == 0:
+            credentials = {"user": run_uid, "group": run_gid, "extra_groups": []}
     proc = subprocess.Popen(
         argv,
         stdin=subprocess.PIPE,
@@ -70,8 +91,9 @@ def run(
             "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
             "LANG": "C.UTF-8",
             "LC_ALL": "C",
-            "HOME": os.path.expanduser("~"),
+            "HOME": account_home or os.path.expanduser("~"),
         },
+        **credentials,
     )
     assert proc.stdin is not None and proc.stdout is not None and proc.stderr is not None
     out = bytearray()

@@ -13,7 +13,8 @@ The public model is in `netorch.model`. These frozen dataclasses are the shared 
 - `Safety(kind, max_age_seconds, unknown_limit, statement)`; kind is `structural`
   or `bounded`. `statement` is a nonempty risk declaration for bounded policies.
 - `Profile(id, service, scope, kind, protocol, ports: PortRange,
-  target_ports: PortRange | None, safety: Safety, owner: str | None = None)`; kind is `publication`,
+  target_ports: PortRange | None, safety: Safety, owner: str | None = None,
+  fallback_publication: str | None = None)`; kind is `publication`,
   `host-redirect`, `guest-direct` or `udp-return`; protocol `tcp` or `udp`.
 - `Discovery(id, owner, service, scope, direction, types: tuple[str, ...],
   dependencies: tuple[str, ...], max_age_seconds, max_records)`.
@@ -22,7 +23,9 @@ The public model is in `netorch.model`. These frozen dataclasses are the shared 
   `profile(id)` and `profile_owner(profile_or_id)` lookup methods.
 
 Configuration syntax is the dataclass field names. Optional `automatic_ports` and
-`target_ports` may be omitted; `statement` may be null for structural policies.
+`target_ports` and `fallback_publication` may be omitted; `statement` may be null
+for structural policies. Fallback is allowed only for guest-direct and must bind
+an exact same-service native publication; see [configuration](configuration.md).
 `netorch.config.load_config(path)` and `parse_config(text)` return a `Config`.
 `netorch.config.to_dict(config)` returns JSON data.
 `netorch.config.profile_digest(config, profile)` binds the resolved profile, scope,
@@ -51,8 +54,10 @@ State/plan interfaces live in `netorch.state` and `netorch.planner`:
 - `Intent(revision, operator_paused, suspensions, damaged=False)` stores operator
   pause independently from operation-ID -> holder records. Methods preserve pause,
   enforce suspension ownership, and increment the revision on change.
-- `Action(profile, owner, operation, reason, target_ipv4=None)`; operations are
+- `Action(profile, owner, operation, reason, target_ipv4=None,
+  target_generation=None, effective_strategy=None)`; operations are
   `activate`, `withdraw`, `drain`, `noop`, `pending`, `blocked`.
+  The only non-null effective strategy is `degraded-fallback`.
 - `Plan(policy_digest, snapshot_digest, intent_revision, actions)`.
 - `plan(config, snapshot, admissions, intent, now)` is pure. Fresh unknown/stale
   observations never initiate recovery; stale existing targets are withdrawn and
@@ -75,6 +80,15 @@ Discovery interfaces in `netorch.discovery_plan`:
 The executor is an independent module. `MockOwner` is a simulation only; an
 `external-root` owner is never invoked by a live unprivileged executor. Root owners
 pull their own admitted content and observations on their existing schedule.
+
+Executable macOS implementations are `netorch.apple_runtime`,
+`netorch.bonjour_owner`, `netorch.pf_owner`, `netorch.workloads` and
+`netorch.deployment`. They use injected readers/runners for tests and fixed native
+arguments in production. Root admission additionally binds installed Python,
+implementation/schema bytes, dependency versions, backend and observer settings.
+`netorch.owners.effective_admissions` derives only read-only downstream readiness
+from protected fresh independently admitted root evidence with `root_ready: true`.
+It cannot call, admit or resume root.
 
 All examples use synthetic service identities and RFC 5737 address ranges. Local
 configuration, production bindings, observations and private runtime data belong

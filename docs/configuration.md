@@ -32,6 +32,12 @@ verify that contract from actual runtime state. Copying a hash from desired poli
 into an observation without checking the workload supplies no evidence. The
 framework does not invent a universal runtime contract or authorize recreation.
 
+The shipped Apple Container reader provides a versioned enrollment contract:
+complete native configuration fingerprint, protected persistent identities and
+hashed startup receipts. `enroll` captures it and `derive-policy` generates the
+service hash; see [Apple runtime](apple-runtime.md). Other observation owners
+must supply equally explicit contracts rather than copy desired hashes.
+
 ## Transport strategies
 
 | Kind | Source ports | Target ports | Required evidence |
@@ -53,6 +59,16 @@ The planner immediately retires known unsafe exposure on unknown identity;
 `unknown_limit` is an existing reader's maximum bounded retry contract, not a
 permission to keep a stale target. Values must match tested owner behavior.
 
+An optional `fallback_publication` on `guest-direct` names a native publication
+for the exact same service, scope, protocol and guest target range. It is not a
+second port table or an arbitrary listener. The independent PF owner can select
+that verified host path only after its own direct route/neighbor check proves
+direct access unavailable; the service must still be fresh and verified. Plans
+and reports mark `effective_strategy: degraded-fallback`, since client identity
+changes. Retire/drain the old guest path before switching, and withdraw fallback
+before later restoring direct access. See [the fallback example](../examples/network-dns-fallback.json)
+and [PF owner](pf-owner.md) for admission and readback requirements.
+
 ## Discovery strategies
 
 `direction` is `import` or `export`. `types` are explicit DNS-SD service types,
@@ -65,8 +81,8 @@ within the configured LAN/interface, then related records from the same endpoint
 Apple-media import declares a UDP-return dependency. Selection has wall-clock age,
 record-count and loop/provenance bounds. Binary TXT fields remain lossless.
 
-The existing discovery owner implements native registration and expiration.
-Netorch coordinates its fixed operation; it does not fabricate records, pair
+The shipped Bonjour owner implements native scanning, registration and independent
+expiration. Netorch coordinates its fixed operation; it does not fabricate records, pair
 devices, publish arbitrary IPs or install a multicast reflector. An absent or
 unconfirmed interface is cleanup-only, never a wildcard interface fallback.
 
@@ -123,9 +139,10 @@ The CLI bounds their execution but is not a sandbox for malicious adapters.
 
 ## Unsupported assumptions
 
-This release has no root installer, native container driver, DNS-SD packet stack,
-platform firewall loader, runtime upgrade, automatic login configuration or
-application configuration engine. Existing owners must meet and be tested against
-their integration contracts. Missing owners remain unknown/pending. Public CI
-proves the framework and mock contracts; consult the [deployment gates](deployment.md)
-for what must be established on the actual installation.
+This release supplies executable Apple runtime and Bonjour adapters, an independent
+PF owner, and separate user/root provisioning. It does not install a packet stack,
+upgrade the vendor runtime, choose automatic login or replace application settings.
+The existing application startup chain remains independently owned. Missing or
+unsafe native prerequisites stay unknown/pending. Public CI proves model and
+mock contracts plus hosted PF grammar; consult the [deployment gates](deployment.md)
+for real packets, consent, boot/restore and application acceptance.

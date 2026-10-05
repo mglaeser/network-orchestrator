@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "netorch"
-version = "0.1.0"
+version = "0.2.0"
 description = "Typed network policy orchestration over independent platform owners"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -53,10 +53,12 @@ packages = ["src/netorch"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "schemas/network.schema.json" = "netorch/network.schema.json"
+"schemas/deployment.schema.json" = "netorch/deployment.schema.json"
+"platform/macos/pf/backend.sh" = "netorch/platform/macos/pf/backend.sh"
 "examples/network.json" = "netorch/example-network.json"
 
 [tool.hatch.build.targets.sdist]
-include = ["/src", "/tests", "/examples", "/schemas", "/docs", "/pyproject.toml", "/README.md", "/CHANGELOG.md", "/LICENSE", "/CONTRIBUTING.md", "/SECURITY.md", "/requirements*.txt", "/.github", "/.gitignore"]
+include = ["/src", "/platform", "/tests", "/examples", "/schemas", "/docs", "/pyproject.toml", "/README.md", "/CHANGELOG.md", "/LICENSE", "/CONTRIBUTING.md", "/SECURITY.md", "/requirements*.txt", "/.github", "/.gitignore"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -84,6 +86,7 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 
 [tool.mypy]
 python_version = "3.12"
+platform = "darwin"
 strict = true
 warn_unreachable = true
 files = ["src/netorch"]

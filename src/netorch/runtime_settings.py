@@ -1,0 +1,274 @@
+"""Private, data-only Apple runtime enrollment and reader settings."""
+
+from __future__ import annotations
+
+import re
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Any
+
+from .codec import canonical_bytes, digest, strict_load, strict_loads
+
+_ID = re.compile(r"[a-z][a-z0-9-]*\Z")
+_HASH = re.compile(r"[0-9a-f]{64}\Z")
+_VERSIONS = {"1.2.0", "1.4.1", "1.5.0"}
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeAccount:
+    uid: int
+    gid: int
+    home: str
+
+
+@dataclass(frozen=True, slots=True)
+class FileIdentity:
+    path: str
+    kind: str
+    uid: int
+    device: int | None = None
+    inode: int | None = None
+    sha256: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeContract:
+    service: str
+    name: str
+    scope: str
+    configuration_sha256: str
+    mounts: tuple[FileIdentity, ...]
+    receipts: tuple[FileIdentity, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeNetwork:
+    scope: str
+    name: str
+    gateway: str
+    helper_domain: str
+    helper_label: str
+    helper_executable: str
+    helper_uid: int
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeSettings:
+    schema_version: int
+    owner: str
+    executable: str
+    accepted_version: str
+    account: RuntimeAccount
+    networks: tuple[RuntimeNetwork, ...]
+    contracts: tuple[RuntimeContract, ...]
+    policy: str | None = None
+    admissions: str | None = None
+    intent: str | None = None
+    state_dir: str | None = None
+    legacy_risk_acknowledged: bool = False
+
+    @classmethod
+    def from_dict(cls, value: Any) -> RuntimeSettings:
+        return parse_settings(value)
+
+    def contract(self, service: str) -> RuntimeContract:
+        return next(contract for contract in self.contracts if contract.service == service)
+
+
+def contract_digest(contract: RuntimeContract) -> str:
+    """No raw application configuration or credentials enter the network policy."""
+    return digest({"strategy": "apple-runtime-enrollment-v1", "contract": asdict(contract)})
+
+
+def _object(value: Any, required: set[str], optional: set[str] | None = None) -> dict[str, Any]:
+    if (
+        not isinstance(value, dict)
+        or not required <= set(value)
+        or set(value) - required - (optional or set())
+    ):
+        raise ValueError("invalid runtime settings object")
+    return value
+
+
+def _path(value: Any) -> str:
+    if (
+        not isinstance(value, str)
+        or not value.startswith("/")
+        or "\0" in value
+        or any(part in {".", ".."} for part in value.split("/"))
+    ):
+        raise ValueError("runtime path must be absolute and canonical")
+    return value
+
+
+def _identity(value: Any) -> FileIdentity:
+    data = _object(value, {"path", "kind", "uid"}, {"device", "inode", "sha256"})
+    if (
+        not isinstance(data["kind"], str)
+        or data["kind"] not in {"directory", "file", "socket"}
+        or type(data["uid"]) is not int
+        or data["uid"] < 0
+    ):
+        raise ValueError("invalid runtime file identity")
+    if data["kind"] != "socket" and any(
+        type(data.get(key)) is not int or data[key] < 0 for key in ("device", "inode")
+    ):
+        raise ValueError("persistent identities must bind device and inode")
+    if any(
+        data.get(key) is not None and (type(data[key]) is not int or data[key] < 0)
+        for key in ("device", "inode")
+    ):
+        raise ValueError("invalid optional identity")
+    if data.get("sha256") is not None and (
+        not isinstance(data["sha256"], str) or not _HASH.fullmatch(data["sha256"])
+    ):
+        raise ValueError("invalid receipt hash")
+    return FileIdentity(
+        _path(data["path"]),
+        data["kind"],
+        data["uid"],
+        data.get("device"),
+        data.get("inode"),
+        data.get("sha256"),
+    )
+
+
+def parse_settings(value: Any) -> RuntimeSettings:
+    data = _object(
+        value,
+        {
+            "schema_version",
+            "owner",
+            "executable",
+            "accepted_version",
+            "account",
+            "networks",
+            "contracts",
+        },
+        {"policy", "admissions", "intent", "state_dir", "legacy_risk_acknowledged"},
+    )
+    if (
+        type(data["schema_version"]) is not int
+        or data["schema_version"] != 1
+        or not isinstance(data["owner"], str)
+        or not _ID.fullmatch(data["owner"])
+    ):
+        raise ValueError("unsupported runtime settings")
+    if not isinstance(data["accepted_version"], str) or data["accepted_version"] not in _VERSIONS:
+        raise ValueError("runtime version lacks a reader contract")
+    legacy = data.get("legacy_risk_acknowledged", False)
+    if type(legacy) is not bool or (data["accepted_version"] == "1.2.0" and not legacy):
+        raise ValueError("legacy runtime requires explicit risk acknowledgment")
+    account = _object(data["account"], {"uid", "gid", "home"})
+    if (
+        type(account["uid"]) is not int
+        or account["uid"] <= 0
+        or type(account["gid"]) is not int
+        or account["gid"] < 0
+    ):
+        raise ValueError("runtime account must be unprivileged")
+    networks = []
+    if not isinstance(data["networks"], list) or not 1 <= len(data["networks"]) <= 32:
+        raise ValueError("invalid runtime networks")
+    for raw in data["networks"]:
+        item = _object(
+            raw,
+            {
+                "scope",
+                "name",
+                "gateway",
+                "helper_domain",
+                "helper_label",
+                "helper_executable",
+                "helper_uid",
+            },
+        )
+        if any(
+            not isinstance(item[key], str)
+            or not item[key]
+            or "\n" in item[key]
+            or "\0" in item[key]
+            for key in ("scope", "name", "gateway", "helper_domain", "helper_label")
+        ):
+            raise ValueError("invalid network identity")
+        if (
+            item["helper_domain"] not in {"system", f"gui/{account['uid']}"}
+            or type(item["helper_uid"]) is not int
+            or item["helper_uid"] < 0
+        ):
+            raise ValueError("invalid helper ownership")
+        networks.append(
+            RuntimeNetwork(
+                item["scope"],
+                item["name"],
+                item["gateway"],
+                item["helper_domain"],
+                item["helper_label"],
+                _path(item["helper_executable"]),
+                item["helper_uid"],
+            )
+        )
+    contracts = []
+    if not isinstance(data["contracts"], list) or not 1 <= len(data["contracts"]) <= 256:
+        raise ValueError("invalid runtime contracts")
+    for raw in data["contracts"]:
+        item = _object(
+            raw, {"service", "name", "scope", "configuration_sha256", "mounts"}, {"receipts"}
+        )
+        if (
+            any(
+                not isinstance(item[key], str) or not _ID.fullmatch(item[key])
+                for key in ("service", "name", "scope")
+            )
+            or not isinstance(item["configuration_sha256"], str)
+            or not _HASH.fullmatch(item["configuration_sha256"])
+        ):
+            raise ValueError("invalid runtime contract")
+        if any(
+            not isinstance(item.get(key, []), list) or len(item.get(key, [])) > 128
+            for key in ("mounts", "receipts")
+        ):
+            raise ValueError("invalid runtime identities")
+        contracts.append(
+            RuntimeContract(
+                item["service"],
+                item["name"],
+                item["scope"],
+                item["configuration_sha256"],
+                tuple(_identity(entry) for entry in item["mounts"]),
+                tuple(_identity(entry) for entry in item.get("receipts", [])),
+            )
+        )
+    for values in (
+        [item.scope for item in networks],
+        [item.service for item in contracts],
+        [item.name for item in contracts],
+    ):
+        if len(values) != len(set(values)):
+            raise ValueError("duplicate runtime identities")
+    if any(contract.scope not in {item.scope for item in networks} for contract in contracts):
+        raise ValueError("runtime contract has no network")
+    paths = {
+        key: _path(data[key]) if data.get(key) is not None else None
+        for key in ("policy", "admissions", "intent", "state_dir")
+    }
+    return RuntimeSettings(
+        1,
+        data["owner"],
+        _path(data["executable"]),
+        data["accepted_version"],
+        RuntimeAccount(account["uid"], account["gid"], _path(account["home"])),
+        tuple(networks),
+        tuple(contracts),
+        **paths,
+        legacy_risk_acknowledged=legacy,
+    )
+
+
+def load_settings(path: Path | str) -> RuntimeSettings:
+    return parse_settings(strict_load(path))
+
+
+def settings_to_dict(settings: RuntimeSettings) -> dict[str, Any]:
+    result: dict[str, Any] = strict_loads(canonical_bytes(asdict(settings)))
+    return result

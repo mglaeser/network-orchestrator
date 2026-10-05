@@ -1,0 +1,217 @@
+# Complete deployment bundles and independent installation domains
+
+Deployment settings are external, explicitly trusted operator data, distinct
+from network policy and runtime observations. `schemas/deployment.schema.json`
+is closed and versioned. The portable renderer, installer, explicit rollback and
+failed-upgrade recovery are implemented in `deployment.py`; launchd and Monit
+remain the maintained scheduling tools. No privileged coordination daemon or
+new multicast stack is introduced.
+
+## Inputs and one author per setting
+
+`network.json` contains scopes, services, transport and discovery policy.
+Runtime settings bind enrolled existing container definitions and persistent
+identities. Bonjour settings identify the one selected-record publisher.
+Provider bindings identify trusted user adapters. Root forwarding settings bind
+its independent observer, backend digest, root state and report location.
+`deployment.json` specifies installation paths, job labels, account/domain,
+command argument arrays, monitors and SHA-256 hashes of each captured input.
+
+Use the synthetic `examples/deployment.json` as a table shape. Its documentation
+paths, UID and all-zero hashes are deliberately unusable production defaults.
+Replace them outside the checkout, bind actual files and record reviewed hashes.
+The managed Python/package and Monit executable must already be installed from
+reviewed artifacts. Production interpreters, package source and privileged
+backend code must never refer to a mutable user checkout.
+
+Copied JSON artifacts remain byte-exact: no recursive interpolation, shell
+evaluation, environment expansion or speculative rewriting is performed.
+Paths inside private settings can refer to stable protected private data and
+installed executables. Only command arguments and working directories support
+the two fixed placeholders `{release}` and `{state}`. Each artifact has exactly
+one author. Intent, admissions, journals and receipts cannot be release artifacts.
+
+Before promotion, review existing single-owner enrollment and disable a competing
+schedule in its own guarded owner mechanism. Netorch never guesses which legacy
+Login Item, helper or unrelated LaunchAgent is obsolete.
+
+## Render, inspect and validate
+
+```sh
+netorch deploy validate --manifest /operator/site/deployment.json
+netorch deploy render --manifest /operator/site/deployment.json \
+  --config /operator/site/network.json --output /operator/staging/bundle
+netorch deploy plan --bundle /operator/staging/bundle --scope user
+netorch deploy plan --bundle /operator/staging/bundle --scope root
+```
+
+The renderer captures each source through `O_NOFOLLOW`, requires a regular
+single-link protected file, checks its expected content hash, and parses JSON
+strictly. It generates immutable user/root policy copies, plists, Monit config
+and a captured PF backend. A release ID binds deployment and complete policy;
+a bundle digest binds every generated/captured byte and the closed inventory.
+Files are mode 0600 in mode 0700 directories. A second capture immediately before
+installation must still match each reviewed hash, so swapping a source after
+validation never promotes its new bytes.
+
+Validation rechecks generated launchd and Monit bytes against the actual renderer,
+requires identical policy content for both domains, checks backend identity and
+rejects extra files. A rehashed malicious plist cannot introduce an arbitrary
+root executable. All root jobs use the fixed independent PF pull command.
+
+## Install user scope
+
+```sh
+netorch deploy install-user --bundle /operator/staging/bundle \
+  --expected-digest REVIEWED_BUNDLE_SHA256
+```
+
+This must run directly as the manifest's user on macOS. It creates durable intent
+paused on first installation; subsequent installations preserve existing pause
+and every other holder's suspension. It adds its own installation suspension,
+stages a new immutable release, syntax-checks Monit, verifies old managed file
+hashes and new label absence, stops only owned jobs, installs generated plists,
+loads them and reads launchd back. Its own suspension is released only after the
+entire operation succeeds. It does not resume the operator or create admissions.
+
+Existing root jobs, application state, image pins, mounts, kernel arguments,
+container resources and Apple runtime configuration are untouched. A caller
+must use the separately documented explicit workload operation for a genuinely
+new container; networking installation never implies container recreation.
+
+## Prepare and explicitly install root scope
+
+```sh
+netorch deploy prepare-root --bundle /operator/staging/bundle \
+  --output /operator/staging/root-reviewed-bundle
+```
+
+Preparation only copies the captured reviewed bundle and returns its exact
+digest. It never invokes root, `sudo`, a privileged RPC or a packet filter.
+An administrator then invokes a **root-owned installed** Python/package directly:
+
+```sh
+/Library/Netorch/runtime/bin/python3 -I -m netorch deploy install-root \
+  --bundle /operator/staging/root-reviewed-bundle \
+  --expected-digest REVIEWED_BUNDLE_SHA256
+```
+
+The initial trusted interpreter/package bootstrap is an explicit administrator
+installation of reviewed artifacts, not executing a user's virtual environment
+as root. Root installation refuses user-owned or writable code ancestors. Root
+and user installation trees and launchd domains are disjoint. Administrator
+installation calls the independently owned PF install operation with the exact
+captured policy/settings/backend. That owner preserves admissions and negative
+intent; new or changed content remains pending. Its snapshot, admission and state
+live outside immutable releases. The generated LaunchDaemon then pulls this own
+snapshot on its independent schedule. No planner action or target enters root.
+
+The root scheduler must use the same resolved, protected interpreter as the
+administrator installer. Supply the physical executable path: this deployment
+installer rejects a lexical executable symlink with `O_NOFOLLOW`, even though
+the independent PF owner can validate protected interpreter symlink chains.
+A root-managed environment created with executable copies can satisfy that
+stricter requirement; its base interpreter, standard library and installed
+packages must also remain protected. Bootstrap remains an administrator action.
+The native launchctl executable is `/bin/launchctl`.
+The captured forwarding settings are parsed during rendering: backend hash,
+independent owner and polling interval must agree, and the schedule cannot exceed
+the profile observation-age bound. Its read-only report directory is separately
+provisioned root-owned and publicly traversable, for example
+`/Library/Application Support/NetorchReports`; it cannot be placed inside private
+root release, admission or state trees. Reports are readable by the coordinator
+but remain unwritable to it. Provider bindings must use the protected `root-report`
+reader; ordinary user snapshot files cannot confer root admission.
+
+Keep the report directory outside newly created private common ancestors too.
+For example, installing private owner state below `/Library/Netorch` can create
+that parent with mode `0700`; `/Library/Netorch/reports` would then be unreadable
+to the user coordinator even if its own mode were `0755`. The separate report
+directory above avoids that conflict. Provisioning refuses inaccessible report
+ancestry and never relaxes permissions on existing private owner state.
+
+Administrator admission and root operator resume remain explicit owner commands,
+after reviewing the resolved content and bounded-risk decision. Installing a new
+image of this framework never inherits admission solely by profile name. A
+backend/observer semantic change invalidates the previous bound authority.
+
+Privileged installation, state, launchd and log ancestry must be root-owned,
+unwritable by other users and free of ACLs. The installer reuses the independent
+PF owner's strict ACL checks and refuses incomplete ACL inspection. Generated
+root artifacts and operational records receive descriptor-based metadata and
+content readback; immutable release bytes are fenced again before the root
+owner installer, and installed plist bytes immediately before launchd bootstrap.
+Existing launchd stdout/stderr targets must be protected, single-link regular
+files without ACLs; links, foreign owners or writable targets block bootstrap.
+These rules apply during installation, rollback and failed-upgrade recovery.
+User installation keeps its separate permission rules, including existing
+deny-only ACL support; it cannot supply privileged authority.
+
+## Partial failure, recovery and rollback
+
+Every operation keeps an installation journal separate from reconciliation
+journals. Failure records its phase and stops further work. No speculative
+automatic rollback, container stop, global PF flush, lock deletion or runtime
+restart runs. The operator inspects current evidence before an explicit recovery:
+
+```sh
+netorch deploy recover --state-dir /operator/state/netorch --scope user \
+  --expected-digest FAILED_BUNDLE_SHA256
+netorch deploy rollback --state-dir /operator/state/netorch --scope user \
+  --expected-digest CURRENT_BUNDLE_SHA256
+```
+
+Recovery of a failed upgrade verifies the retained predecessor and exact failed
+journal, accepts only old or new owned job bytes, restores predecessor files/jobs
+and preserves current intent. A failed first installation removes only verified
+new job files and leaves its private staged release and gated root snapshot as
+evidence. No application or administrator admission data is deleted.
+
+Rollback is an explicit reversal of a **committed** release. It verifies all
+retained files, fences the exact current digest and restoration boundaries, and
+restores the previous jobs. Root rollback also uses its own owner installer to
+restore reviewed desired policy/backend; it never clears admissions or pause.
+Only one predecessor is retained in the receipt to bound journal growth. Older
+release files can be retained according to the site's separate cleanup policy.
+A committed rollback revalidates the predecessor's interpreter and platform
+contract before any transition or native effect. Retained receipts do not prove
+current executable trust. A root predecessor must still use the invoking trusted
+interpreter; relocating or replacing that runtime is a separate maintenance step.
+
+A release rollback is not an application-data restore or kernel-state proof.
+
+An interrupted rollback also stops and retains its phase. An unexpected foreign
+file, changed boundary, damaged intent, replaced release, unavailable restore
+material or ambiguous state inhibits recovery instead of inventing a repair.
+Failed releases are retained for inspection and cannot be overwritten; retry
+with a separately reviewed new release or retire evidence only after checking
+live references. No timer clears an installation suspension.
+
+Before any privileged scheduler stop or policy replacement, the administrator
+installer takes a holder-specific root installation suspension and invokes the
+owner's verified withdrawal/state-draining operation. It releases that holder
+only after the restored/new scheduler is read back. A failed first root install
+without a predecessor leaves this holder in place when no existing operator
+pause otherwise inhibits the owner; recovery reports `root_gate_retained`.
+Resolve that retained gate through the independent owner's reviewed lifecycle
+operation after establishing a replacement scheduler, never a blanket resume.
+
+## What verification establishes
+
+Portable tests execute real closed parsing, source capture, deterministic render,
+filesystem staging, admission, independent PF planning and phase-aware recovery
+against fake launchctl/Monit/PF effects. They include a complete seven-workload
+deployment, changed-content pending, crash/failure paths, stable operator pause,
+foreign job protection and source replacement between validation and use.
+Privileged adversarial tests additionally cover ACL-bearing ancestry, journals,
+retained releases and log leaves; content replacement before owner installation
+or scheduler bootstrap; and operational-record changes during capture. The
+portable root lab models protected temporary ancestry without weakening real
+checks against writable shared directories such as Linux's `/tmp`.
+
+Native `monit -t` establishes config syntax. Launchctl readback establishes job
+registration, not workload readiness or packets. Platform acceptance still
+requires the declared macOS/runtime versions, actual user Bonjour consent,
+first/reply packets, state draining, application discovery/reconnect and the
+separately approved boot/login availability test. Hardware acceptance is reported
+as unestablished by the installer; it cannot be manufactured by a successful mock.

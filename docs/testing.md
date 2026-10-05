@@ -1,147 +1,230 @@
 # Test strategy and evidence tiers
 
-Tests establish a claim at a particular boundary. A simulation of a platform is
-useful for orchestration behavior but cannot prove the platform itself behaves
-that way. Keep fixture provenance, expected result and evidence tier explicit.
+A test establishes a claim at a boundary. A platform simulation can prove owner
+control flow, but cannot prove the platform's packet behavior. Keep provenance,
+versions, expected result and evidence tier explicit. Do not label fake output as
+a captured production fixture.
 
 ## Automated public CI
 
-CI runs on Ubuntu with Python 3.12, 3.13 and 3.14, plus hosted macOS with Python
-3.14. Every matrix job installs the same reviewed hash-locked dependency set,
-checks package consistency, runs unit/property/mock tests, validates sample
-policy, runs the mock demonstration, builds a wheel/source distribution and
-installs the wheel outside the checkout.
+CI runs Ubuntu with Python 3.12, 3.13 and 3.14, and hosted macOS with Python 3.14.
+Every matrix job installs reviewed hash-locked dependencies, checks package
+consistency, runs unit/property/mock/process tests, validates synthetic policy,
+runs the mock demonstration, builds wheel/sdist and smoke-tests an installed
+wheel from outside the checkout.
 
-A separate Linux job enforces Ruff lint/format and strict mypy, and audits the
-complete runtime/development dependency lock. A scheduled audit repeats the advisory lookup weekly;
-it does not update or deploy anything. Dependabot proposes dependency and Action
-changes for review.
+The macOS job also compiles synthetic PF previews with `pfctl -n -f`; it never
+loads or enables rules. This checks hosted Darwin grammar, not production hook
+order, retained states or packet behavior. The fixed backend has a Bash syntax
+check, and installed-wheel smoke tests include all executable owner modules and
+packaged schema/backend resources.
 
-The combined line/branch coverage threshold is 90%. Coverage indicates executed
-paths; it does not establish quality or hardware correctness. Each reported
-failure should produce a regression at the smallest tier that proves it.
+A separate job enforces Ruff lint/format, strict mypy and dependency advisory
+checks. A scheduled advisory lookup does not update or deploy anything.
+Dependabot proposes dependency/Action updates for review. Actions are SHA-pinned
+with read-only repository permissions; workflows require no production secrets,
+services, Apple account or privileged self-hosted runner.
 
-## Tier 1: pure, property and mock tests
+Mypy targets Darwin explicitly on every CI host, matching the native deployment
+platform, and keeps strict checking and unreachable-code warnings enabled.
+The portable core has no platform branches; Linux fallback behavior is exercised
+by the Ubuntu pytest jobs rather than treated as native macOS deployment code.
 
-These tests need no network, root account, container runtime or running service.
-Use synthetic documentation-range addresses, injected clocks, fake readers and
-mock owners. They can establish:
+The combined line/branch coverage gate is 90%. Coverage records execution, not
+correctness. The test intent and rejected unsafe behavior matter more than a high
+number. Add regressions at the smallest tier that proves each reported failure.
 
-| Area | Required assertions |
+```sh
+python -m pytest -m 'not acceptance' --cov=netorch --cov-branch --cov-report=term-missing
+ruff check .
+ruff format --check .
+mypy
+python -m build --no-isolation
+pip-audit -r requirements-dev-lock.txt --strict
+```
+
+Use the project's managed development environment and reviewed locks. No test
+in the public default suite loads PF, changes launchd, starts a guest, registers
+Bonjour, triggers Local Network consent or plays audio.
+
+## Tier 1: pure, property and model tests
+
+These tests need no network, root account, runtime or service. Use RFC 5737 address
+ranges, injected clocks, closed synthetic observations and fake owners.
+
+| Area | Required claims |
 |---|---|
-| Strict input | Reject duplicate keys at every depth, nonfinite values, unknown fields, unsupported versions and invalid types |
-| Semantic policy | Reject duplicate IDs, unknown references, overlapping claims, invalid address scope and incompatible port ranges; discovery references only transport profiles, so recursive dependency cycles cannot be expressed |
-| Canonical content | Object key ordering does not change a digest; every authority-relevant change does |
-| Admission | Modified resolved content is pending; a profile name alone carries no approval |
-| Observation | Only complete fresh reads yield present/absent; malformed, inaccessible, busy and timed-out input remains unknown |
-| Planning | Unknown never starts recovery; stale generations cannot authorize activation; no-op needs verified readback |
-| Pause | Operator pause survives operation release, crash, reinstall and rollback; holders cannot release another holder's suspension |
-| Execution | Stop after each injected partial failure; preserve the operation journal and reobserve before further writes |
-| Privilege | The live user executor never calls an external-root owner |
-| Discovery | Match the announcing service's own publication, retain provenance, enforce independently verified dependencies, record age and service/network generations; unknown interfaces publish nothing |
-| Persistence | Atomic replacement, revisions and retained intent survive failures; corrupt durable intent fails closed |
+| Input | Duplicate keys at every depth, nonfinite values, booleans in numeric fields, unknown fields/versions and invalid types are rejected |
+| Policy | Duplicate IDs, bad references, overlapping claims, wrong address scopes and incompatible guest/return ranges are rejected |
+| Content | Canonical key ordering preserves digests; authority-relevant content changes invalidate admission |
+| Observation | Only complete fresh reads prove present/absent; timeout, denial, busy, malformed, stale and contradictory results stay unknown |
+| Planning | Unknown never starts recovery; stale generations cannot activate; no-op requires exact current readback |
+| Pause | Operator pause survives holder release, crash, reinstall and rollback; a holder cannot release another hold |
+| Execution | Every injected partial failure stops subsequent writes, preserves phase and requires fresh evidence |
+| Privilege | User execution cannot invoke external-root; a user admission cannot supply root authority |
+| Transport | NAT and target-less RDR remain separate; each rendered rule stays within admitted interface/protocol/port scope |
+| Discovery | Exact same-service publication, genuine model/related-record selection, byte-preserving TXT, count/age/generation/dependency bounds |
+| Persistence | Atomic/private writes, revision conflicts and retained negative intent; damaged durable state inhibits |
 
-Hypothesis generates values and action sequences, then checks safety invariants.
-Stateful tests are especially useful when pause, suspend, release and crash order
-affect behavior. Keep the minimized counterexample as a readable regression.
+Hypothesis generates inputs and action sequences, then minimizes failures.
+Stateful pause/suspend/release/crash tests establish order-sensitive invariants.
+Keep readable regressions for discovered boundary cases. A mock owner's changed
+state is a simulation, never evidence that a kernel accepted rules or a receiver
+played sound.
 
-The mock owner is intentionally labelled a simulation. Its state changes show
-whether the planner and coordinator follow their contract. They do not show
-whether a real PF command loaded a rule, a receiver heard audio, or a guest
-retained its identity.
+## Tier 2: executable owners and userspace contracts
 
-## Tier 2: process and userspace contracts
+These tests run the real code with fake bounded platform tools and temporary
+protected files. They prove control flow and exact parsing without exercising
+native network effects.
 
-Use fake provider executables in temporary directories to establish framing,
-timeouts, bounded output, exit handling, subprocess-group cleanup and response
-validation. A successful-empty, truncated, wrong-shape or denied response must not
-be reported healthy. Do not use shell evaluation to implement a provider.
+### Apple runtime and lifecycle
 
-The discovery coordinator has a fixed `reconcile-discovery` operation rather
-than a DNS-SD implementation. Test that it sends the resolved policy and exact
-digest with expected service/network generations, rejects mismatched readback,
-processes scoped cleanup before transport operations, reports unavailable cleanup
-as pending, and cannot publish immediately
-after a dependency was repaired in the same pass. Missing publisher evidence must
-request cleanup and leave activation inhibited until a later complete observation.
-These are owner/coordinator contract tests, not evidence of native registration.
+Fake readers cover declared nested/flat Apple CLI formats, version identity,
+container definition/enrollment, persistent file inodes, helper process/launchd
+identity, interface addresses, network and started-instance generations, live
+automatic socket ranges and inspection races. Tests reject wrong mounts/contracts,
+unknown resource shapes, duplicate attachments/publications, other guest writers,
+all-stopped outage ambiguity, timeout and successful incomplete output.
 
-Digest tests must also cover version boundaries. Changing transport or discovery
-semantics requires a digest strategy/schema version bump or an independently
-enforced versioned owner implementation contract; hashing unchanged data cannot
-detect an implementation change by itself.
+Recovery rechecks independently proven stopped state, pause and admission before
+starting. It never recreates running/unknown definitions. Only the workload probe
+can return reserved status 42, and only for a proven stopped enrolled workload
+with gates permitting start. Unknown, timeout, denial, signal and networking
+health failures cannot initiate a start.
 
-Unprivileged macOS tests may establish a tool's argument and reader contract on
-that OS. A fixture must carry tool/version/capture metadata or be marked synthetic.
-The public workflow deliberately does not load PF rules, start guests, register
-Bonjour services, change launchd jobs or trigger Local Network consent.
+Initial workload tests exercise digest-bound planning and exact fixed CLI create
+arguments for missing declared workloads, image pins, range equality, persistent
+mount identity and existing-definition preservation. Initial provisioning is a
+separate maintenance operation, not a recovery action.
 
-Hosted macOS runners cannot establish real Apple Container guest networking:
-GitHub documents that nested virtualization is unsupported on arm64 macOS
-runners. Runner images also differ from an operator's exact OS build. Public CI
-must not be presented as a hardware certification.
+Root-observer tests cover the fixed Mach-bootstrap wrapper and credential drop:
+only read operations cross it, groups are cleared, UID/GID are verified before
+native exec, and environment/cwd are scrubbed. These injected tests never run
+`launchctl asuser` or change real credentials. The actual root LaunchDaemon's
+ability to read the enrolled user's API remains a native acceptance gate.
 
-## Tier 3: isolated hardware acceptance
+### Bonjour parsing and supervision
 
-Perform these outside public CI, on a physical test host or an explicitly
-authorized maintenance window with a scratch profile and recovery material.
-Never attach an open public pull-request workflow to a production self-hosted
-runner.
+Native-format fixtures cover `dns-sd` browse Add/Rmv rows, exact interface
+acknowledgement, endpoint/IP resolution and raw hex TXT RDATA, including empty,
+NUL and non-UTF-8 entries. Wrong-interface exit zero, unknown rows, conflicts,
+renaming, malformed lengths and output floods cannot become success.
 
-Required evidence for a platform owner can include:
+A fake native executable tests actual child readiness and process-group cleanup.
+Injected clocks and proof readers establish independent registration expiry when
+the scanner stalls, backward wall-clock resistance, parent death cleanup, child
+exit, changed policy/generation, pause and stale dependency withdrawal. A
+single policy failure cannot discard healthy sibling registrations. These tests
+establish local supervision contracts, not native packet registration.
 
-- First outbound UDP request and reply; inbound probes just below, at both ends
-  of, and just above the admitted range.
-- NAT/redirect readback and retained-state invalidation after a target-generation
-  change, including states that survive rule removal.
-- Interface absent, replaced, renamed or address-changed behavior.
-- Unknown observation timeout followed by verified withdrawal.
-- Shared-pool address reuse with a non-target guest, when the deployment uses
-  direct-to-guest forwarding.
-- Local Network privacy in the actual job identity and launch context.
-- Root owner failure and independent repair at the documented operation phase.
+Fixed endpoint tests reject arbitrary operations, coordinator-supplied records,
+wrong policy hashes and mismatched readback. The owner independently rereads its
+policy, fresh runtime/report evidence and durable intent. Read-only root readiness
+comes only from a protected fresh report of an independently admitted root
+profile; a user snapshot or user approval does not supply it.
 
-Use an owned scratch anchor and isolated guest network. A renderer comparison is
-not packet evidence. Reuse safe observations whenever they prove the claim; avoid
-global firewall flushing and runtime-wide stops in routine tests.
+### PF owner and backend
 
-## Tier 4: destructive lifecycle acceptance
+A temporary-root harness exercises the independent pull owner, protected policy
+capture, content/implementation-bound admission, activation rechecks, actual
+readback parser contracts, healthy no-op passes and withdrawal/state-drain ordering.
+Fake kernels inject foreign drift, partial loads, stale generations, busy locks,
+truncated rules/states, source swaps, denied target validation and interrupted
+journals. The native Bash backend is syntax/argument tested with fake effects.
+No fake PF result is presented as Darwin grammar or state semantics acceptance.
 
-A reboot, runtime restart, pool reconstruction, owner crash, upgrade or restore
-needs a separate window and material that has actually been restored in a
-rehearsal. Runtime-wide changes can interrupt all workloads and LAN DNS.
+### Provisioning and recovery
 
-Record start order, generation boundaries, admission hashes, preserved pause,
-first rule/readback completion and first discovery pass. Verify no recovery fires
-before its dependency gates are ready. A changed OS/runtime version reopens the
-relevant platform contracts.
+Deterministic render tests use complete multi-workload synthetic deployments.
+They verify byte/hash inventory, source capture races, no extra files, fixed root
+job commands, separate user/root domains, private permissions, generated Monit
+syntax contracts and owned job protection. Fake launchctl/Monit/PF effects test
+installation, upgrade, no-op, first-install failure, predecessor recovery and
+committed rollback at each phase. Current pause and unrelated holder suspensions
+survive. Unknown journals, changed predecessors, foreign jobs and rewritten
+source artifacts inhibit recovery.
 
-## Tier 5: application and person acceptance
+Package tests validate wheels outside the checkout and exercise module/CLI entry
+points without native effects. Changing implementation semantics must change its
+independently bound owner contract or digest version; hashing unchanged settings
+alone cannot detect new meaning.
 
-Application discovery may depend on a shared cache that a standalone probe does
-not exercise. Verify the real application's discovery path, a cold start or
-address change, and reconnect behavior. DNS client identity and a HomeKit client's
-view require application-level acceptance. A playback API success does not prove
-audible output; record a listener's confirmation when audio is in scope.
+Hosted macOS CI remains userspace evidence. GitHub's arm64 macOS runner does not
+provide supported nested virtualization for actual Apple Container networking,
+and its image is not an operator's exact OS build. It cannot certify production
+PF, Bonjour consent or physical devices. See
+[GitHub hosted-runner limits](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
 
-Keep real credentials and application state outside the framework. Never alter
-pairings, helpers or automations merely to satisfy an orchestration test. Public
-fixtures should not contain the resulting private captures.
+## Tier 3: isolated native packet and discovery acceptance
 
-## Release record
+Run on a physical test host or in an explicitly authorized maintenance window
+with an owned scratch profile and verified recovery material. Do not attach an
+open public pull-request workflow to a production self-hosted runner.
 
-For a published framework release, record revision, interpreter versions,
-dependency locks, CI outcomes and distribution checksums. For a deployment,
-add platform owner versions, OS build, policy/admission digests, fixture provenance,
-generation test evidence and the hardware/application tests actually run.
+Record actual OS/runtime/tool/code versions, digests, interface identities and
+fixture provenance. Required evidence can include:
 
-Do not mark an unrun gate passed. Use `unknown` with a reason. Test results are
-bounded by the tested version and envelope, not by a future guarantee.
+- First outbound UDP request and reply; ingress just below, at both ends of, and
+  just above the admitted range; no out-of-range translation.
+- Native PF hook precedence, owned NAT/RDR grammar/readback and retained-state
+  invalidation after a generation change.
+- Original client identity for the direct DNS path and explicit degraded identity
+  for a configured native-publication fallback.
+- Direct guest address reuse with a non-target workload, when shared pools are
+  used; promptly verified withdrawal rather than an absolute race-free claim.
+- Interface absence, replacement, renamed device or address change.
+- Bonjour genuine record parity, exact corresponding publication, binary TXT,
+registration callbacks, lease expiry, child/scanner crash and multiple devices.
+  Include publisher SIGKILL and native client self-expiry/renewal continuity.
+- Local Network privacy in the actual user job, SSH and Monit contexts; rebuild
+  and fresh-account behavior when relevant.
+- Root LaunchDaemon observation through the selected user's Mach bootstrap:
+  native CLI remains unprivileged, complete API/guest reads succeed, and absent
+  user sessions or denied namespace access remain unknown.
+- Guest UDP exhaustion/collision and idle/two-receiver occupancy measurements;
+  measured capacity problems must not silently widen admission.
 
-## Sources
+Use scoped scratch anchors and isolated test networks. Renderer equivalence is
+not packet evidence. Avoid global firewall flushing, unowned state deletion and
+runtime-wide stops in routine diagnostics. Reuse existing safe evidence when it
+proves the exact same versioned claim.
 
-- [pytest integration practices](https://pytest.org/en/stable/explanation/goodpractices.html)
-- [Hypothesis stateful testing](https://hypothesis.readthedocs.io/en/latest/stateful.html)
-- [GitHub-hosted runner limitations](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
-- [GitHub workflow security](https://docs.github.com/en/actions/reference/security/secure-use)
-- [Secure hash-checked pip installs](https://pip.pypa.io/en/stable/topics/secure-installs/)
+## Tier 4: lifecycle, reboot and restore
+
+Owner crash, container recreation, runtime stop/start, pool reconstruction, helper
+relaunch, reboot, upgrade and restore require separate maintenance authorization.
+Runtime-wide actions may interrupt every workload and LAN DNS. Recovery material
+must have been restored in a rehearsal, not merely copied.
+
+Record generation boundaries, admission changes, preserved pause, start order,
+withdrawal/state readback, discovery recovery and time to first valid resolver
+answer from another machine. A root network owner does not make a user-session
+runtime available before login; the site's chosen login/resolver architecture
+must pass its own availability objective.
+
+An old release receipt or backup cannot prove current routes, guest ownership or
+kernel state. Restore code/desired data, obtain fresh evidence and review admission
+before exposure. Keep kernel/runtime upgrades and framework refactoring separate.
+
+## Tier 5: applications and human confirmation
+
+Verify discovery and reconnection inside the actual application using its normal
+shared scanner, stored integration and supported lifecycle. Standalone discovery
+cannot replace this evidence. Confirm additional changing-address/multiple-device
+cases when that is a requirement.
+
+A successful TTS/media service call, non-empty audio file or reported `playing`
+state does not prove that a speaker was audible. A separately coordinated person
+must confirm physical output. Public/backend synthesis tests must not play audio.
+The framework does not create application integrations, helpers or automations to
+manufacture acceptance.
+
+## Reporting
+
+For each claimed capability publish the tested boundary, precise result, versions,
+policy/release digest, fixture provenance, evidence tier and remaining gates.
+Report tests as failed or unrun when appropriate. Public artifacts must contain
+synthetic/redacted facts, never credentials, raw environment variables, private
+packet payloads or installation identifiers. A large passing mock suite cannot
+close an unrun hardware gate.

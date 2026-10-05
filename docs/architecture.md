@@ -1,135 +1,226 @@
 # Architecture
 
-Netorch provides a reusable control layer for networking owned by other systems.
-It has no packet stack, workload runtime, privileged RPC or automatic upgrade path.
-The implementation is alpha: portable tests establish model and owner-contract
-behavior. Platform and application acceptance remain separate deployment work.
+Netorch is a complete deployment and orchestration layer for native macOS
+container networking. It combines a typed Python control plane, an independent
+administrator-owned PF service, a user-owned native Bonjour service, Apple
+Container readers and guarded workload lifecycle operations. Native OS and
+runtime components continue to carry packets. There is no new multicast stack,
+permanent privileged RPC server or virtual machine.
 
-## Goals
+The release supplies executable owners, deterministic launchd/Monit bundles,
+protected installation, rollback and mock acceptance. Production adoption remains
+an explicit installation decision; portable CI cannot certify Darwin packet
+semantics, user consent, physical devices or unattended reboot behavior.
 
-1. Correct behavior and predictable recovery.
-2. Maintainable policy with one authoring location per setting.
-3. Meaningful tests and bounded resource/process behavior.
-4. A common operator workflow while preserving existing privilege and failure domains.
+## Design goals and release gates
 
-Misdelivery, implicit admission, lost pause, unknown-as-success and concealed partial
-completion are release blockers. A language choice or lower process count cannot
-compensate for those failures.
+1. **Robustness:** retain workload identity, withdraw uncertain exposure, preserve
+   operator intent and make interrupted operations recoverable.
+2. **Maintainability:** one authoring location per setting, strict versioned data,
+   small independently owned modules and reproducible release artifacts.
+3. **Testability and cost:** pure plans, injected clocks/readers, meaningful failure
+   tests, bounded process work and measured native acceptance.
+4. **Consolidation:** one policy vocabulary and operator workflow without merging
+   application, runtime, packet-filter and discovery privileges.
+
+Wrong-target forwarding, implicit admission, lost pause, unknown treated as
+success and concealed partial completion are release blockers. A weighted score,
+new programming language or smaller process count cannot compensate for them.
+See [review traceability](review-traceability.md) for the exact evidence boundaries.
 
 ```mermaid
 flowchart TD
-    A[Private source policy or statically derived owner facts] --> B[Strict validation]
-    B --> C[Pure plan and status]
-    D[Exact content admission] --> C
-    E[Fresh owner observations] --> C
-    F[Durable operator intent] --> C
-    C --> G[Mock executor on Linux or macOS CI]
-    C --> H[Explicit user-owner execution]
-    H --> I[Existing user service managers]
-    I --> J[Vendor runtime and native publication]
-    C --> K[Review-only external-root requirements]
-    L[Independent existing privileged owner] --> M[OS packet translation]
-    D --> L
-    E --> L
-    F --> L
-    N[User discovery owner] --> O[Native DNS-SD implementation]
+    P[Private policy and versioned site tables] --> V[Strict validation and derivation]
+    V --> C[Pure planner and user coordinator]
+    A[User content admissions] --> C
+    I[Durable user pause and holder suspensions] --> C
+    R[Apple runtime reader and process bindings] --> C
+    C --> M[Portable mock executor]
+    C --> U[User owners: native publication and guarded lifecycle]
+    U --> AC[Apple Container]
+    C --> B[User Bonjour endpoint]
+    B --> S[Bounded scanner]
+    S --> W[Independent lease watchdog]
+    W --> DNS[Apple dns-sd and mDNSResponder]
+    RA[Root installed policy and independent admissions] --> F[Independent PF pull owner]
+    RI[Root pause and holder suspensions] --> F
+    AC --> R
+    F --> FR[Independent runtime and kernel readback]
+    FR --> F
+    F --> PF[Owned PF anchor, NAT, RDR and state drain]
+    F --> O[Protected read-only report]
+    O --> C
+    O --> W
+    L[launchd and Monit] --> C
+    L --> S
+    L --> F
 ```
 
-There is deliberately no execution arrow from the planner into the privileged
-owner. That owner independently pulls protected admitted content, observes the
-runtime, withdraws unsafe rules and invalidates its retained states. A desired
-catalog and an unprivileged plan are not root authority.
+There is no coordinator execution arrow into root. An administrator installs a
+protected PF policy, and the root job independently pulls it, checks its own
+admissions and observes live state. An unprivileged desired catalog or plan never
+becomes root authority. User owners can read the root report, but cannot send root
+an address, command, range or action.
 
-## Data versus logic
+## Where data and logic live
 
-| Category | Authority / lifetime | Content |
+| Record | Location and authority | Lifetime and meaning |
 |---|---|---|
-| Desired | Reviewed private source | Services, scopes, named strategies, ports, dependencies |
-| Admitted | Independently protected owner record | Profile ID plus exact resolved digest and risk acceptance |
-| Observed | Short-lived evidence | Service instance, network generation, endpoint and real readback |
-| Applied | Completion receipt | Verified past operation, never current truth |
-| Transition | Durable private journal | Reviewed plan, initial facts, intent, phase and completed steps |
+| Network policy | Private site source, or statically generated owner view | Services, scopes, named transports, ports and discovery dependencies |
+| Runtime settings/enrollment | Private protected site data | Accepted CLI/helper identity, definition digest, persistent file identities and publication contracts |
+| Workload recipes | Private reviewed deployment data | Pinned image and explicit supported create arguments for genuinely new workloads |
+| Owner bindings | Private trusted executable bindings | Fixed user protocol endpoints; not network-policy shell commands |
+| Deployment manifest | Private operator data | Jobs, domains, installation paths, monitors and captured artifact hashes |
+| Admission | Separate user/root records | Exact resolved content approval, never a profile name alone |
+| Observation | Fresh bounded reader or protected root report | Complete read, reason, time, service and network generations |
+| Receipt | Owner/deployment state | Historical verified completion, never current platform truth |
+| Intent and journal | Durable state outside release trees | Operator pause, holder-owned suspensions, operation phases and failures |
 
-Operator pause and operation suspension are independent fields. Their effective
-union inhibits activation. Neither expires by time. Recovery, release reinstall or
-rollback cannot clear operator pause. Missing/corrupt intent inhibits execution.
+Typed Python modules implement strict codecs/schema validation, cross-owner
+invariants, content hashes, readers, pure planning, guarded execution, persistence,
+DNS-SD parsing and supervision. A small protected Bash backend performs fixed PF
+operations. Site identities and addresses are external data. Applications retain
+secrets, pairings, integrations, configuration and databases.
 
-Logic lives in the typed Python package: strict codec, validation, pure planner,
-discovery selection/projection, owner clients, fenced executor and private store.
-Host data lives outside the checkout. Existing applications keep their own secrets,
-pairings, routes and persistent databases.
+A setting has one author at every migration step. Derive a catalog while an old
+owner remains authoritative. Make its old input generated in the same reviewed
+change that makes a table authoritative; compare rendered bytes. Adding a second
+hand-edited copy is not consolidation.
 
-Services have observation owners. Each transport profile can independently select
-an execution owner. This represents a user runtime manager, an external root
-forwarding owner and a user discovery owner without merging their privileges.
+## Runtime and workload ownership
 
-## Named transport contracts
+The Apple reader uses fixed, bounded CLI inspections, launchd/process identity,
+interface address checks and guest socket-range reads. It fences the complete
+container definition and persistent mounts, not merely a name or IP. Network
+helper identity plus boot identity define the network generation; instance start
+identity defines the workload generation. Incomplete, denied, changed-schema,
+timed-out or contradictory evidence stays unknown.
 
-- `publication`: a runtime-owned host port mapping.
-- `host-redirect`: a scoped redirect to the same service's verified native host
-  publication. A coincident listener owned by another service is insufficient.
-- `guest-direct`: a validated dynamic guest endpoint; bounded-risk admission is
-  required because shared addresses can be reused.
-- `udp-return`: separate source-port-preserving outbound NAT and inbound target-less
-  redirect. Automatic guest range and admitted return range must be equal.
+Enrollment is a read-only capture of an existing definition into explicit private
+settings. A recipe can provision a missing initial workload after a reviewed plan;
+it does not replace an existing definition or recreate containers. Recovery can
+start only an independently proven stopped enrolled workload while all durable
+gates permit it. Unknown runtime state never triggers recovery.
 
-`render-pf` is a pure preview. It does not load rules, establish anchor/hook
-precedence, enable PF or certify packet semantics. The UDP return redirect has no
-replacement target-port expression; the OS behavior still needs hardware acceptance.
-Apple documents PF as a site-administrator facility rather than an application API:
-https://developer.apple.com/documentation/technotes/tn3165-packet-filter-is-not-api
+Runtime upgrades, kernel/image changes, operating-system login policy and
+application configuration remain their owners' separately reviewed operations.
+A networking release does not silently acquire these responsibilities.
 
-Structural policies declare fixed ownership; direct guest policies explicitly
-acknowledge a bounded observation/address-reuse race. The planner retires known
-exposure immediately on uncertain identity; `unknown_limit` is an upper bound for
-an existing owner's reader retries, not permission for this planner to retain stale
-targets. No periodic observer can prove a zero-duration race after every crash.
+## Packet and name data flows
 
-## Discovery
+| Capability | Packet/name path | Current owner |
+|---|---|---|
+| Native host publication | LAN/client → host socket → current guest port | Apple Container; independently verified same-service contract |
+| Host redirect | LAN destination → owned RDR → the same service's native host socket | PF owner over verified native publication |
+| Direct guest ingress | Admitted LAN/interface/port → current verified guest address | Independent PF owner; explicitly bounded address-reuse risk |
+| UDP return traffic | Guest-selected source port → static-port NAT → LAN device; response → target-less RDR → same guest port | PF owner; admitted range equals live guest allocator range |
+| Optional DNS degraded path | Direct path retired/drained → later exact native host publication | PF owner; visible degraded status because client identity changes |
+| Guest service export | Genuine guest DNS-SD record → same-service publication projection → LAN registration | User Bonjour owner and Apple's DNS-SD implementation |
+| Apple media import | Genuine eligible LAN records → explicit guest interface registration → application discovery | User Bonjour owner, gated by verified transport |
+| Peer/container reachability | Runtime network and existing application routes | Apple runtime and application owners |
 
-Discovery and transport remain independent. Pure selectors require exact source
-service/generation provenance, unique publication mapping, explicit interfaces,
-fresh records, dependency readiness and bounded record counts. TXT is represented
-losslessly as bytes/base64. Related Apple-media records must share an eligible
-AirPlay endpoint. Discovery is not authentication or PF admission.
+The `udp-return` pair is LAN-scoped, not restricted to one receiver address. Its
+inbound redirect omits a replacement target port. Dynamic ports and multiple
+receivers use the same admitted range; discovery accepts multiple genuine
+eligible devices and follows changed addresses. Capacity faults do not authorize
+automatically widening that range.
 
-Live DNS-SD registration remains the responsibility of an existing discovery owner.
-The package coordinates that owner's fixed activation/cleanup operation using
-record/projection contracts, exact dependency evidence and current service/network
-generations. Publication cleanup is processed before transport writes; an
-unavailable publisher remains pending. A new or changed publisher first establishes
-complete scoped absence, then a later fresh cycle may activate it. The coordinator
-does not install a second reflector or replace its long-lived publisher. See the
-owner protocol for adapting the existing implementation. This boundary preserves
-native process/consent identity; portable tests do not establish platform acceptance.
+Direct guest rules name recyclable addresses. This release supports explicit
+bounded-risk admission with fresh identity, prompt withdrawal, retained-state
+invalidation and readback. It cannot guarantee zero misdelivery on a shared pool
+between observations. A site requiring that guarantee needs a separately reviewed
+isolated single-member network or another structural runtime facility. This is
+an architecture decision, not a language choice.
 
-## Failure behavior
+## Native Bonjour deployment
 
-Observations have exactly three decisions: present, absent, unknown, with closed
-reasons and ages. Incomplete, denied, busy, malformed and timed-out readers remain
-unknown. Unknown cannot initiate workload recovery. A changed guest/network
-generation retires old targets before a later fresh plan may activate a replacement.
+The bundled owner preserves the established selected-record CLI design while
+moving its settings and contracts into the framework. It uses `/usr/bin/dns-sd`
+and native `mDNSResponder`; it does not implement raw mDNS, add a general reflector
+or fabricate application cache entries.
 
-The executor checks durable intent, exact reviewed actions and fresh non-time
-evidence under one owner lock. Owners then independently check their own operation
-preconditions. Successful activation requires exact policy/target/generation
-readback. Withdrawal and state drain are separate operations. Interrupted or
-unknown-format journals inhibit further work; no speculative automatic rollback
-runs. See [the executable state contract](state-machine.md).
+Export requires the announcing service's own unique publication from the current
+runtime snapshot, with exact protocol, port, service and generation provenance.
+Import identifies eligible Apple media from genuine AirPlay model records and
+includes related RAOP/companion/mediaremote endpoints only when host and address
+match that eligible device. Lossless TXT entries include binary and empty values.
+Only declared endpoint transformations are applied.
 
-## Native / custom / third-party roles
+Each operation confirms a named interface owns its expected address, resolves a
+nonzero interface index and verifies the CLI's exact interface acknowledgement.
+A zero exit status does not prove registration. Exact service and A-record
+callbacks must both confirm unchanged identity.
 
-| Role | Implementation |
-|---|---|
-| Packet transport/runtime | Existing OS/vendor system |
-| Discovery packets | Existing native DNS-SD owner |
-| Scheduling/recovery | Existing launchd, Monit or equivalent owner |
-| Config validation | Netorch with maintained `jsonschema` |
-| Policy planning / mock orchestration | Netorch Python |
-| Platform mutation | Independently admitted existing owners |
-| Tests | pytest, Hypothesis, real-format synthetic fixtures |
-| Packaging and CI | Standard Python wheel/sdist, GitHub Actions |
+A separate publisher/watchdog owns registration children and monotonic lease
+deadlines. It rereads durable pause and independently verified dependency evidence.
+A hung scanner, expired proof, parent death, child exit, generation change or
+registration conflict withdraws owned records. One policy's bounded scan or child
+failure does not discard healthy sibling leases. The health check tests both
+process heartbeats and never returns the workload-recovery code.
 
-Consolidation means shared contracts and a clear operator workflow. It does not
-mean one privileged daemon controls packets, pairing, application configuration,
-runtime restart and discovery.
+Native registration clients also receive their own bounded `-t` expiry, so a
+killed publisher cannot leave an indefinite orphan. Renewal uses fresh records;
+native cache propagation and renewal continuity need physical acceptance.
+
+Local Network privacy is evaluated under the actual user LaunchAgent identity.
+Denial has its own reason, rather than becoming a stopped guest. Root is not a
+consent workaround. A compiled adapter remains deferred until signing, consent,
+maintenance and reviewer costs justify it. See [Bonjour owner](bonjour-owner.md).
+
+## Independent PF deployment
+
+Root operates from protected installed policy, admissions, code and state. The
+job is a fixed pull pass, without a privileged socket, Mach service, sudoers grant
+or planner arguments. Admission binds complete resolved policy, native strategy,
+observer settings and installed backend/implementation semantics.
+
+The owner reads real anchor rules and kernel states, independently checks the
+runtime target, and rechecks gates/evidence before activation. It mutates only its
+owned anchor, holds only its own PF enable reference and never flushes the global
+ruleset or unowned states. A healthy pass does not reload rules. Wrong generations
+are withdrawn and their known guest states drained before a later pass may expose
+a replacement. A partial write journals its candidate before mutation and requires
+phase-aware retirement/readback and explicit acknowledgement.
+
+Darwin PF is a site-administrator facility, not an Apple-supported application
+networking API. Its version-specific semantics still require hardware acceptance.
+See [PF owner](pf-owner.md) and
+[Apple TN3165](https://developer.apple.com/documentation/technotes/tn3165-packet-filter-is-not-api).
+
+## Native, third-party and custom components
+
+| Component | Classification | Responsibility |
+|---|---|---|
+| Apple Container, native helper and kernel NAT | Native/vendor | Workload networking, addresses and host publication |
+| PF, `pfctl`, launchd, interface/process tools | Native macOS | Packet translation/state, scheduling and bounded platform facts |
+| `dns-sd`, `mDNSResponder` | Native Apple | Bonjour registration, resolution and packet handling |
+| Monit | Maintained third party | Bounded monitoring; recovery only on reserved proven-stopped code |
+| Python, jsonschema | Maintained third party | Managed execution and closed data validation |
+| Netorch planner/readers/owners/provisioner | Custom typed Python | Site policy, identity fencing, independent owners and deterministic deployment |
+| Fixed PF backend | Custom Bash | Small protected native mutation boundary |
+| pytest, Hypothesis, Ruff, mypy | Maintained third party | Regression/property tests, formatting and static checks |
+| GitHub Actions and hashed dependency locks | Third party/standard packaging | Reproducible public checks and reviewed artifacts |
+
+The framework covers the custom container networking mechanisms through one
+installation contract. It does not replace reverse proxies, application bridges,
+TLS, DNS policy, router configuration, macOS login/security settings or vendor
+runtime internals. Those retain their own sources and maintained owners.
+
+## Failure and retirement
+
+Present, absent and unknown are distinct, aged observations with closed reasons.
+Only complete evidence proves absence. Unknown inhibits new activation and
+workload recovery; existing unsafe guest exposure and expired discovery leases
+are retired. Pause and operation suspension form a durable union and have no TTL.
+Rollback or operation completion cannot clear operator pause.
+
+Installation stages immutable content, verifies owned job bytes, preserves
+negative intent and records every phase. Explicit recover/rollback operations
+fence the exact failed/current digest and restore only verified owned artifacts.
+Receipts never replay stored guest addresses or establish kernel truth.
+
+Reassess custom responsibilities at each accepted runtime upgrade. Supported
+physical-LAN attachment may retire return NAT and discovery projection; reserved
+addresses may simplify identity chasing; reliable runtime events may replace
+polling; supported pre-login startup may remove a boot-availability workaround.
+Adopt an alternative only after it covers the complete contract with evidence.

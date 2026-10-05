@@ -1,0 +1,146 @@
+{
+  "schema_version": 1,
+  "site": "example-site",
+  "user_uid": 501,
+  "user": {
+    "directory": "/operator/install/netorch",
+    "state_directory": "/operator/state/netorch",
+    "launchd_directory": "/operator/Library/LaunchAgents",
+    "domain": "gui/501"
+  },
+  "root": {
+    "directory": "/Library/Netorch/releases-owner",
+    "state_directory": "/Library/Netorch/provision-state",
+    "launchd_directory": "/Library/LaunchDaemons",
+    "domain": "system"
+  },
+  "forwarding": {
+    "directory": "/Library/Netorch/forwarding",
+    "settings_artifact": "forwarding-settings",
+    "backend_source": "/operator/releases/netorch/platform/macos/pf/backend.sh",
+    "backend_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "artifacts": [
+    {
+      "id": "runtime-settings",
+      "scope": "user",
+      "source": "/operator/site/runtime-settings.json",
+      "destination": "data/runtime-settings.json",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "id": "bonjour-settings",
+      "scope": "user",
+      "source": "/operator/site/bonjour-settings.json",
+      "destination": "data/bonjour-settings.json",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "id": "bindings",
+      "scope": "user",
+      "source": "/operator/site/bindings.json",
+      "destination": "data/bindings.json",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "id": "forwarding-settings",
+      "scope": "root",
+      "source": "/operator/site/forwarding-settings.json",
+      "destination": "data/forwarding-settings.json",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ],
+  "jobs": [
+    {
+      "label": "org.example.netorch",
+      "scope": "user",
+      "role": "coordinator",
+      "argv": [
+        "/operator/runtime/bin/python3",
+        "-m", "netorch", "reconcile",
+        "--config", "{release}/data/network.json",
+        "--bindings", "{release}/data/bindings.json",
+        "--admissions", "/operator/state/netorch/admissions.json",
+        "--state-dir", "{state}",
+        "--execute-user-owners", "--quiet-unchanged"
+      ],
+      "interval_seconds": 10,
+      "keep_alive": false,
+      "working_directory": "{release}",
+      "log_directory": "/operator/state/netorch/logs"
+    },
+    {
+      "label": "org.example.netorch-bonjour",
+      "scope": "user",
+      "role": "discovery",
+      "argv": [
+        "/operator/runtime/bin/python3",
+        "-m", "netorch.bonjour_owner",
+        "--settings", "{release}/data/bonjour-settings.json",
+        "serve"
+      ],
+      "interval_seconds": null,
+      "keep_alive": true,
+      "working_directory": "{release}",
+      "log_directory": "/operator/state/netorch/logs"
+    },
+    {
+      "label": "org.example.netorch-monit",
+      "scope": "user",
+      "role": "monitor",
+      "argv": ["/operator/tools/monit", "-I", "-c", "{release}/monit/monitrc"],
+      "interval_seconds": null,
+      "keep_alive": true,
+      "working_directory": "{release}",
+      "log_directory": "/operator/state/netorch/logs"
+    },
+    {
+      "label": "org.example.netorch-forwarding",
+      "scope": "root",
+      "role": "forwarding",
+      "argv": [
+        "/Library/Netorch/runtime/bin/python3",
+        "-I", "-m", "netorch.pf_owner", "reconcile",
+        "--root-dir", "/Library/Netorch/forwarding"
+      ],
+      "interval_seconds": 10,
+      "keep_alive": false,
+      "working_directory": "{release}",
+      "log_directory": "/Library/Netorch/logs"
+    }
+  ],
+  "monitors": [
+    {
+      "id": "media-controller",
+      "role": "workload",
+      "check_argv": [
+        "/operator/runtime/bin/python3", "-m", "netorch.apple_runtime",
+        "--settings", "{release}/data/runtime-settings.json",
+        "probe", "--service", "media-controller"
+      ],
+      "recovery_argv": [
+        "/operator/runtime/bin/python3", "-m", "netorch.apple_runtime",
+        "--settings", "{release}/data/runtime-settings.json",
+        "start", "--service", "media-controller"
+      ],
+      "timeout_seconds": 10,
+      "cycles": 2,
+      "recovery_code": 42
+    },
+    {
+      "id": "bonjour",
+      "role": "discovery",
+      "check_argv": [
+        "/operator/runtime/bin/python3", "-m", "netorch.bonjour_owner",
+        "--settings", "{release}/data/bonjour-settings.json", "health"
+      ],
+      "recovery_argv": null,
+      "timeout_seconds": 10,
+      "cycles": 2,
+      "recovery_code": 42
+    }
+  ],
+  "monit_interval_seconds": 10,
+  "launchctl": "/bin/launchctl",
+  "monit": "/operator/tools/monit"
+}
