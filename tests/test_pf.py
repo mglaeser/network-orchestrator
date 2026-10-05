@@ -142,7 +142,7 @@ def test_optional_direct_target_defaults_to_identity_mapping(config):
     config = parse_config(canonical_json(data))
     result = render(config, initial_snapshot(config), mock_admissions(config), Intent(), 1000)
     assert any(
-        "netorch:dns-udp" in line and " port 53 label " in line for line in result.splitlines()
+        "netorch:dns-udp" in line and " port 53 # netorch:" in line for line in result.splitlines()
     )
 
 

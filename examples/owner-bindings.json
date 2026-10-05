@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "owners": [
+    {
+      "id": "site-forwarding",
+      "kind": "root-report",
+      "path": "/Library/Application Support/NetorchReports/site-forwarding.json"
+    },
+    {
+      "id": "camera-manager",
+      "kind": "process",
+      "argv": [
+        "/operator/runtime/bin/python3", "-m", "netorch.apple_runtime",
+        "--settings", "/operator/install/netorch/current/data/runtime-settings.json", "request"
+      ]
+    },
+    {
+      "id": "bonjour-manager",
+      "kind": "process",
+      "argv": [
+        "/operator/runtime/bin/python3", "-m", "netorch.bonjour_owner",
+        "--settings", "/operator/install/netorch/current/data/bonjour-settings.json", "request"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "workloads": [
+    {
+      "service": "resolver",
+      "image": "example.invalid/containers/resolver@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "options": [
+        {"flag": "--cpus", "value": "2"},
+        {"flag": "--memory", "value": "4G"},
+        {"flag": "--volume", "value": "/operator/state/workloads/resolver:/config:rw"}
+      ],
+      "arguments": []
+    },
+    {
+      "service": "web-proxy",
+      "image": "example.invalid/containers/web-proxy@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "options": [
+        {"flag": "--cpus", "value": "2"},
+        {"flag": "--memory", "value": "4G"},
+        {"flag": "--volume", "value": "/operator/state/workloads/web-proxy:/config:rw"}
+      ],
+      "arguments": []
+    },
+    {
+      "service": "media-controller",
+      "image": "example.invalid/containers/media-controller@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "options": [
+        {"flag": "--cpus", "value": "2"},
+        {"flag": "--memory", "value": "4G"},
+        {"flag": "--volume", "value": "/operator/state/workloads/media-controller:/config:rw"},
+        {"flag": "--sysctl", "value": "net.ipv4.ip_local_port_range=45000 45127"}
+      ],
+      "arguments": []
+    },
+    {
+      "service": "camera",
+      "image": "example.invalid/containers/camera@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "options": [
+        {"flag": "--cpus", "value": "2"},
+        {"flag": "--memory", "value": "4G"},
+        {"flag": "--volume", "value": "/operator/state/workloads/camera:/config:rw"}
+      ],
+      "arguments": []
+    }
+  ]
+}

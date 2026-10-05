@@ -47,8 +47,19 @@ jobs:
       - name: Example policy and mock demonstration
         run: |
           netorch validate --config examples/network.json
+          netorch validate --config examples/network-dns-fallback.json
+          netorch deploy validate --manifest examples/deployment.json
           netorch simulate --config examples/network.json
           netorch demo
+          bash -n platform/macos/pf/backend.sh
+      - name: Darwin PF grammar only (never load rules)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          netorch render-pf --config examples/network.json \
+            --snapshot examples/snapshot.json --admissions examples/admissions.json \
+            --intent examples/intent.json --now 1000 > "$RUNNER_TEMP/netorch-preview.pf"
+          sudo /sbin/pfctl -n -f "$RUNNER_TEMP/netorch-preview.pf"
       - name: Build distributions
         run: python -m build --no-isolation
       - name: Install and run wheel outside the checkout
@@ -62,6 +73,12 @@ jobs:
           cd "$smoke_dir"
           "$smoke_dir/venv/bin/python" -m pip check
           "$smoke_dir/venv/bin/netorch" --help
+          "$smoke_dir/venv/bin/netorch" deploy --help
+          "$smoke_dir/venv/bin/python" -m netorch.apple_runtime --help
+          "$smoke_dir/venv/bin/python" -m netorch.bonjour_owner --help
+          "$smoke_dir/venv/bin/python" -m netorch.pf_owner --help
+          "$smoke_dir/venv/bin/python" -m netorch.workloads --help
+          "$smoke_dir/venv/bin/python" -c 'from importlib.resources import files; p = files("netorch"); assert p.joinpath("deployment.schema.json").is_file(); assert p.joinpath("platform/macos/pf/backend.sh").is_file(); assert p.joinpath("observer_child.py").is_file()'
           "$smoke_dir/venv/bin/netorch" demo
       - name: Save test reports
         if: always()

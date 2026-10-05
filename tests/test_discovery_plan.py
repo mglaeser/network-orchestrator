@@ -80,6 +80,59 @@ def test_verified_dependencies_and_confirmed_absence_allow_publication(config):
     assert all(config.owner(action.owner).privilege == "user" for action in result.values())
 
 
+def test_degraded_fallback_dependency_requires_exact_verified_native_backing(config):
+    from netorch.codec import canonical_bytes
+    from netorch.config import parse_config, to_dict
+
+    data = to_dict(config)
+    source = next(item for item in data["profiles"] if item["id"] == "dns-udp")
+    source["fallback_publication"] = "dns-native-udp"
+    data["profiles"].append(
+        {
+            "id": "dns-native-udp",
+            "service": source["service"],
+            "scope": source["scope"],
+            "kind": "publication",
+            "protocol": "udp",
+            "ports": {"first": 1053, "last": 1053},
+            "target_ports": {"first": 53, "last": 53},
+            "safety": {"kind": "structural", "max_age_seconds": 10, "unknown_limit": 1},
+        }
+    )
+    data["discovery"].append(
+        {
+            "id": "dns-discovery",
+            "owner": "bonjour-manager",
+            "service": source["service"],
+            "scope": source["scope"],
+            "direction": "import",
+            "types": ["_example._udp"],
+            "dependencies": ["dns-udp"],
+            "max_age_seconds": 10,
+            "max_records": 10,
+        }
+    )
+    configured = parse_config(canonical_bytes(data))
+    snapshot = ready_snapshot(configured)
+    original = snapshot.profiles["dns-udp"]
+    observations = dict(snapshot.profiles)
+    observations["dns-udp"] = replace(
+        original,
+        data={
+            **original.data,
+            "effective_strategy": "degraded-fallback",
+            "direct_available": False,
+            "target_ipv4": configured.scopes[0].host_ipv4,
+        },
+    )
+    snapshot = replace(snapshot, profiles=observations)
+    assert decisions(configured, snapshot)["dns-discovery"].active
+    backing = observations["dns-native-udp"]
+    observations["dns-native-udp"] = replace(backing, state="absent", reason="confirmed-absent")
+    missing = replace(snapshot, profiles=observations)
+    assert decisions(configured, missing)["dns-discovery"].reason == "transport-unverified"
+
+
 def test_current_publication_retains_only_exact_verified_policy(config):
     result = decisions(config, ready_snapshot(config, publisher_state="present"))
     assert all(action.active and action.reason == "verified" for action in result.values())

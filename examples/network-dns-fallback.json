@@ -1,0 +1,280 @@
+{
+  "schema_version": 1,
+  "site": "example-site",
+  "scopes": [
+    {
+      "id": "wired-lan",
+      "interface": "en0",
+      "host_ipv4": "192.0.2.10",
+      "lan_cidr": "192.0.2.0/24",
+      "guest_cidr": "198.51.100.0/24"
+    }
+  ],
+  "owners": [
+    {
+      "id": "site-forwarding",
+      "privilege": "external-root",
+      "capabilities": [
+        "publication",
+        "host-redirect",
+        "guest-direct",
+        "udp-return"
+      ]
+    },
+    {
+      "id": "camera-manager",
+      "privilege": "user",
+      "capabilities": [
+        "publication"
+      ]
+    },
+    {
+      "id": "bonjour-manager",
+      "privilege": "user",
+      "capabilities": [
+        "discovery"
+      ]
+    }
+  ],
+  "services": [
+    {
+      "id": "resolver",
+      "owner": "camera-manager",
+      "contract_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "automatic_ports": null
+    },
+    {
+      "id": "web-proxy",
+      "owner": "camera-manager",
+      "contract_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "automatic_ports": null
+    },
+    {
+      "id": "media-controller",
+      "owner": "camera-manager",
+      "contract_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "automatic_ports": {
+        "first": 45000,
+        "last": 45127
+      }
+    },
+    {
+      "id": "camera",
+      "owner": "camera-manager",
+      "contract_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "automatic_ports": null
+    }
+  ],
+  "profiles": [
+    {
+      "id": "dns-udp",
+      "service": "resolver",
+      "scope": "wired-lan",
+      "kind": "guest-direct",
+      "protocol": "udp",
+      "ports": {
+        "first": 53,
+        "last": 53
+      },
+      "target_ports": {
+        "first": 53,
+        "last": 53
+      },
+      "safety": {
+        "kind": "bounded",
+        "max_age_seconds": 30,
+        "unknown_limit": 1,
+        "statement": "Shared guest address reuse cannot be structurally excluded; withdraw and invalidate owned states on stale identity."
+      },
+      "owner": "site-forwarding",
+      "fallback_publication": "dns-native-udp"
+    },
+    {
+      "id": "dns-tcp",
+      "service": "resolver",
+      "scope": "wired-lan",
+      "kind": "guest-direct",
+      "protocol": "tcp",
+      "ports": {
+        "first": 53,
+        "last": 53
+      },
+      "target_ports": {
+        "first": 53,
+        "last": 53
+      },
+      "safety": {
+        "kind": "bounded",
+        "max_age_seconds": 30,
+        "unknown_limit": 1,
+        "statement": "Shared guest address reuse cannot be structurally excluded; withdraw and invalidate owned states on stale identity."
+      },
+      "owner": "site-forwarding",
+      "fallback_publication": "dns-native-tcp"
+    },
+    {
+      "id": "proxy-high",
+      "service": "web-proxy",
+      "scope": "wired-lan",
+      "kind": "publication",
+      "protocol": "tcp",
+      "ports": {
+        "first": 8080,
+        "last": 8080
+      },
+      "target_ports": {
+        "first": 80,
+        "last": 80
+      },
+      "safety": {
+        "kind": "structural",
+        "max_age_seconds": 30,
+        "unknown_limit": 1,
+        "statement": null
+      },
+      "owner": null
+    },
+    {
+      "id": "proxy-standard",
+      "service": "web-proxy",
+      "scope": "wired-lan",
+      "kind": "host-redirect",
+      "protocol": "tcp",
+      "ports": {
+        "first": 80,
+        "last": 80
+      },
+      "target_ports": {
+        "first": 8080,
+        "last": 8080
+      },
+      "safety": {
+        "kind": "structural",
+        "max_age_seconds": 30,
+        "unknown_limit": 1,
+        "statement": null
+      },
+      "owner": "site-forwarding"
+    },
+    {
+      "id": "media-udp",
+      "service": "media-controller",
+      "scope": "wired-lan",
+      "kind": "udp-return",
+      "protocol": "udp",
+      "ports": {
+        "first": 45000,
+        "last": 45127
+      },
+      "target_ports": null,
+      "safety": {
+        "kind": "bounded",
+        "max_age_seconds": 30,
+        "unknown_limit": 1,
+        "statement": "Shared network has a bounded observation race; stale endpoints require rule withdrawal plus state invalidation."
+      },
+      "owner": "site-forwarding"
+    },
+    {
+      "id": "camera-web",
+      "service": "camera",
+      "scope": "wired-lan",
+      "kind": "publication",
+      "protocol": "tcp",
+      "ports": {
+        "first": 9443,
+        "last": 9443
+      },
+      "target_ports": {
+        "first": 9443,
+        "last": 9443
+      },
+      "safety": {
+        "kind": "structural",
+        "max_age_seconds": 30,
+        "unknown_limit": 1,
+        "statement": null
+      },
+      "owner": null
+    },
+    {
+      "id": "dns-native-udp",
+      "service": "resolver",
+      "scope": "wired-lan",
+      "kind": "publication",
+      "protocol": "udp",
+      "ports": {
+        "first": 1053,
+        "last": 1053
+      },
+      "target_ports": {
+        "first": 53,
+        "last": 53
+      },
+      "safety": {
+        "kind": "structural",
+        "max_age_seconds": 30,
+        "unknown_limit": 1,
+        "statement": null
+      },
+      "owner": "camera-manager"
+    },
+    {
+      "id": "dns-native-tcp",
+      "service": "resolver",
+      "scope": "wired-lan",
+      "kind": "publication",
+      "protocol": "tcp",
+      "ports": {
+        "first": 1053,
+        "last": 1053
+      },
+      "target_ports": {
+        "first": 53,
+        "last": 53
+      },
+      "safety": {
+        "kind": "structural",
+        "max_age_seconds": 30,
+        "unknown_limit": 1,
+        "statement": null
+      },
+      "owner": "camera-manager"
+    }
+  ],
+  "discovery": [
+    {
+      "id": "media-import",
+      "owner": "bonjour-manager",
+      "service": "media-controller",
+      "scope": "wired-lan",
+      "direction": "import",
+      "types": [
+        "_airplay._tcp",
+        "_raop._tcp",
+        "_companion-link._tcp",
+        "_mediaremotetv._tcp"
+      ],
+      "dependencies": [
+        "media-udp"
+      ],
+      "max_age_seconds": 120,
+      "max_records": 128
+    },
+    {
+      "id": "camera-export",
+      "owner": "bonjour-manager",
+      "service": "camera",
+      "scope": "wired-lan",
+      "direction": "export",
+      "types": [
+        "_hap._tcp"
+      ],
+      "dependencies": [
+        "camera-web"
+      ],
+      "max_age_seconds": 120,
+      "max_records": 128
+    }
+  ]
+}

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import math
 import re
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 
 from .codec import digest
 from .config import config_digest, profile_digest, validate_config
@@ -132,9 +132,22 @@ def _dependencies_verified(
             now,
             dependency.safety.max_age_seconds,
         )
+        fallback = decision.effective_strategy == "degraded-fallback"
+        if fallback and (
+            dependency.fallback_publication is None
+            or applied.data.get("direct_available") is not False
+            or not _dependencies_verified(
+                config,
+                replace(item, dependencies=(dependency.fallback_publication,)),
+                snapshot,
+                transport,
+                now,
+            )
+        ):
+            return False
         target = (
             config.scope(dependency.scope).host_ipv4
-            if dependency.kind == "host-redirect"
+            if dependency.kind == "host-redirect" or fallback
             else endpoint.data.get("ipv4")
         )
         if (
@@ -146,6 +159,7 @@ def _dependencies_verified(
             or applied.data.get("target_ipv4") != target
             or applied.data.get("target_generation") != endpoint.generation
             or applied.data.get("network_generation") != snapshot.network_generation
+            or applied.data.get("effective_strategy") != decision.effective_strategy
             or decision.target_ipv4 != target
             or decision.target_generation != endpoint.generation
             or not isinstance(applied.data.get("states"), tuple)

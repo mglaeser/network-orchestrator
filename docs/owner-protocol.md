@@ -17,7 +17,7 @@ privileged RPC. It refuses process bindings for external-root owners.
   "schema_version": 1,
   "owners": [
     {"id": "runtime-owner", "kind": "process", "argv": ["/absolute/private/owner-adapter"]},
-    {"id": "forwarding-owner", "kind": "snapshot-file", "path": "/absolute/readable/owner-observation.json"}
+    {"id": "forwarding-owner", "kind": "root-report", "path": "/absolute/protected/report-directory/owner-observation.json"}
   ]
 }
 ```
@@ -72,8 +72,10 @@ Each service/profile entry is an observation:
 
 Service facts must actually be read and validated by the service's observation
 owner. Profile readback belongs to the profile's execution owner. The merger
-rejects claims for another owner's objects. An external-root snapshot file is a
-read-only report, not an executable request or authority to enable anything.
+rejects claims for another owner's objects. A `root-report` binding requires a
+protected root-owned report and ancestors; it is read-only, with no executable
+request or authority to enable anything. `snapshot-file` remains useful for
+portable/legacy observation but cannot establish independent root admission.
 
 Profile data contains `policy_digest`, `target_ipv4`, `target_generation`,
 `network_generation`, and a complete `states` array. State entries are owner-scoped
@@ -113,6 +115,29 @@ Return the post-operation observation in the same response envelope. Activation
 must show exact digest/target/generations; withdrawal must show absent rules; drain
 must provide a complete empty `states` array. Exit zero alone is insufficient.
 
+### Native publication maintenance handoff
+
+Apple Container publications are part of a workload's definition. Networking
+pause, admission changes or unknown evidence do not authorize stopping or
+recreating that workload to remove a host socket. A fixed native adapter can
+return exit **78** with this exact envelope for a `reconcile` request concerning
+a known `publication` profile:
+
+```json
+{
+  "protocol_version": 1,
+  "owner": "runtime-owner",
+  "error": "native-publication-maintenance"
+}
+```
+
+The client maps only this complete matching maintenance response to a pending
+external-owner handoff. It does not treat arbitrary exit codes/errors, another
+operation or another profile kind as a handoff. The executor records
+`waiting-external-owner`, preserves pause and cannot claim withdrawal/readiness.
+Explicit application maintenance must change that definition, then reenroll it.
+No false absent result or hidden container recreation is permitted.
+
 ## Existing privileged owner
 
 The planner and executor do not invoke this protocol to mutate external-root
@@ -124,7 +149,10 @@ Changed parameters remain pending. User observations are not trusted assertions.
 That owner needs one writer/lock/anchor, safe file metadata/descriptor handling,
 validated current runtime identity, scoped rules and state invalidation, and an
 explicit risk class. No global state flush or base firewall rewrite is allowed.
-Its native provisioning/admission procedure is outside this public package.
+The bundled [independent PF owner](pf-owner.md) and
+[domain-separated provisioner](provisioning.md) implement these requirements.
+Administrator installation/admission is explicit and cannot be called by the
+user coordinator.
 
 ## Discovery owner
 
@@ -136,8 +164,11 @@ records when dependencies lose verification or record wall-clock age expires,
 confirm the selected interface, cap floods, avoid loops and clean up registrations
 after child exit. Its state cannot be assumed from a successful process launch.
 
-The coordinator implements the fixed user-owner operation below. It does not
-implement a native DNS-SD stack or install/change a publisher's launch identity.
+The coordinator implements the fixed user-owner operation below. The bundled
+`netorch.bonjour_owner --settings PATH endpoint` implements it with independent
+native CLI scanning, a lease watchdog and exact readback. The separate `serve`
+command runs the long-lived user job; it does not implement a new DNS-SD stack.
+The generated deployment preserves an explicitly chosen publisher launch identity.
 A new process/consent identity, user session, native DNS-SD behavior and actual
 application shared scanner require separately documented host acceptance.
 

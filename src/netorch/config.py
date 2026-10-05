@@ -75,6 +75,7 @@ def _construct(data: dict[str, Any]) -> Config:
                     item["safety"].get("statement"),
                 ),
                 item.get("owner"),
+                item.get("fallback_publication"),
             )
             for item in data["profiles"]
         ),
@@ -126,6 +127,8 @@ def _check_references(config: Config) -> None:
             config.service(profile.service)
             config.scope(profile.scope)
             config.profile_owner(profile)
+            if profile.fallback_publication is not None:
+                config.profile(profile.fallback_publication)
         for item in config.discovery:
             config.service(item.service)
             config.scope(item.scope)
@@ -181,6 +184,21 @@ def _check_profiles(config: Config) -> None:
             )
         if profile.target_ports is not None and profile.target_ports.width != profile.ports.width:
             raise ConfigError(f"Profile {profile.id}: source and target ranges differ in width")
+        if profile.fallback_publication is not None:
+            fallback = config.profile(profile.fallback_publication)
+            if (
+                profile.kind != "guest-direct"
+                or fallback.kind != "publication"
+                or fallback.service != profile.service
+                or fallback.scope != profile.scope
+                or fallback.protocol != profile.protocol
+                or fallback.ports.width != profile.ports.width
+                or (fallback.target_ports or fallback.ports)
+                != (profile.target_ports or profile.ports)
+            ):
+                raise ConfigError(
+                    f"Profile {profile.id}: fallback requires its own exact native publication"
+                )
         if profile.kind == "host-redirect":
             matching = [
                 publication
@@ -303,24 +321,34 @@ def load_config(path: str | Path) -> Config:
 
 def to_dict(config: Config) -> dict[str, Any]:
     # JSON arrays, rather than internal tuples, also satisfy the external schema.
-    return cast(dict[str, Any], strict_loads(json.dumps(asdict(config))))
+    result = cast(dict[str, Any], strict_loads(json.dumps(asdict(config))))
+    for profile in result["profiles"]:
+        if profile["fallback_publication"] is None:
+            del profile["fallback_publication"]
+    return result
 
 
 def profile_digest(config: Config, profile: Profile) -> str:
     """Bind every authority-bearing resolved field, not merely a profile ID."""
     service = config.service(profile.service)
-    return digest(
-        {
-            "digest_version": 1,
-            "schema_version": config.schema_version,
-            "profile": asdict(profile),
-            "scope": asdict(config.scope(profile.scope)),
-            "service": asdict(service),
-            "owner": asdict(config.profile_owner(profile)),
-            "service_owner": asdict(config.owner(service.owner)),
-            "address_family": "inet",
-        }
-    )
+    resolved = asdict(profile)
+    if profile.fallback_publication is None:
+        del resolved["fallback_publication"]
+    payload = {
+        "digest_version": 2 if profile.fallback_publication is not None else 1,
+        "schema_version": config.schema_version,
+        "profile": resolved,
+        "scope": asdict(config.scope(profile.scope)),
+        "service": asdict(service),
+        "owner": asdict(config.profile_owner(profile)),
+        "service_owner": asdict(config.owner(service.owner)),
+        "address_family": "inet",
+    }
+    if profile.fallback_publication is not None:
+        payload["fallback_profile_digest"] = profile_digest(
+            config, config.profile(profile.fallback_publication)
+        )
+    return digest(payload)
 
 
 def config_digest(config: Config) -> str:

@@ -1,226 +1,264 @@
 # Deployment and owner integration
 
-Netorch can load an external site configuration and run a complete mocked
-orchestration on a managed Python interpreter. Connecting native owners is a
-separate deployment exercise. The initial release does not install a root
-service, upgrade a runtime, choose a login policy or modify a production host.
+Version 0.2 supplies complete user/root deployment bundles, an Apple Container
+reader and lifecycle adapter, a native Bonjour owner and an independent PF owner.
+The same external tables can describe an entire site's custom container-networking
+setup. Installation is explicit, domain-separated and journalled; a successful
+public build does not change a production host.
 
-## Keep site data outside the repository
+Use [getting started](getting-started.md) for the end-to-end command sequence,
+[provisioning](provisioning.md) for the bundle transaction, and the
+[runtime](apple-runtime.md), [workload](workloads.md),
+[Bonjour](bonjour-owner.md) and [PF](pf-owner.md) guides for owner contracts.
 
-A suggested operator-controlled layout is:
+## External inputs and durable state
+
+Keep site-specific names, addresses, MACs, paths, ports, recipes and credentials
+outside the public checkout. The following are conceptual records; use the
+versioned schemas and actual owner formats.
 
 ```text
 site/
-  network.json        reviewed policy or generated catalog
-  bindings.json       trusted local user-provider executable bindings
-  admissions.json    independently approved resolved profile hashes
-  observations.json  bounded observations, timestamp and generation
-state/
-  intent.json        durable operator pause and holder-owned suspension
-  journal.json       finite operation phase and failures
-  receipt.json       completed operation evidence
+  network.json             policy or generated owner catalog
+  runtime-settings.json    accepted runtime identity and enrolled definitions
+  workloads.json           optional explicit initial-create recipes
+  bonjour-settings.json    interface bindings and scanner settings
+  bindings.json            trusted user provider endpoints
+  forwarding-settings.json independent administrator-owned observer settings
+  deployment.json          domains, jobs, monitors, paths and artifact hashes
+user-state/
+  admissions.json          user profile approvals
+  intent.json              durable operator pause and holder suspensions
+  journal.json             reconciliation phases
+  installation-journal.json installation phases
+  installation-receipt.json retained reviewed release identity
+root-state/
+  policy.json              protected installed desired snapshot
+  admissions.json          independent expanded root approvals
+  operator-intent.json     independent negative authority
+  live.json and journal.json known exposure and interrupted phase evidence
 ```
 
-Names above are conceptual records; use the CLI's documented state-file format.
-Choose access modes and backup policy appropriate to the installing account.
-Keep mutable intent and journals outside anything a release reinstalls. Keep
-application secrets, data directories and configuration owned by the application.
-The synthetic examples are not production bindings and must not be applied as
-real network policy.
+All owner inputs are bounded, strictly parsed, protected single-link regular
+files. Settings and mutable private state use mode 0600 and private directories.
+Root code, policy, admissions and ancestors must be administrator-owned and
+protected against user replacement. A separately protected read-only root report
+contains typed networking observations, not credentials or raw inspect output.
+Mutable intent, admissions and journals are never release artifacts.
 
-## Stage 1: derive and inspect
+The framework does not install Python, Monit, Apple Container or an application.
+Install reviewed managed tool artifacts first. Root must use a root-owned installed
+Python/package in isolated mode, never a user's checkout or virtual environment.
+No `sudo`, privileged RPC or automatic runtime upgrade is embedded in the user
+coordinator.
 
-1. Identify every native, third-party and custom owner and its current source.
-2. Capture bounded read-only observations with version/provenance metadata.
-3. Derive literal owner facts without executing configuration. Report anything
-   that needs shell evaluation as underivable.
-4. Run validation, cross-owner lint, status and plans off-host where practical.
-5. Make no authoritative catalog copy by hand while the old owner remains the
-   source. A regeneration check must detect drift.
+## 1. Inventory and choose authority
 
-The framework's static input format intentionally rejects executable fragments.
-It does not parse arbitrary administrator scripts. A site needing a legacy-source
-reader should write a bounded, literal-only adapter and supply fixtures that prove
-what it derives and what it refuses.
+Identify every native, third-party and custom owner and its current source. Record
+accepted OS/runtime/tool versions, executable/job identity, publication contracts,
+persistent mounts, helper generation, boot/login constraints and missing gates.
+Use bounded read-only observation and enrolled definition capture before writes.
+An inspection timeout, Local Network denial or contradictory stopped listing is
+unknown, not proof that a workload needs recovery.
 
-## Stage 2: integrate one user owner
+While a legacy owner remains authoritative, statically derive its literal facts
+and fail a regeneration check if the catalog drifts. Never source configuration
+as code. Flip ownership only in the same change that makes the previous input
+generated, with rendered equivalence. Each setting has one author at every step.
 
-Provider bindings are explicit local executable paths, not commands embedded in
-network policy. Implement the existing user owner's structured request/response
-contract. Start with observation, then compare its preview to the current owner
-inputs. Use injected failures and readback before enabling any writes.
+Select exactly one writer per anchor, publication, service lifecycle and Bonjour
+role. Disable a competing schedule through its own guarded owner procedure before
+promotion. The installer does not guess which unrelated Login Item or LaunchAgent
+is obsolete.
 
-The provider runs as the account that invokes Netorch. That binding is a trust
-decision; the framework cannot restrict a malicious executable's account-level
-authority. The process wrapper validates framing and responses, bounds work and
-terminates an overrun process group.
+## 2. Validate and preview without network changes
 
-A live `reconcile` needs a reviewed policy, explicit local binding and state
-directory. Initialize intent with `init-state`, which starts paused. `reconcile`
-defaults to a read-only plan; `--execute-user-owners` explicitly requests user
-owner writes. It reobserves state and refuses stale plans. It does not call an
-`external-root` owner. Such actions are reported as requiring the independent
-owner rather than silently treated as successful.
-
-After preparing external policy, admissions and a private mode-0600 binding file,
-the first live-owner inspection can use the following placeholder paths:
+The synthetic examples are documentation shapes, not deployable defaults. Copy
+and fill private inputs outside the checkout, then validate them and observe the
+reviewed user bindings:
 
 ```sh
+netorch validate --config /operator/site/network.json
 netorch init-state --state-dir /operator/state/netorch
 netorch observe --config /operator/site/network.json \
   --bindings /operator/site/bindings.json
 netorch reconcile --config /operator/site/network.json \
   --bindings /operator/site/bindings.json \
-  --admissions /operator/site/admissions.json \
+  --admissions /operator/state/netorch/admissions.json \
   --state-dir /operator/state/netorch
 ```
 
-Replace the paths with protected locations outside the checkout. `observe` calls
-the reviewed provider's bounded read operation. The reconciliation above returns
-decisions without owner writes. Resuming intent and supplying
-`--execute-user-owners` is a separate operator decision after readback and adapter
-acceptance; neither step can invoke an external-root owner.
+Initial intent is paused. Reconciliation is a plan until
+`--execute-user-owners` is explicitly supplied; it cannot execute external-root
+actions. Provider paths are trusted local bindings, not network-policy commands.
+Real fixed owner endpoints independently validate requests and current evidence.
 
-Pause and operation suspension must remain separate. Only the operator resumes an
-operator pause; an operation holder releases only its own suspension. Unreadable
-or unsupported intent fails closed. Time alone does not clear either record.
+Optional initial workload provisioning is a separate operator maintenance command.
+It plans exact pinned create arguments, requires the reviewed digest and creates
+only missing declared workloads. It preserves existing definitions and does not
+stop, delete, replace or recreate a container. See [workloads](workloads.md).
+Enrollment alone reads a definition and records its protected identity; it does
+not configure the application.
 
-## Stage 3: integrate an independent root owner
+## 3. Build a deterministic installation bundle
 
-The existing root owner keeps its privilege boundary and schedule. It pulls its
-own installed admitted snapshot and its own live observations. There is no
-planner-to-root invocation path or automatic authorization through a user CLI.
+```sh
+netorch deploy validate --manifest /operator/site/deployment.json
+netorch deploy build --manifest /operator/site/deployment.json \
+  --config /operator/site/network.json --output /operator/staging/bundle
+netorch deploy verify --bundle /operator/staging/bundle
+netorch deploy plan --bundle /operator/staging/bundle --scope user
+netorch deploy plan --bundle /operator/staging/bundle --scope root
+```
 
-Admission binds a profile ID to canonical resolved content, including scope,
-protocol, range, strategy, service contract and owner. A widened range, changed
-target contract, different interface or strategy must become pending. The root
-installer must load an immutable validated snapshot and protect against replacing
-content between validation and use. It must never source that snapshot as code.
+The renderer captures protected sources once through descriptors, checks declared
+SHA-256 hashes, parses JSON strictly and generates immutable policy copies,
+launchd plists, Monit configuration and the captured PF backend. The release ID
+binds deployment and policy; the bundle digest binds every captured/generated byte
+and closed inventory. Validation rerenders managed job bytes and rejects extra
+files or changed content. Settings artifacts are copied byte-exact; only command
+arguments and working directories support fixed `{release}`/`{state}` placeholders.
 
-Changing implementation semantics without changing data can otherwise preserve
-an obsolete approval. Every transport or discovery behavior change must bump its
-digest strategy/schema version or use an independently enforced, versioned owner
-implementation contract. The owner must reopen admission when the approved
-contract changes; a package version printed in logs alone does not enforce this.
+Review plans, exact hashes and existing ownership before installation. Artifact
+hashes in examples are deliberately all zero; they cannot approve actual files.
+The source package and executable paths require their own reviewed installation.
+The bundle is not permission to run a privileged user-supplied binary.
 
-Every real privileged owner must additionally enforce:
+## 4. Install user scope
 
-- One writer and one lock for its owned resources.
-- Stable instance and network-generation observations with a defined age limit.
-- Preserved operator pause and operation suspensions.
-- Verified withdrawal and retained-state invalidation when ownership is unknown,
-  stale, absent or mismatched.
-- Actual platform readback after mutation, including states that outlive rules.
-- Scope confined to the admitted interfaces, protocols, addresses and ports.
-- No global ruleset rewrite, unowned anchor flush or broad firewall grant.
+```sh
+netorch deploy install-user --bundle /operator/staging/bundle \
+  --expected-digest REVIEWED_BUNDLE_SHA256
+```
 
-A successful mock does not replace these checks. A root implementation that does
-not meet them remains blocked for live adoption.
+Run directly as the manifest's user on macOS. The transaction creates durable
+intent paused on first install, preserves existing operator pause, takes its own
+holder suspension, stages immutable files, checks Monit syntax and owned job
+hashes, stops only managed jobs, installs/loads them and reads launchd back.
+Only complete success releases that transaction's suspension. It does not resume
+the operator or grant admission.
 
-## Direct guest identity: a required design decision
+The generated coordinator, Bonjour service and Monit jobs run in the declared
+user domain. Bonjour's separate publisher/watchdog owns its registration children
+and checks independent dependency evidence; the endpoint cannot supply fabricated
+records. Heartbeat failure cannot restart a healthy container. Only the workload
+probe's reserved status 42 can permit a separately guarded proven-stopped start.
+Signals, timeouts, denial and unknown results do not meet that condition.
 
-An IP address in a packet-filter rule names an address, not a workload. Shared
-dynamic address pools can reuse that address, and retained packet states can
-outlive a rule change. A polling framework cannot certify an absolute
-never-forward-to-another-workload guarantee on such a pool.
+Local Network consent must be accepted in the actual LaunchAgent identity and
+launch context. Terminal/SSH success does not prove this context. Record consent
+and test after code identity changes; root is not the workaround.
 
-Version 1 deliberately accepts only **bounded** safety for direct-to-guest and
-UDP-return profiles: a documented and explicitly accepted residual window, with
-independently enforced observation age and unknown limits, rule withdrawal,
-state draining and readback. Runtime-wide operations must obey the same gates.
-The model has no proof record for an isolated guest boundary that no other
-workload can hold, so it rejects a structural declaration for these profiles.
-Sites requiring that guarantee need a separately proven platform design and a
-future reviewed model extension.
+## 5. Independently install and admit root scope
 
-Do not silently convert an absolute requirement into a bounded one. A generation
-change, runtime stop, rebuilt pool or relaunch of the network helper requires new
-observations. Stored facts cannot authorize forwarding in a new generation.
+```sh
+netorch deploy prepare-root --bundle /operator/staging/bundle \
+  --output /operator/staging/root-reviewed-bundle
+```
 
-## Discovery owner integration
+This only prepares reviewed bytes. An administrator separately invokes the
+root-owned installed package to install root scope:
 
-Discovery declarations select record projection and dependencies; they do not
-turn multicast into a general tunnel. Native Bonjour, a selected-record proxy,
-or a maintained third-party owner still owns actual registrations.
+```sh
+/Library/Netorch/runtime/bin/python3 -I -m netorch deploy install-root \
+  --bundle /operator/staging/root-reviewed-bundle \
+  --expected-digest REVIEWED_BUNDLE_SHA256
+```
 
-The coordinator calls only the existing user owner's fixed
-`reconcile-discovery` operation. Its request binds the whole policy, resolved
-discovery policy and dependencies to exact digests and expected service/network
-generations. The publisher independently verifies these inputs against its own
-current policy and fresh observations; the request is not authority to invent a
-record. It returns complete post-operation readback bound to those generations.
-No DNS-SD listener, reflector or registration subprocess is bundled in Netorch.
+Use paths from the actual manifest. Root installation verifies protected code
+ancestry and exact bundle identity, takes its own durable suspension and installs
+the independent PF pull job. It does not inherit authority from a user admission.
+New or changed profiles remain pending. Administrator review/admit/resume uses
+[the PF owner's fixed commands](pf-owner.md).
 
-An inactive discovery decision is processed before packet transport operations;
-unavailable publishers remain pending, rather than being reported withdrawn.
-Activation uses only dependencies already verified in the initial fresh snapshot.
-A transport profile repaired in the same pass does not immediately authorize
-publication: the next cycle must observe it as verified. Missing or unknown
-publisher evidence requests scoped cleanup and leaves the pass inhibited until a
-later cycle has complete evidence. Missing or unconfirmed interfaces publish
-nothing; an owner may not fall back to all interfaces.
+Root admission binds complete resolved policy, observer settings, strategy and
+installed implementation/backend semantics. Changed ports, interface, service
+contract, settings or code must not silently preserve old authority. The root job
+independently observes runtime/kernel state, rereads gates before activation,
+withdraws stale targets and invalidates their retained guest states. It mutates
+only its owned anchor and holds only its own PF enable reference.
 
-Require the actual announcing service's publication from the same runtime
-snapshot, not merely a matching port number. Preserve record identity and
-provenance; allow only reviewed endpoint transformations. Reject a missing or
-ambiguous publication. Verify the named interface exists and owns the expected
-address; interface index zero must not widen scope accidentally.
+Native host publication remains Apple Container's user-owned capability. Root can
+redirect to an independently verified same-service publication, but cannot claim
+its ownership. A coincident listener belonging to another service is insufficient.
 
-Registrations need a bounded age independent of completed polling passes. A
-hung pass or exited registration process must withdraw its records. Imports
-depend on the transport profile's verified availability so the application is not
-promised an unusable endpoint. An API success alone is not proof of correct
-advertisement.
+## Shared guest identity and UDP acceptance
 
-Native adapter consent must be checked in its actual user job identity and launch
-context. A command launched from a terminal may have different Local Network
-privacy behavior than a LaunchAgent. Root is not the consent workaround.
+An IP in a PF rule names an address, not a service. A shared pool can reassign
+addresses and retained states can outlive rules. Direct guest/UDP-return profiles
+therefore require explicit bounded-risk acceptance with independent observation
+age, withdrawal and retained-state readback. This cannot certify a zero-duration
+misdelivery race after every crash. A requirement for absolute exclusivity needs
+a separately reviewed structural network design.
 
-## Workload lifecycle and DNS availability
+The guest automatic socket range and admitted return range must agree exactly.
+Outbound NAT preserves source ports; inbound RDR has no replacement target port.
+The scope is the reviewed LAN, supporting changing addresses and multiple media
+receivers. Do not widen ranges to mask leaks, capacity or discovery faults.
 
-Existing owners keep their mounts, image pins, kernel arguments, recovery data
-and service-manager behavior. Networking refactoring does not imply a container
-recreation or runtime upgrade. Upgrade as a separate reviewed change, then freeze
-versioned reader fixtures and rerun the relevant acceptance.
+The optional direct-DNS fallback retires/drains the old direct path before a later
+fresh pass uses the same service's admitted native publication. It reports a
+changed effective strategy because client identity differs. Unknown runtime
+identity cannot activate either path.
 
-If a runtime requires an interactive user session, the root forwarding owner's
-availability does not make workloads available before login. A sole LAN resolver
-inside that runtime can cause an unattended-reboot DNS outage. The site must
-choose and document its boot/login policy or an independent resolver architecture,
-with a measured first-answer acceptance time. Netorch does not choose automatic
-login or a security-policy exception for the operator.
+## Native acceptance and boot availability
 
-## Failure and recovery
+Installation readback proves managed jobs are registered; it does not prove
+packets, application discovery or audible output. Promote only with evidence at
+the relevant [testing tier](testing.md):
 
-On an unexpected partial failure, stop writes, preserve the journal, report the
-last completed phase, and obtain fresh readback. Do not automatically replay an
-old plan or run speculative rollback commands. The existing owner selects the
-documented recovery appropriate to the observed phase. Only after reviewing that
-state, `acknowledge-journal --plan-digest ...` acknowledges the exact interrupted
-operation. It does not repair, roll back, approve policy or clear operator pause.
+- First request and reply, both range boundaries and probes outside the range.
+- Actual hook order, anchor readback, original client identity and retained-state
+  invalidation after generation change.
+- Genuine import/export parity, exact service/publication provenance, real user
+  consent, expired/hung scanner withdrawal and child exit cleanup.
+- Application discovery/reconnect for changing/multiple devices.
+- Explicitly approved container/runtime restart, reboot and restore rehearsal.
+- Human confirmation for requirements such as audible playback.
 
-An intent record is durable negative authority, not a disposable log. A receipt
-does not establish current truth. A kernel lock returning busy is a bounded
-read-only retry condition; it is not authorization to remove a live lock.
+If the runtime requires a user session, a root forwarding job cannot make its
+workloads available before login. A sole LAN resolver in that runtime has a
+separate unattended-reboot availability decision. Document chosen login/resolver
+architecture, privacy readiness and measured time to first valid answer. The
+framework does not enable automatic login, change FileVault, power settings or
+router DNS. These remain explicit native/application-owner decisions.
 
-Before an invasive acceptance test, create and verify appropriate recovery
-material. Restore rehearsal, cleanup policy and backup retention are separate
-operator decisions. Cleanup must check references before deleting files used by
-installed owners. Reinstalling an old release must preserve current pause intent.
+Runtime upgrades and container recreation require separate maintenance and
+reacceptance. Versioned reader fixtures cover declared shapes, not future unknown
+schemas. Preserve image pins, persistent mounts, kernel arguments and application
+configuration. Networking installation never implies recreation.
 
-## Promotion checklist
+## Failure, rollback and cleanup
 
-- [ ] Pure, mock, process and package CI passes on supported interpreters/OSes.
-- [ ] All real owners have versioned, labelled observation fixtures.
-- [ ] Content-bound admission and pending changes are enforced at the owner boundary.
-- [ ] Pause/suspension semantics survive crashes and release rollback.
-- [ ] Each direct-guest profile has an accepted bounded policy enforced independently.
-- [ ] Discovery readback matches resolved policy and service/network generations.
-- [ ] Wrong-generation withdrawal and retained-state invalidation pass on hardware.
-- [ ] Real interfaces, NAT first packet/reply and discovery job consent pass.
-- [ ] Restore rehearsal and required lifecycle acceptance have actual evidence.
-- [ ] Application-level discovery/reconnect and any person-confirmed behavior pass.
-- [ ] The site records OS/tool versions, digests, evidence tier and unrun gates.
+Every reconciliation and installation records its finite phase and stops after an
+unexpected partial failure. Do not replay an old plan, remove a live lock, flush
+global PF state or invent rollback commands. Inspect fresh readback and the saved
+phase, then choose the explicit operation:
 
-Use the [testing guide](testing.md) to select the tier that can establish each
-claim. Public CI cannot close a hardware gate by generating a nicer mock.
+```sh
+netorch deploy recover --state-dir /operator/state/netorch --scope user \
+  --expected-digest FAILED_BUNDLE_SHA256
+netorch deploy rollback --state-dir /operator/state/netorch --scope user \
+  --expected-digest CURRENT_BUNDLE_SHA256
+```
+
+Use root-owned execution and the manifest's root state directory for root scope.
+Recovery fences an interrupted installation and its verified predecessor;
+rollback fences a committed current release. They restore only verified owned job
+bytes, preserve current negative intent/admissions and do not replay stored guest
+addresses. Root replacement first suspends and withdraws through its independently
+owned boundary. Damaged intent, changed release/job bytes, unknown journals or
+unavailable predecessor inhibit recovery.
+
+Operator pause and holder suspension are separate and never expire. A transaction
+releases only its own hold. `acknowledge-journal` acknowledges an exact inspected
+reconciliation journal; it does not repair, approve or resume. Receipts are history,
+not kernel truth. A kernel lock reporting busy is a retry condition, not permission
+to delete its inode.
+
+Retain required recovery material outside immutable releases. Clean up only after
+checking installed jobs, settings, release receipts and rollback references. Never
+delete durable intent, admissions, a live owner lock, a referenced executable,
+application data or the verified predecessor merely because it looks temporary.
+The framework does not set a site's backup retention policy or silently delete
+service backups.

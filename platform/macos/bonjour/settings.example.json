@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "owner": "bonjour-manager",
+  "config": "/absolute/private/network.json",
+  "bindings": "/absolute/private/owners.json",
+  "admissions": "/absolute/private/admissions.json",
+  "intent": "/absolute/private/state/intent.json",
+  "state_dir": "/absolute/private/state/bonjour",
+  "scopes": [
+    {
+      "id": "wired-lan",
+      "guest_interface": "bridge-test",
+      "guest_ipv4": "198.51.100.1"
+    }
+  ],
+  "scan_seconds": 2,
+  "poll_seconds": 5,
+  "eligible_model_prefixes": ["AudioAccessory", "AppleTV"]
+}

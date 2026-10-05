@@ -53,12 +53,15 @@ class Action:
     reason: str
     target_ipv4: str | None = None
     target_generation: str | None = None
+    effective_strategy: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.profile, str) or not self.profile:
             raise ValueError("action needs a profile")
         if not isinstance(self.owner, str) or not self.owner:
             raise ValueError("action needs an owner")
+        if self.effective_strategy not in {None, "degraded-fallback"}:
+            raise ValueError("invalid effective transport strategy")
         if self.operation not in OPERATIONS or self.reason not in ACTION_REASONS:
             raise ValueError("invalid action operation or reason")
         if self.target_ipv4 is not None:
@@ -190,6 +193,14 @@ def _profile_plan(
     # guest publications and UDP return profiles bind the current guest.
     target = scope.host_ipv4 if profile.kind == "host-redirect" else guest_ipv4
     target_generation = endpoint.generation
+    strategy = None
+    if profile.fallback_publication is not None and current.data.get("direct_available") is False:
+        backing = config.profile(profile.fallback_publication)
+        backing_actions = _profile_plan(config, backing, snapshot, admissions, intent, now)
+        if len(backing_actions) != 1 or backing_actions[0].operation != "noop":
+            return inhibit("publication-not-ready")
+        target = scope.host_ipv4
+        strategy = "degraded-fallback"
     if profile.kind == "host-redirect":
         # A configured socket declaration is not evidence that the matching
         # service owns today's socket.  Native publication must be independently
@@ -218,16 +229,17 @@ def _profile_plan(
             return [
                 Action(profile.id, owner, "drain", "retained-states", old_target, old_generation)
             ]
-        return [Action(profile.id, owner, "activate", "ready", target, target_generation)]
+        return [Action(profile.id, owner, "activate", "ready", target, target_generation, strategy)]
     if current.data.get("policy_digest") != digest:
         return _retire(profile, owner, raw_profile, "policy-changed")
     if (
         current.data.get("target_ipv4") != target
         or current.data.get("target_generation") != target_generation
         or current.data.get("network_generation") != snapshot.network_generation
+        or current.data.get("effective_strategy") != strategy
     ):
         return _retire(profile, owner, raw_profile, "target-replaced")
-    return [Action(profile.id, owner, "noop", "verified", target, target_generation)]
+    return [Action(profile.id, owner, "noop", "verified", target, target_generation, strategy)]
 
 
 def plan(
@@ -274,6 +286,11 @@ def plan_to_dict(value: Plan) -> dict[str, Any]:
                 "reason": action.reason,
                 "target_ipv4": action.target_ipv4,
                 "target_generation": action.target_generation,
+                **(
+                    {"effective_strategy": action.effective_strategy}
+                    if action.effective_strategy is not None
+                    else {}
+                ),
             }
             for action in value.actions
         ],
@@ -289,14 +306,18 @@ def plan_from_dict(value: object) -> Plan:
         raise ValueError("invalid plan fields")
     actions = []
     for raw in value["actions"]:
-        if not isinstance(raw, Mapping) or set(raw) != {
+        required = {
             "profile",
             "owner",
             "operation",
             "reason",
             "target_ipv4",
             "target_generation",
-        }:
+        }
+        if not isinstance(raw, Mapping) or set(raw) not in (
+            required,
+            required | {"effective_strategy"},
+        ):
             raise ValueError("invalid action fields")
         actions.append(Action(**raw))
     return Plan(

@@ -1,4 +1,4 @@
-"""Pure Darwin PF preview. The framework never loads rules or invokes pfctl."""
+"""Pure Darwin PF preview; this renderer never loads rules or invokes pfctl."""
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ def render(
             continue
         profile = config.profile(action.profile)
         scope = config.scope(profile.scope)
-        label = f' label "netorch:{profile.id}"'
+        label = f" # netorch:{profile.id}"
         if profile.kind == "publication":
             lines.append(f"# {profile.id}: native runtime publication, not a PF rule")
             continue
@@ -52,7 +52,12 @@ def render(
                 f"{scope.host_ipv4} port {ports} -> {action.target_ipv4}{label}"
             )
         else:
-            target_ports = profile.target_ports or profile.ports
+            target_ports = (
+                config.profile(profile.fallback_publication).ports
+                if action.effective_strategy == "degraded-fallback"
+                and profile.fallback_publication is not None
+                else profile.target_ports or profile.ports
+            )
             rdr.append(
                 f"rdr on {scope.interface} inet proto {profile.protocol} from {source} "
                 f"to {scope.host_ipv4} port {ports} -> {action.target_ipv4} "

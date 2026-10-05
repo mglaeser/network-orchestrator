@@ -185,11 +185,16 @@ def test_reconcile_defaults_to_dry_plan_and_keeps_external_owners_external(
     ]
     result = invoke_json(capfd, args)
     assert result["execution"] == "not-requested"
+    root_decision = next(
+        item for item in result["plan"]["actions"] if item["profile"] == "media-udp"
+    )
+    assert root_decision["operation"] == "pending"
+    assert root_decision["reason"] == "not-admitted"
     assert not (store.directory / "journal.json").exists()
     result = invoke_json(capfd, [*args, "--execute-user-owners"], expected=69)
     assert result["phase"] == "waiting-external-owner"
     assert result["completed"] == 0
-    assert "media-udp" in result["pending"]
+    assert "media-import" in result["pending"]
     assert store.read("journal.json")["phase"] == "waiting-external-owner"
     assert not (store.directory / "receipt.json").exists()
 
@@ -230,7 +235,7 @@ def test_pf_preview_never_invokes_a_command(capfd, inputs, monkeypatch):
     assert captured.err == ""
     assert captured.out.startswith("# Netorch preview only;")
     assert "static-port" in captured.out
-    assert 'label "netorch:media-udp"' in captured.out
+    assert "# netorch:media-udp" in captured.out
     assert "port 45000:45127 -> 198.51.100." in captured.out
     assert "-> 192.0.2.10 port 8080" not in captured.out  # backing socket not yet verified
 

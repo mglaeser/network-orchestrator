@@ -1,0 +1,298 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Netorch explicit macOS deployment",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "site",
+    "user_uid",
+    "user",
+    "root",
+    "forwarding",
+    "artifacts",
+    "jobs",
+    "monitors",
+    "monit_interval_seconds",
+    "launchctl",
+    "monit"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "site": {
+      "$ref": "#/$defs/id"
+    },
+    "user_uid": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "user": {
+      "$ref": "#/$defs/installation"
+    },
+    "root": {
+      "$ref": "#/$defs/installation"
+    },
+    "forwarding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "directory",
+        "settings_artifact",
+        "backend_source",
+        "backend_sha256"
+      ],
+      "properties": {
+        "directory": {
+          "$ref": "#/$defs/path"
+        },
+        "settings_artifact": {
+          "$ref": "#/$defs/id"
+        },
+        "backend_source": {
+          "$ref": "#/$defs/path"
+        },
+        "backend_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 128,
+      "items": {
+        "$ref": "#/$defs/artifact"
+      }
+    },
+    "jobs": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "items": {
+        "$ref": "#/$defs/job"
+      }
+    },
+    "monitors": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "$ref": "#/$defs/monitor"
+      }
+    },
+    "monit_interval_seconds": {
+      "type": "integer",
+      "minimum": 5,
+      "maximum": 3600
+    },
+    "launchctl": {
+      "$ref": "#/$defs/path"
+    },
+    "monit": {
+      "$ref": "#/$defs/path"
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,63}$"
+    },
+    "path": {
+      "type": "string",
+      "pattern": "^/[^\\u0000-\\u001f]+$",
+      "maxLength": 4096
+    },
+    "argv": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4096,
+        "pattern": "^[^\\u0000-\\u001f]+$"
+      }
+    },
+    "installation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "directory",
+        "state_directory",
+        "launchd_directory",
+        "domain"
+      ],
+      "properties": {
+        "directory": {
+          "$ref": "#/$defs/path"
+        },
+        "state_directory": {
+          "$ref": "#/$defs/path"
+        },
+        "launchd_directory": {
+          "$ref": "#/$defs/path"
+        },
+        "domain": {
+          "type": "string",
+          "pattern": "^(gui/[1-9][0-9]*|system)$"
+        }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "scope",
+        "source",
+        "destination",
+        "sha256"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "scope": {
+          "enum": [
+            "user",
+            "root"
+          ]
+        },
+        "source": {
+          "$ref": "#/$defs/path"
+        },
+        "destination": {
+          "type": "string",
+          "pattern": "^data/[a-z][a-z0-9._/-]*\\.json$",
+          "maxLength": 255
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "job": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "label",
+        "scope",
+        "role",
+        "argv",
+        "interval_seconds",
+        "keep_alive",
+        "working_directory",
+        "log_directory"
+      ],
+      "properties": {
+        "label": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9.-]{0,127}$"
+        },
+        "scope": {
+          "enum": [
+            "user",
+            "root"
+          ]
+        },
+        "role": {
+          "enum": [
+            "coordinator",
+            "discovery",
+            "forwarding",
+            "monitor",
+            "existing-manager"
+          ]
+        },
+        "argv": {
+          "$ref": "#/$defs/argv"
+        },
+        "interval_seconds": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "integer",
+              "minimum": 5,
+              "maximum": 86400
+            }
+          ]
+        },
+        "keep_alive": {
+          "type": "boolean"
+        },
+        "working_directory": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/path"
+            },
+            {
+              "enum": [
+                "{release}",
+                "{state}"
+              ]
+            }
+          ]
+        },
+        "log_directory": {
+          "$ref": "#/$defs/path"
+        }
+      }
+    },
+    "monitor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "role",
+        "check_argv",
+        "recovery_argv",
+        "timeout_seconds",
+        "cycles",
+        "recovery_code"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "role": {
+          "enum": [
+            "workload",
+            "discovery",
+            "forwarding"
+          ]
+        },
+        "check_argv": {
+          "$ref": "#/$defs/argv"
+        },
+        "recovery_argv": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/argv"
+            }
+          ]
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 120
+        },
+        "cycles": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10
+        },
+        "recovery_code": {
+          "const": 42
+        }
+      }
+    }
+  }
+}

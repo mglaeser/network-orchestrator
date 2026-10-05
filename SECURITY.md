@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-The latest unretracted `0.1.x` release receives fixes. This project is alpha;
+The latest unretracted `0.2.x` release receives fixes. This project is alpha;
 release and model tests do not certify a native owner or a production deployment.
 Use a reviewed tagged revision and locked dependencies. Recheck platform and
 provider compatibility before upgrading.
@@ -37,20 +37,26 @@ time or a bounty.
 - Historical receipts and cached observations are not kernel truth. Unknown
   observations must remain visible and must not trigger recovery.
 - Discovery requests carry resolved policy, its exact digest and expected service
-  and network generations. An existing user publisher must independently verify
+  and network generations. The shipped user publisher independently verifies
   eligible records, interfaces and transport dependencies. Unknown publisher or
   interface evidence must not authorize publication. Netorch supplies no DNS-SD
   stack and cannot certify a private publisher from process exit status alone.
-- Admission hashes bind data, not arbitrary future implementation behavior.
-  Transport or discovery semantics must change their digest strategy/schema
-  version or use an independently enforced versioned owner implementation
-  contract. An old approval must not silently acquire new meaning.
+- User admission hashes bind resolved data. Transport/discovery behavior changes
+  require a strategy/schema version or enforced implementation contract. Root
+  admission additionally fingerprints installed Python, package/schema bytes,
+  dependency versions and protected backend/observer settings. Native binaries,
+  interpreters and their ancestors must remain administrator-owned and protected.
+  An old approval must not silently acquire new meaning.
+- A readable protected root report is evidence, not an execution channel. Root
+  readiness requires exact current approval, unblocked final root intent and
+  verified current readback. User-supplied approval/report data cannot grant it.
 
 ## CI and release security
 
 Public CI uses ephemeral hosted Linux/macOS runners, minimal token permissions,
-full SHA action pins and hashed dependencies. It receives no production secrets
-and cannot deploy a native service. Fork pull requests must never run on a
+full SHA action pins and hashed dependencies. It receives no production secrets,
+hosts or deployment credentials. The hosted native PF step compiles synthetic
+rules with `-n` and never loads them. Fork pull requests must never run on a
 production self-hosted runner. Privileged workflow events must not check out
 untrusted code.
 
