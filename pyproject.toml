@@ -86,6 +86,7 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 
 [tool.mypy]
 python_version = "3.12"
+platform = "darwin"
 strict = true
 warn_unreachable = true
 files = ["src/netorch"]

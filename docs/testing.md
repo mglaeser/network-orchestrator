@@ -25,6 +25,11 @@ Dependabot proposes dependency/Action updates for review. Actions are SHA-pinned
 with read-only repository permissions; workflows require no production secrets,
 services, Apple account or privileged self-hosted runner.
 
+Mypy targets Darwin explicitly on every CI host, matching the native deployment
+platform, and keeps strict checking and unreachable-code warnings enabled.
+The portable core has no platform branches; Linux fallback behavior is exercised
+by the Ubuntu pytest jobs rather than treated as native macOS deployment code.
+
 The combined line/branch coverage gate is 90%. Coverage records execution, not
 correctness. The test intent and rejected unsafe behavior matter more than a high
 number. Add regressions at the smallest tier that proves each reported failure.
