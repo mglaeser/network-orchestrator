@@ -504,6 +504,76 @@ def test_read_once_bound_and_mode(tmp_path: Path) -> None:
         read_once(path, mode=0o644)
 
 
+def test_read_once_ignores_only_modeled_atime_updates(tmp_path: Path, monkeypatch: Any) -> None:
+    path = tmp_path / "fresh-input"
+    path.write_bytes(b"reviewed")
+    actual = os.fstat
+    calls = 0
+
+    def metadata(fd: int) -> Any:
+        nonlocal calls
+        calls += 1
+        original = actual(fd)
+        if calls == 1:
+            return original
+        fields = {name: getattr(original, name) for name in dir(original) if name.startswith("st_")}
+        fields["st_atime"] += 1.0
+        fields["st_atime_ns"] += 1_000_000_000
+        return SimpleNamespace(**fields)
+
+    monkeypatch.setattr(os, "fstat", metadata)
+    assert read_once(path) == b"reviewed"
+    assert calls == 2
+
+
+@pytest.mark.parametrize("mutation", ["content", "permission"])
+def test_read_once_rejects_same_inode_mutations(
+    tmp_path: Path, monkeypatch: Any, mutation: str
+) -> None:
+    path = tmp_path / "input"
+    path.write_bytes(b"reviewed")
+    initial = path.stat()
+    actual = os.fdopen
+
+    def mutate(fd: int, mode: str) -> Any:
+        if mutation == "content":
+            path.write_bytes(b"changed!")
+            os.utime(path, ns=(initial.st_atime_ns, initial.st_mtime_ns + 1_000_000_000))
+        else:
+            path.chmod(0o666)
+        assert path.stat().st_ino == initial.st_ino
+        return actual(fd, mode)
+
+    monkeypatch.setattr(os, "fdopen", mutate)
+    with pytest.raises(UnsafeState, match="changed while being read"):
+        read_once(path)
+
+
+def test_read_once_fences_final_path_metadata_not_only_its_inode(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    path = tmp_path / "input"
+    path.write_bytes(b"reviewed")
+    actual = Path.lstat
+    calls = 0
+
+    def metadata(selected: Path) -> Any:
+        nonlocal calls
+        original = actual(selected)
+        if selected != path:
+            return original
+        calls += 1
+        if calls == 1:
+            return original
+        fields = {name: getattr(original, name) for name in dir(original) if name.startswith("st_")}
+        fields["st_mode"] |= 0o020
+        return SimpleNamespace(**fields)
+
+    monkeypatch.setattr(Path, "lstat", metadata)
+    with pytest.raises(UnsafeState, match="changed while being read"):
+        read_once(path)
+
+
 def test_installer_preserves_exact_admitted_set_and_intent(
     monkeypatch: Any, environment: Any, tmp_path: Path
 ) -> None:

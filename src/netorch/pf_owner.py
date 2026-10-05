@@ -178,11 +178,11 @@ def read_once(
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
     try:
         opened = os.fstat(fd)
-        identity = (opened.st_dev, opened.st_ino)
+        identity = _code_metadata_identity(opened)
         if (
             not stat.S_ISREG(opened.st_mode)
             or opened.st_nlink != 1
-            or identity != (before.st_dev, before.st_ino)
+            or identity != _code_metadata_identity(before)
         ):
             raise UnsafeState("input inode is unsafe")
         if uid is not None and opened.st_uid != uid:
@@ -194,8 +194,8 @@ def read_once(
         after = path.lstat()
         if (
             len(data) > maximum
-            or (after.st_dev, after.st_ino) != identity
-            or os.fstat(fd) != opened
+            or _code_metadata_identity(after) != identity
+            or _code_metadata_identity(os.fstat(fd)) != identity
         ):
             raise UnsafeState("input changed while being read")
         return data

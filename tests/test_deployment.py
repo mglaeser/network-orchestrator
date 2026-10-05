@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import plistlib
+import stat
 from pathlib import Path
 from typing import Any
 
@@ -180,9 +181,76 @@ class FakeTools:
 
 
 @pytest.fixture
-def fake_platform(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Unit-test adapter boundary; never exposed as a live CLI bypass.
+def fake_platform(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # Unit-test adapter boundaries; never exposed as live CLI bypasses. The
+    # disposable namespace models protected root ancestry even on Linux, where
+    # pytest's real /tmp parent is correctly refused by the production helper.
     monkeypatch.setattr(implementation, "_require_platform", lambda scope, value: os.geteuid())
+    native_prepare = implementation._prepare_report_directory
+    native_lstat = Path.lstat
+    namespace = tmp_path.resolve()
+    shared_ancestors = set(namespace.parents)
+
+    def protected_shared_ancestor(path: Path, *args: Any, **kwargs: Any) -> os.stat_result:
+        info = native_lstat(path, *args, **kwargs)
+        if path in shared_ancestors and stat.S_ISDIR(info.st_mode):
+            fields = list(info)
+            fields[0] = stat.S_IFDIR | 0o755
+            fields[4] = 0
+            return os.stat_result(fields)
+        return info
+
+    def prepare_report(directory: Path, uid: int) -> None:
+        if not directory.is_relative_to(namespace):
+            raise AssertionError("fake report preparation must remain in its disposable namespace")
+        # Normalize only existing shared ancestry while the real production
+        # checks run. Fixture-local state and reports retain their actual
+        # permissions/ownership, and all reads outside this call stay real.
+        with monkeypatch.context() as scoped:
+            scoped.setattr(Path, "lstat", protected_shared_ancestor)
+            native_prepare(directory, uid)
+
+    monkeypatch.setattr(implementation, "_prepare_report_directory", prepare_report)
+
+
+def test_writable_report_ancestor_is_refused_without_permission_changes(
+    tmp_path: Path, fake_platform: None
+) -> None:
+    shared = tmp_path / "writable-shared-parent"
+    shared.mkdir(mode=0o777)
+    shared.chmod(0o1777)
+    before = shared.lstat()
+    with pytest.raises(DeploymentError, match="ancestor is replaceable"):
+        implementation._prepare_report_directory(shared / "reports", os.geteuid())
+    after = shared.lstat()
+    assert (after.st_dev, after.st_ino, after.st_mode) == (
+        before.st_dev,
+        before.st_ino,
+        before.st_mode,
+    )
+    assert not (shared / "reports").exists()
+
+
+def test_production_report_reader_refuses_shared_tmp_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The real helper must reject Linux's /tmp1777 rather than relax it.
+
+    Model that standard metadata portably, so macOS CI also covers this Linux
+    trust boundary. The refused parent already exists; no file is created.
+    """
+    native_lstat = Path.lstat
+
+    def shared_tmp(path: Path, *args: Any, **kwargs: Any) -> os.stat_result:
+        info = native_lstat(path, *args, **kwargs)
+        if path == Path("/tmp"):
+            fields = list(info)
+            fields[0] = stat.S_IFDIR | 0o1777
+            fields[4] = 0
+            return os.stat_result(fields)
+        return info
+
+    monkeypatch.setattr(Path, "lstat", shared_tmp)
+    with pytest.raises(DeploymentError, match="ancestor is replaceable"):
+        implementation._prepare_report_directory(Path("/tmp/netorch-unused-report-fixture"), 0)
 
 
 def test_deterministic_bundle(tmp_path: Path, manifest: dict[str, Any], config: Any) -> None:
