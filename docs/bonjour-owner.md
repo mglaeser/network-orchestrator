@@ -1,5 +1,10 @@
 # Supervised native Bonjour discovery owner
 
+> **0.3 stage boundary:** this guide describes retained owner mechanisms and mock
+> contracts. Native authority expansion is unavailable while the accepted support
+> matrix is empty. Existing installed owners stay in place; see
+> [read-only workflow](getting-started.md) and [migration gates](site-migration.md).
+
 The reusable implementation extends the existing browse/resolve/proxy-register
 approach. Apple's maintained `/usr/bin/dns-sd` talks to the native
 mDNSResponder stack. Python owns parsing, provenance, leases and supervision.

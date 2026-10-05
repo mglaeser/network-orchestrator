@@ -40,6 +40,7 @@ from .state import (
     snapshot_to_dict,
 )
 from .storage import Store, UnsafeState
+from .workflow_gate import NOT_QUALIFIED, StageNotQualified, require_mutation_qualified
 
 STRATEGY = "darwin-pf-v1"
 _ID = re.compile(r"[a-z][a-z0-9-]{0,62}\Z")
@@ -1728,6 +1729,15 @@ def main(argv: list[str] | None = None) -> int:
     command.add_argument("--acknowledge-bounded-risk", action="store_true")
     args = parser.parse_args(argv)
     try:
+        if args.command in {
+            "reconcile",
+            "install",
+            "admit",
+            "resume",
+            "release",
+            "acknowledge-journal",
+        }:
+            require_mutation_qualified("privileged-owner-mutation")
         if sys.platform != "darwin" or os.geteuid() != 0:
             raise PFError("live privileged owner requires a local macOS administrator")
         protected_code(Path(sys.executable), Path(__file__))
@@ -1807,6 +1817,9 @@ def main(argv: list[str] | None = None) -> int:
         ):
             print(canonical_bytes(result).decode("utf-8"))
         return 0
+    except StageNotQualified as exc:
+        print(canonical_bytes(exc.to_dict()).decode("utf-8"), file=sys.stderr)
+        return NOT_QUALIFIED
     except (OSError, RuntimeError, ValueError, KeyError) as exc:
         # Operational stderr never exposes addresses, credentials or raw tools.
         print(

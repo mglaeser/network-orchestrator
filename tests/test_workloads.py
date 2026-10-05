@@ -713,6 +713,7 @@ def cli_settings(tmp_path, monkeypatch):
     return module, config, settings, fake, workloads, store, recipes
 
 
+@pytest.mark.usefixtures("legacy_cli_conformance")
 def test_cli_plan_and_provision_use_reviewed_digest_and_explicit_start(
     tmp_path, monkeypatch, capsys
 ):
@@ -1144,6 +1145,7 @@ def test_completed_acknowledgement_is_not_authority_to_clear_another_operation(t
     assert store.read("intent.json") == before
 
 
+@pytest.mark.usefixtures("legacy_cli_conformance")
 def test_cli_acknowledgement_needs_no_recipe_policy_or_native_command(
     tmp_path, monkeypatch, capsys
 ):
@@ -1174,6 +1176,7 @@ def test_cli_acknowledgement_needs_no_recipe_policy_or_native_command(
     assert len(fake.calls) == calls
 
 
+@pytest.mark.usefixtures("legacy_cli_conformance")
 def test_cli_acknowledgement_busy_is_closed_no_mutation(tmp_path, monkeypatch, capsys):
     from contextlib import contextmanager
 
@@ -1208,3 +1211,11 @@ def test_cli_acknowledgement_busy_is_closed_no_mutation(tmp_path, monkeypatch, c
     captured = capsys.readouterr()
     assert not captured.out and "private" not in captured.err
     assert store.read("workload-journal.json") == before
+
+
+@pytest.fixture
+def legacy_cli_conformance(monkeypatch):
+    """Explicit CI-only seam for preserved owner internals; never qualification."""
+    import netorch.workloads as module
+
+    monkeypatch.setattr(module, "require_mutation_qualified", lambda _capability: None)

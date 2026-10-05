@@ -1,5 +1,10 @@
 # Complete deployment bundles and independent installation domains
 
+> **0.3 stage boundary:** this guide describes retained owner mechanisms and mock
+> contracts. Native authority expansion is unavailable while the accepted support
+> matrix is empty. Existing installed owners stay in place; see
+> [read-only workflow](getting-started.md) and [migration gates](site-migration.md).
+
 Deployment settings are external, explicitly trusted operator data, distinct
 from network policy and runtime observations. `schemas/deployment.schema.json`
 is closed and versioned. The portable renderer, installer, explicit rollback and
@@ -207,7 +212,7 @@ Privileged adversarial tests additionally cover ACL-bearing ancestry, journals,
 retained releases and log leaves; content replacement before owner installation
 or scheduler bootstrap; and operational-record changes during capture. The
 portable root lab models protected temporary ancestry without weakening real
-checks against writable shared directories such as Linux's `/tmp`.
+checks against writable shared directories.
 
 Native `monit -t` establishes config syntax. Launchctl readback establishes job
 registration, not workload readiness or packets. Platform acceptance still

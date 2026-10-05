@@ -2,64 +2,98 @@
 
 [![CI](https://github.com/mglaeser/network-orchestrator/actions/workflows/ci.yml/badge.svg)](https://github.com/mglaeser/network-orchestrator/actions/workflows/ci.yml)
 
-A reusable deployment and orchestration framework for container networking on
-macOS: strict private policy, Apple Container observation, independent PF
-forwarding, native Bonjour import/export, launchd/Monit supervision and guarded
-recovery. Site configuration lives outside the public repository.
+A host-independent, macOS-only framework for understanding and carefully
+extracting an existing Apple Container networking setup. Each host supplies
+private data; the public framework supplies closed models, named strategies,
+static importers, conformance checks and truthful read-only reports.
 
-Netorch answers **what is intended, admitted, observed, applied, paused and in
-transition**, then asks the appropriate independent owner to act. It supplies
-executable owners and installers rather than requiring each site to implement
-those interfaces from scratch.
+## Current release boundary
 
-## Status and boundaries
+Version **0.3** implements the reviewed extraction stage. The recommended
+`netorch-host` workflow has exactly six read-only operations: `validate`,
+`preflight`, `status`, `plan`, `check` and `report`. It never opens a LAN socket,
+uses Bonjour, executes an owner, admits policy, restarts a workload or plays audio.
+Only an explicit `--collect-local` reads fixed local macOS facts.
 
-Version **0.2** includes the complete macOS deployment layer:
+The candidate platform is macOS **27.0.1, build 26A434**, Apple silicon and
+Apple Container **1.5.0**. Parser compatibility is separate from supported
+production behavior. The hardware-qualified support matrix starts empty:
+synthetic examples, hosted CI, declarations and signed residuals cannot qualify
+an installation. An existing older runtime can be inventoried read-only.
 
-- Typed Apple Container reader, existing-definition enrollment, native publication
-  readback and a guarded proven-stopped start operation.
-- Explicit digest-bound initial provisioning for missing declared workloads;
-  existing definitions are never automatically replaced or recreated.
-- A user-owned native `dns-sd` scanner and independently supervised registration
-  watchdog for genuine guest exports and Apple media imports.
-- An independent administrator-owned PF pull service with protected policy,
-  content/code-bound admissions, readback, withdrawal and state draining.
-- Deterministic launchd/Monit bundles, separate user/root installation, phase-aware
-  failed-install recovery and committed-release rollback.
-- Portable mock/process/property testing and reproducible Python packaging.
+Version 0.2 owner/installer mechanisms are retained for semantic regression and
+mock testing. Native activation and installation through their public entrypoints
+are gated pending a separately accepted owner flip. Existing installed owners
+are preserved; this release does not replace them, add a supervisor or create a
+second writer. Explicit scoped withdrawal remains a safety operation.
 
-This remains a young framework. Public CI proves model, parser, owner and installer
-contracts; it does not certify Darwin PF packets, real user Bonjour consent,
-application reconnect or audible playback. These have separate
-[acceptance gates](docs/testing.md). No production deployment is performed by
-cloning, building, testing or running the demonstration.
+See [the instance guide](docs/instances.md), [review traceability](docs/review-traceability.md)
+and [migration rules](docs/site-migration.md). No production qualification,
+application acceptance or unattended recovery is implied by installing a wheel.
 
-The user coordinator never invokes root, embeds `sudo`, opens privileged RPC or
-silently grants admission. Native Apple tools carry packets and resolve names;
-Netorch does not introduce a VM, raw mDNS stack, general reflector or compiled
-network adapter. Runtime upgrades, login/security settings and application
-integrations remain separately owned decisions.
+## Goals and hard gates
 
-## Goals
+1. **Robust:** preserve identity, negative intent and independently admitted scope;
+   make uncertain observations explicit.
+2. **Maintainable:** one authoring location per setting; host data, profiles and
+   platform facts live in distinct places.
+3. **Well tested and efficient:** strict models, property/failure tests, bounded
+   local reads and evidence at the tier that proves the claim.
+4. **One coherent workflow:** shared read-only status without combining user,
+   root, runtime and application authority.
 
-1. **Highly robust:** fence service/network identity, withdraw uncertain exposure,
-   preserve operator pause and make partial failures explicit.
-2. **Easy to maintain:** one author per setting, closed versioned contracts,
-   independent small owners and deterministic deployment.
-3. **Well tested and efficient:** pure plans, property/failure tests, bounded
-   subprocesses, no-op readback and measured native acceptance.
-4. **One coherent setup:** shared policy/status and installation without merging
-   root, user, runtime and application authority.
+Wrong-target forwarding, implicit authority expansion, lost pause, unknown
+triggering recovery and hidden destructive operations are blockers. A direct
+shared-pool guest target has a bounded residual, never an absolute zero-misdelivery
+certificate. Every requirement has a proving test and a per-host fulfilment state.
 
-Wrong-target forwarding, silent authority expansion, lost pause, unknown treated
-as success and hidden destructive recovery are release blockers. See
-[architecture](docs/architecture.md) and [review traceability](docs/review-traceability.md)
-for the design and its evidence limits.
+## Three places
 
-## Quick start: no network changes
+```mermaid
+flowchart LR
+    F[Public framework: code, profiles, platform facts, schemas and tests]
+    I[Private instance: chosen host data, release pin, decisions and ledger]
+    S[Local host state: observations, admissions, receipts, journals and pause]
+    L[Existing owner inputs: single source until an accepted flip]
+    L -->|static import; never execute| I
+    I -->|pins version and content hash| F
+    F -->|read-only validation and comparison| R[Host report and conformance diff]
+    I --> R
+    S -->|existing observations; no receipt-as-proof| R
+    R --> G[Explicit owner-specific promotion gates]
+```
 
-Use managed Python 3.12, 3.13 or 3.14. The project does not install the interpreter,
-Monit or Apple Container.
+The framework never refers to an instance. An instance contains data only: no
+shell, executable paths, templates, raw PF text, expressions or plug-ins. Live
+guest and receiver addresses and preflight observations belong to local state.
+Application secrets and configuration remain with their existing owners.
+
+For an existing site, the instance begins as a generated view. Re-import must
+reproduce its bytes. Each owner flips individually only when rendered inputs
+match the frozen inputs byte for byte, including headers and newlines. Changes
+to ports, names, paths, admission defaults or behavior require their own declared
+change and acceptance. No second hand-edited source is introduced.
+
+## Native, maintained and custom components
+
+| Type | Components | Responsibility |
+|---|---|---|
+| Native Apple | Container, PF, launchd, dns-sd, mDNSResponder | Existing runtime, packet/state semantics, scheduling and discovery |
+| Maintained third party | Monit; jsonschema; pytest and Hypothesis | Existing supervision, closed validation and regression/property testing |
+| Custom Python | Instance/import/conformance/privacy/report libraries | Typed data, provenance, requirements, evidence and read-only workflow |
+| Retained owner scripts | Fixed PF boundary and version 0.2 owner mechanisms | Independently reviewed semantics; staged for an explicit future owner flip |
+| Existing applications | Proxies, DNS filtering, automation and management tools | Application data, pairing, credentials, TLS and independent lifecycle decisions |
+
+No compiled adapter, second mDNS stack, additional VM, general reflector,
+configuration UI, remote management or plug-in architecture is introduced.
+The platform contract records exact upstream versions, sources, tests and
+retirement triggers. Polling remains a platform limitation, not a fabricated
+lifecycle API.
+
+## Read-only quick start
+
+Use an already managed Python 3.12, 3.13 or 3.14 on macOS. This project does not
+install or upgrade Python, Container, Monit, kernels or application dependencies.
 
 ```sh
 git clone https://github.com/mglaeser/network-orchestrator.git
@@ -67,129 +101,40 @@ cd network-orchestrator
 python3 -m venv .venv
 .venv/bin/python -m pip install --require-hashes -r requirements-dev-lock.txt
 .venv/bin/python -m pip install --no-deps --no-build-isolation -e .
-.venv/bin/netorch validate --config examples/network.json
-.venv/bin/netorch simulate --config examples/network.json
-.venv/bin/netorch demo
+.venv/bin/netorch-host --instance examples/instance.json validate
+.venv/bin/netorch-host --instance examples/instance.json plan
+.venv/bin/netorch-host --instance examples/instance.json report
 ```
 
-The synthetic examples use documentation-only address ranges. The demonstration
-works on Linux or macOS without root, a runtime, network changes or playback.
-Its changes are confined to mock state. `demo` also works from an installed wheel
-outside the checkout.
+The synthetic instance uses documentation addresses and placeholder release
+identities; it intentionally has no hardware acceptance or approved residual.
+Its report must not claim that the host is ready. Supply a real pinned framework
+artifact and external evidence when reviewing a private instance.
 
-For runtime-only installation, obtain/build a reviewed wheel and install it after
-the runtime hash lock. The development lock above also includes the pinned build
-backend needed for an editable source installation.
+The [static import guide](docs/legacy-import.md) covers existing inputs, provenance,
+underivable expressions, authority flips and both literal checks. The
+[safety contract](docs/safety-contract.md) explains T/K, scheduling uncertainty,
+FIFO address reuse and the reserved recovery code. The
+[testing guide](docs/testing.md) separates portable logic from real macOS and
+physical-host evidence; CI itself runs only on macOS.
 
-## Architecture
+## Status and fulfilment
 
-```mermaid
-flowchart TD
-    P[External private policy, settings and recipes] --> V[Strict validation]
-    V --> C[Pure plan and user coordinator]
-    I[Durable pause and holder suspensions] --> C
-    A[User admissions] --> C
-    R[Fresh Apple runtime observations] --> C
-    C --> U[User runtime and lifecycle owner]
-    U --> AC[Apple Container native publication and networking]
-    C --> B[Bonjour endpoint, scanner and lease watchdog]
-    B --> DNS[Apple dns-sd and mDNSResponder]
-    RA[Protected root policy and independent admissions] --> F[Independent PF pull owner]
-    RI[Root durable negative intent] --> F
-    F --> K[Owned PF translation and state readback]
-    F --> O[Protected read-only report]
-    O --> C
-    O --> B
-    D[Generated launchd and Monit deployment] --> C
-    D --> B
-    D --> F
-```
+A report keeps desired, admitted, observed, applied and paused/pending state
+separate. Each observation has its own age, generation and closed reason.
+Discovery and transport remain distinct: a discoverable receiver can have a
+withdrawn return path. A receipt establishes historical completion only.
 
-There is no coordinator→root action path. Root independently pulls installed
-policy and fresh runtime/kernel facts. A protected report can establish downstream
-read-only dependency readiness; it cannot authorize user changes to root policy.
+Requirements report **fulfilled and verified**, **fulfilled but unverified**,
+**accepted residual**, **not applicable** or **not fulfilled**. A missing signature,
+missing restore/reboot evidence, unreadable owner state or incomplete conformance
+remains visible. A warm application cache is not proof of live discovery; player
+state is not proof of audible playback.
 
-| Component | Owner/type | Responsibility |
-|---|---|---|
-| Apple Container and native helpers | Vendor/native | Guest networking, addresses, host socket publication |
-| PF, launchd, `dns-sd`, `mDNSResponder` | Native macOS | Packet translation/state, scheduling and discovery packets |
-| Monit | Maintained third party | Bounded health checks and guarded proven-stopped recovery |
-| Netorch Python | Custom | Strict tables, identity, plans, owners, supervision and deployment |
-| Fixed PF Bash backend | Custom | Small protected native mutation boundary |
-| Applications/reverse proxies/router | Existing independent owners | Secrets, pairing, routes, DNS policy, TLS and application behavior |
-
-## Policy and data ownership
-
-All addresses, interface names, service identities, publication ranges, provider
-paths and deployment locations are operator data. Logic lives in typed modules.
-Keep real site files outside the checkout; public examples are shapes to adapt,
-not production defaults.
-
-| Record | Meaning | Authority |
-|---|---|---|
-| Policy/settings | Reviewed scopes, services, transports, discovery and runtime contracts | One site source or generated owner view |
-| Admission | Exact resolved content approval | Independent user/root approving owner |
-| Observation | Complete bounded read, time/reason and instance/network generation | Current platform reader |
-| Receipt | Verified past completion | Historical evidence only |
-| Intent/journal | Pause, holder suspension and operation phase | Durable state outside release files |
-
-Changing authority-relevant data or bound root implementation semantics makes the
-profile pending. A name alone never carries admission. Unknown is not absent,
-healthy or a reason to recover. Rollback preserves current operator pause.
-
-Shared dynamic guest addresses cannot provide an absolute zero-misdelivery
-promise through polling. Direct guest and UDP-return strategies require explicit
-bounded-risk acceptance, fresh target identity, withdrawal, retained-state drain
-and readback. A requirement for structural exclusivity needs a separately reviewed
-network architecture. The [deployment guide](docs/deployment.md) explains this gate.
-
-Bonjour registration is a dependency-gated lease over genuine records. Export
-requires the same announcing service's verified publication, not a coincident
-port. Import supports multiple changing-address Apple media devices and related
-endpoints. An independent watchdog withdraws registrations after stale proof,
-parent/child exit, pause or generation change. TXT remains lossless binary data.
-
-## Deploying an entire site
-
-Follow [getting started](docs/getting-started.md), then supply private network,
-runtime, discovery, provider and deployment tables. The framework can generate
-and install the complete custom networking setup, including all declared
-forwarding, native publications, both selected-record discovery directions,
-monitoring and workload recovery. It preserves application configuration and
-vendor/runtime ownership.
-
-The [configuration guide](docs/configuration.md) explains policy tables;
-[Apple runtime](docs/apple-runtime.md) covers enrollment/observation;
-[workloads](docs/workloads.md) covers optional explicit initial provisioning.
-[Bonjour](docs/bonjour-owner.md), [PF](docs/pf-owner.md) and
-[provisioning](docs/provisioning.md) document executable owners and installation.
-
-Build and inspect a bundle without network changes:
+## Testing
 
 ```sh
-netorch deploy validate --manifest /operator/site/deployment.json
-netorch deploy build --manifest /operator/site/deployment.json \
-  --config /operator/site/network.json --output /operator/staging/bundle
-netorch deploy verify --bundle /operator/staging/bundle
-netorch deploy plan --bundle /operator/staging/bundle --scope user
-netorch deploy plan --bundle /operator/staging/bundle --scope root
-```
-
-Replace all placeholder paths and example hashes. Explicit `install-user` and a
-separate administrator-owned `install-root` operation fence the reviewed bundle
-digest. Initial intent is paused and new root profiles are unadmitted. The user
-installer cannot invoke the root installer. There is no automatic production
-recreation, runtime upgrade or login-policy change.
-
-Exactly one owner writes each resource. During migration, derive settings from
-existing sources, then make old inputs generated in the same reviewed ownership
-flip. Never leave two hand-edited copies or overlapping Bonjour publishers.
-Private applications retain credentials, Home Assistant state, pairings and data.
-
-## Testing and CI
-
-```sh
-.venv/bin/python -m pytest -m 'not acceptance' --cov=netorch --cov-branch --cov-report=term-missing
+.venv/bin/python -m pytest -m 'not acceptance' --cov=netorch --cov-branch
 .venv/bin/ruff check .
 .venv/bin/ruff format --check .
 .venv/bin/mypy
@@ -197,31 +142,22 @@ Private applications retain credentials, Home Assistant state, pairings and data
 .venv/bin/pip-audit -r requirements-dev-lock.txt --strict
 ```
 
-CI runs Linux/Python 3.12–3.14 and macOS/Python 3.14, enforces at least 90%
-combined line/branch coverage, validates examples, builds distributions and runs
-an installed wheel outside the checkout. Fake tool/process/temporary-root tests
-exercise the real owners and installer, not a stub deployment. GitHub workflows
-have read-only permissions and SHA-pinned actions.
-
-No public test changes native networking. Hardware, destructive lifecycle and
-application/person acceptance remain distinct tiers in the [test guide](docs/testing.md).
-Dependency and Action updates are reviewable PRs, never automatic runtime upgrades.
+All CI jobs run on macOS, with Python 3.12–3.14 and a 90% combined line/branch
+coverage gate. Tests use synthetic fixtures, temporary roots and fake effects;
+installed-wheel checks run outside the checkout. Native PF checks compile only
+and never load rules. No CI job runs guests, plays audio or qualifies a production
+host. Workflows have read-only permissions, SHA-pinned actions and hash-locked
+dependencies. The scheduled audit proposes no automatic deployment.
 
 ## Repository layout
 
-```text
-src/netorch/          typed models, planners, owners, readers, provisioning and CLI
-schemas/              closed versioned policy/deployment JSON schemas
-platform/macos/       fixed PF backend and native deployment examples
-examples/             synthetic policy, settings, deployment and mock evidence
-tests/                unit, property, process, reader and temporary-root regressions
-docs/                 architecture, operator contracts and evidence gates
-requirements*.txt     reviewed dependency inputs and complete hashed locks
-.github/              CI, advisory checks, updates and contribution templates
-```
+- `src/netorch/`: closed instance/evidence models, profile/platform/requirement
+  libraries, importer, conformance/privacy checks, read-only CLI and retained owners.
+- `schemas/`: versioned data schemas; unknown versions are refused.
+- `examples/`: one synthetic instance and content-addressed data contracts;
+  older owner fixtures remain laboratory examples.
+- `tests/`: strictness, property, process, privilege, uncertainty and failure tests.
+- `docs/`: architecture, ownership, migration, acceptance and review traceability.
+- `platform/`: retained fixed native boundary and supervision documentation.
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md). Use synthetic
-or redacted reports; keep credentials, account paths, installation names, raw
-inspect output and packet payloads out of public issues and fixtures.
-
-Licensed under [MIT](LICENSE).
+See [CONTRIBUTING](CONTRIBUTING.md) and [SECURITY](SECURITY.md). MIT licensed.

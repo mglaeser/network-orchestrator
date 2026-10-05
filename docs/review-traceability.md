@@ -17,7 +17,38 @@ not a claim that a particular production installation has passed acceptance.
 Correctness and admission are gates, not a weighted score. Simpler code or a lower
 process count does not compensate for any blocking failure.
 
-## C1–C10 implementation map
+## October 2026 review: D1–D8 and rules 1–9
+
+The later review reduces this release to read-only extraction. No host is declared
+fully served, and no owner is parameterized on production. The source/installed
+contract and right-tier native acceptance must exist before that next stage.
+
+| Review rule | Implemented boundary | Regression evidence / remaining gate |
+|---|---|---|
+| D1: no host data | Public generic guard plus each private instance's own-value guard; diagnostics omit values | `test_privacy`; only exact file/kind/reason exceptions, never private trees |
+| D2: data only | Canonical closed instance and contract schemas, fixed names/versions | `test_instance`; no scripts, paths-as-code, PF text, expressions or live endpoint fields |
+| D3: one-way pin/root | Artifact/revision/lock pins, independent root semantics; host verbs never call owners | `test_host_cli`, `test_pf_owner`, `test_workflow_gate`; native root install deferred |
+| D4: pinned names/order | Namespace derivation or explicit current names; order is observed, not presumed | `test_instance`, `test_macos_preflight`; actual kernel order still requires native evidence |
+| D5: observed capabilities | Fixed bounded local collector, per-fact state/reason/time; inaccessible remains unknown | `test_macos_preflight`, `test_host_cli`; no sudo, LAN/Bonjour calls or credentials |
+| D6: qualified support | Candidate build/runtime separate from empty accepted matrix; public mutation refused before effects | `test_workflow_gate`, `test_requirements`; a real host's acceptance is still absent |
+| D7: requirements | Stable registry/applicability/proving tests and context-bound retained evidence | `test_requirements`, `test_host_cli`; owner attestations are not replayed native tests or root approval |
+| D8: narrow scope | One IPv4 LAN, named constants, no multi-host/plugin/generalized OS support | `test_instance`; synthetic second host is validation evidence only |
+| Rule 1: single author | Static import, canonical generated view, complete source/byte conformance, provenance-only flip | `test_legacy_import`, `test_conformance`, `test_instance`; underivable inputs block migration |
+| Rule 2: content admission | Existing root resolved-content/code binding retained; new public admission unavailable | `test_pf_owner` single-field/range/input-swap regressions; actual installed contract remains host evidence |
+| Rule 3: no root call | Host read-only command has no owner/executor path; existing independent pull retained | `test_host_cli`, `test_cli`, `test_pf_owner`; no new sudoers/RPC interface |
+| Rule 4: bounded risk | Explicit T/K/residual; conservative withdrawal-bound report and model allocator | `test_safety_contract`, `test_pf_owner`; scheduler/read/apply bounds and native re-deal remain unverified |
+| Rule 5: negative intent | Independent durable operator pause and holder records, fail-closed reads, no TTL | Existing state/property/install tests; real crash/reboot/restore remains a host gate |
+| Rule 6: unknown | Three aged states and closed reasons, no unknown recovery, reserved status 42 | Reader/process/supervisor tests; no physical recovery qualification |
+| Rule 7: no new LAN tool | Six host verbs read local data only; collector fixed commands | `test_host_cli`, `test_macos_preflight`; new consent identity/adapter deferred |
+| Rule 8: genuine Bonjour | Retained publication/record/interface/callback/lease fencing | `test_discovery`, `test_bonjour_owner`, process fixtures; genuine cold shared-scanner acceptance unrun |
+| Rule 9: measured range | One named range referenced by workload/PF selection; no automatic widening | `test_instance`, `test_pf_owner`; occupancy, exhaustion, collision and first replies require native measurement |
+
+The review cited an older containerization tag; the platform contract records the
+actual dependency of Container 1.5.0 as 0.47.0 and links its manifest and allocator.
+The FIFO test is source-model evidence, not a run of the allocator on hardware.
+No old-version fixture or parser success qualifies a runtime upgrade.
+
+## Earlier C1–C10 implementation map
 
 | Review ID and concern | Implemented response | Portable evidence | Native/site gate still required |
 |---|---|---|---|

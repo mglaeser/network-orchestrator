@@ -44,6 +44,12 @@ from .state import (
     snapshot_to_dict,
 )
 from .storage import Store
+from .workflow_gate import (
+    NOT_QUALIFIED,
+    StageNotQualified,
+    require_mutation_qualified,
+    require_request_qualified,
+)
 
 Runner = Callable[..., Result]
 ACLKey = tuple[str, int, int, int, int, int]
@@ -275,7 +281,7 @@ def _deny_only_acl(raw: bytes, path: Path) -> None:
 
 
 def reject_acl(path: Path, *, timeout: float = 2.0) -> None:
-    """Refuse ACL grants/unknown runtime evidence; retain strict Linux checking."""
+    """Refuse ACL grants/unknown runtime evidence; retain conservative metadata checks."""
     if sys.platform != "darwin":
         reject_privileged_acl(path, timeout=timeout)
         return
@@ -881,6 +887,12 @@ def main(argv: list[str] | None = None) -> int:
         item.add_argument("--service", required=True)
     args = parser.parse_args(argv)
     try:
+        if args.command == "start":
+            require_mutation_qualified("workload-recovery")
+        request: Any = None
+        if args.command == "request":
+            request = strict_loads(sys.stdin.buffer.read(1_048_577))
+            require_request_qualified("runtime", request)
         settings = load_settings(args.settings)
         if args.command == "derive-policy":
             value = to_dict(derive_policy(load_config(args.source), settings))
@@ -921,7 +933,7 @@ def main(argv: list[str] | None = None) -> int:
             raise ValueError("runtime policy path is required")
         config = load_config(Path(settings.policy))
         if args.command == "request":
-            value = handle_request(config, settings, strict_loads(sys.stdin.buffer.read(1_048_577)))
+            value = handle_request(config, settings, request)
         elif args.command == "start":
             value = snapshot_to_dict(recover_service(config, settings, args.service))
         else:
@@ -934,6 +946,9 @@ def main(argv: list[str] | None = None) -> int:
             value = snapshot_to_dict(snapshot)
         print(canonical_json(value))
         return 0
+    except StageNotQualified as exc:
+        print(canonical_json(exc.to_dict()), file=sys.stderr)
+        return NOT_QUALIFIED
     except NativePublicationMaintenance:
         print(
             canonical_json(

@@ -1,5 +1,10 @@
 # Independent Darwin PF owner
 
+> **0.3 stage boundary:** this guide describes retained owner mechanisms and mock
+> contracts. Native authority expansion is unavailable while the accepted support
+> matrix is empty. Existing installed owners stay in place; see
+> [read-only workflow](getting-started.md) and [migration gates](site-migration.md).
+
 The PF owner is a real executable service, not a plan adapter. It is deliberately
 **not called by the unprivileged coordinator**. A local administrator installs a
 protected desired snapshot; launchd independently runs a fixed pull pass:

@@ -61,7 +61,7 @@ def test_render_site_backend_and_existing_output(
 
 def test_input_root_ownership_is_checked(tmp_path: Path, fake_platform: None) -> None:
     # Model protected shared ancestry so this test reaches the distinct leaf
-    # ownership check on Linux too. Writable /tmp ancestry has its own refusal
+    # ownership check. Writable shared ancestry has its own refusal
     # regression; fixture-local ownership and permissions remain real.
     if os.geteuid() == 0:
         pytest.skip("root CI cannot create a differently owned file without modifying ownership")

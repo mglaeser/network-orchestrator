@@ -1,9 +1,16 @@
 # Implementation contract
 
-Netorch is a portable policy and orchestration layer over existing owners. It does
+Netorch is a macOS-only policy and orchestration layer over existing owners. It does
 not confer privilege or replace an operating system packet implementation.
 
-The public model is in `netorch.model`. These frozen dataclasses are the shared API:
+Version 0.3 adds the canonical host model in `netorch.instance_model`, strict loading
+in `netorch.instance`, and the six-verb read-only `netorch.host_cli` entrypoint.
+The profile/platform/requirements registries are closed code libraries. The
+native-qualified support matrix is empty; public native mutation entrypoints
+refuse before reading state or calling tools. These new interfaces are documented
+in [instances](instances.md).
+
+The retained owner policy model is in `netorch.model`. These frozen dataclasses are the shared API:
 
 - `PortRange(first: int, last: int)`
 - `Scope(id, interface, host_ipv4, lan_cidr, guest_cidr)`

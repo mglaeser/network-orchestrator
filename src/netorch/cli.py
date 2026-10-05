@@ -42,6 +42,7 @@ from .state import (
     snapshot_to_dict,
 )
 from .storage import Busy, Store
+from .workflow_gate import NOT_QUALIFIED, StageNotQualified, require_mutation_qualified
 
 
 def _emit(value: Any) -> None:
@@ -212,6 +213,17 @@ def _intent_operation(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
+        if args.command == "deploy" and args.deploy_command in {
+            "install-user",
+            "install-root",
+            "recover",
+            "rollback",
+        }:
+            require_mutation_qualified("deployment-mutation")
+        if args.command in {"admit", "init-state", "resume", "release", "acknowledge-journal"}:
+            require_mutation_qualified("authority-mutation")
+        if args.command == "reconcile" and args.execute_user_owners:
+            require_mutation_qualified("owner-execution")
         if args.command == "deploy":
             return _deployment_operation(args)
         if args.command in {
@@ -298,8 +310,15 @@ def main(argv: list[str] | None = None) -> int:
             if args.command == "observe":
                 _emit(snapshot_to_dict(snapshot))
                 return 0
-            store = Store(args.state_dir)
-            intent = _load_intent(store)
+            if args.execute_user_owners:
+                store = Store(args.state_dir)
+                intent = _load_intent(store)
+            else:
+                # A preview must not initialize host state or create a lock.
+                try:
+                    intent = intent_from_dict(strict_load(args.state_dir / "intent.json"))
+                except (ValueError, OSError):
+                    intent = Intent(damaged=True)
             admissions = admissions_from_dict(strict_load(args.admissions))
             now = time.time()
             admissions = effective_admissions(config, clients, snapshot, admissions, now)
@@ -401,6 +420,9 @@ def main(argv: list[str] | None = None) -> int:
                 }
             )
         return 0
+    except StageNotQualified as exc:
+        _emit(exc.to_dict())
+        return NOT_QUALIFIED
     except Busy:
         _emit({"error": "busy", "message": "owner lock is held; no lock was replaced"})
         return 75

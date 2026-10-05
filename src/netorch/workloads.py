@@ -25,6 +25,7 @@ from .process import OutputLimit, ProcessTimeout, run
 from .runtime_settings import RuntimeSettings, load_settings, settings_to_dict
 from .state import intent_from_dict, intent_to_dict
 from .storage import Busy, Store, UnsafeState
+from .workflow_gate import NOT_QUALIFIED, StageNotQualified, require_mutation_qualified
 
 _OPTIONS = {
     "--cpus",
@@ -573,6 +574,8 @@ def main(argv: list[str] | None = None) -> int:
     item.add_argument("--start-initial", action="store_true")
     args = parser.parse_args(argv)
     try:
+        if args.command in {"provision", "acknowledge"}:
+            require_mutation_qualified("workload-provisioning")
         settings = load_settings(args.settings)
         if args.command == "acknowledge":
             print(
@@ -603,6 +606,9 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(canonical_json(value))
         return 0
+    except StageNotQualified as exc:
+        print(canonical_json(exc.to_dict()), file=sys.stderr)
+        return NOT_QUALIFIED
     except Busy:
         print(canonical_json({"error": "workload-maintenance-busy"}), file=sys.stderr)
         return 75

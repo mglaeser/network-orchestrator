@@ -1,5 +1,10 @@
 # Explicit initial workload provisioning
 
+> **0.3 stage boundary:** this guide describes retained owner mechanisms and mock
+> contracts. Native authority expansion is unavailable while the accepted support
+> matrix is empty. Existing installed owners stay in place; see
+> [read-only workflow](getting-started.md) and [migration gates](site-migration.md).
+
 `netorch.workloads` provides an operator-only path to create a fresh installation
 from private recipes. It is separate from the networking executor and Monit
 recovery. It never stops, deletes, replaces or silently recreates a container.

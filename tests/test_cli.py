@@ -162,6 +162,7 @@ def test_observe_reads_explicit_snapshot_bindings_without_mutation(capfd, inputs
     assert not (tmp_path / "state").exists()
 
 
+@pytest.mark.usefixtures("legacy_cli_conformance")
 def test_reconcile_defaults_to_dry_plan_and_keeps_external_owners_external(
     capfd,
     inputs,
@@ -255,6 +256,7 @@ def test_mock_cli_full_workflow_is_explicitly_simulation(capfd, inputs, command)
     assert "no native network or audio acceptance" in result["claim"]
 
 
+@pytest.mark.usefixtures("legacy_cli_conformance")
 def test_intent_cli_keeps_holder_and_operator_intent_independent(capfd, tmp_path):
     state_dir = tmp_path / "state"
     base = ["--state-dir", state_dir]
@@ -283,6 +285,7 @@ def test_intent_cli_keeps_holder_and_operator_intent_independent(capfd, tmp_path
     assert (state_dir / "intent.json").read_bytes() == previous
 
 
+@pytest.mark.usefixtures("legacy_cli_conformance")
 def test_resume_does_not_clear_suspension(capfd, tmp_path):
     state_dir = tmp_path / "state"
     base = ["--state-dir", state_dir]
@@ -293,6 +296,7 @@ def test_resume_does_not_clear_suspension(capfd, tmp_path):
     assert result["suspensions"] == {"maintenance": "worker-a"}
 
 
+@pytest.mark.usefixtures("legacy_cli_conformance")
 def test_corrupt_persisted_intent_cannot_resume_or_be_reinitialized(capfd, tmp_path):
     state_dir = tmp_path / "state"
     base = ["--state-dir", state_dir]
@@ -306,6 +310,7 @@ def test_corrupt_persisted_intent_cannot_resume_or_be_reinitialized(capfd, tmp_p
         assert path.read_bytes() == before
 
 
+@pytest.mark.usefixtures("legacy_cli_conformance")
 def test_acknowledge_requires_exact_interrupted_plan_and_performs_no_repair(capfd, tmp_path):
     store = Store(tmp_path / "state")
     journal = {
@@ -328,6 +333,7 @@ def test_acknowledge_requires_exact_interrupted_plan_and_performs_no_repair(capf
     invoke_json(capfd, [*args, "a" * 64], expected=65)
 
 
+@pytest.mark.usefixtures("legacy_cli_conformance")
 def test_busy_cli_does_not_steal_lock_or_mutate_intent(capfd, tmp_path):
     store = Store(tmp_path / "state")
     store.write("intent.json", intent_to_dict(Intent(operator_paused=True)))
@@ -353,3 +359,9 @@ def test_invalid_config_details_and_paths_are_redacted(capfd, tmp_path):
     assert "private-input-marker" not in exported and "private-token-marker" not in exported
     assert "not-a-real-token" not in exported
     assert result["error"] == "invalid-or-unverified"
+
+
+@pytest.fixture
+def legacy_cli_conformance(monkeypatch):
+    """Explicit CI-only seam for preserved owner internals; never qualification."""
+    monkeypatch.setattr(cli_module, "require_mutation_qualified", lambda _capability: None)

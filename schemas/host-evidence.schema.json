@@ -1,0 +1,700 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "observed_at",
+    "source",
+    "facts",
+    "profiles"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "observed_at": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 32503680000
+    },
+    "source": {
+      "enum": [
+        "local-collector",
+        "owner-snapshot",
+        "synthetic"
+      ]
+    },
+    "facts": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "key",
+          "state",
+          "reason",
+          "observed_at",
+          "value"
+        ],
+        "properties": {
+          "key": {
+            "enum": [
+              "hardware_class",
+              "hardware_model",
+              "macos_version",
+              "macos_build",
+              "runtime_version",
+              "runtime_domain",
+              "runtime_install_method",
+              "socktainer_version",
+              "socktainer_install_method",
+              "filevault",
+              "automatic_login",
+              "power_restart",
+              "application_firewall",
+              "network_extensions",
+              "proxies",
+              "vpns",
+              "internet_sharing",
+              "lan_interface",
+              "lan_hardware_id",
+              "lan_ipv4",
+              "pf_baseline_sha256",
+              "pf_anchors",
+              "local_network_identity",
+              "kernel_references",
+              "runtime_dns_domain",
+              "runtime_resolvers",
+              "udp_sockets_idle",
+              "udp_sockets_loaded",
+              "installed_framework_sha256",
+              "installed_framework_version",
+              "anchor_order",
+              "owner_conformance",
+              "names_preserved",
+              "framework_literal_check",
+              "instance_literal_check",
+              "recovery_material",
+              "startup_chain",
+              "dns_secondary_resolver"
+            ]
+          },
+          "state": {
+            "enum": [
+              "present",
+              "absent",
+              "unknown"
+            ]
+          },
+          "reason": {
+            "enum": [
+              "complete",
+              "not-checked",
+              "incomplete",
+              "malformed",
+              "inaccessible",
+              "timed-out",
+              "busy",
+              "stale",
+              "local-network-denied",
+              "unsupported",
+              "contradictory",
+              "declared-only",
+              "missing",
+              "identity-mismatch"
+            ]
+          },
+          "observed_at": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 32503680000
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 2147483647
+              },
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              {
+                "type": "array",
+                "maxItems": 256,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "profiles": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "desired_digest",
+          "admitted_digest",
+          "applied_digest",
+          "paused",
+          "suspensions",
+          "transport",
+          "discovery",
+          "probe",
+          "application",
+          "heard_audio"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[a-z][a-z0-9-]{0,63}$"
+          },
+          "desired_digest": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "admitted_digest": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "applied_digest": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "paused": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "suspensions": {
+            "type": "array",
+            "maxItems": 64,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[a-z][a-z0-9-]{0,63}$"
+            }
+          },
+          "transport": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "state",
+              "reason",
+              "observed_at",
+              "generation"
+            ],
+            "properties": {
+              "state": {
+                "enum": [
+                  "present",
+                  "absent",
+                  "unknown"
+                ]
+              },
+              "reason": {
+                "enum": [
+                  "complete",
+                  "not-checked",
+                  "incomplete",
+                  "malformed",
+                  "inaccessible",
+                  "timed-out",
+                  "busy",
+                  "stale",
+                  "local-network-denied",
+                  "unsupported",
+                  "contradictory",
+                  "declared-only",
+                  "missing",
+                  "identity-mismatch"
+                ]
+              },
+              "observed_at": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 32503680000
+              },
+              "generation": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          },
+          "discovery": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "state",
+              "reason",
+              "observed_at",
+              "generation"
+            ],
+            "properties": {
+              "state": {
+                "enum": [
+                  "present",
+                  "absent",
+                  "unknown"
+                ]
+              },
+              "reason": {
+                "enum": [
+                  "complete",
+                  "not-checked",
+                  "incomplete",
+                  "malformed",
+                  "inaccessible",
+                  "timed-out",
+                  "busy",
+                  "stale",
+                  "local-network-denied",
+                  "unsupported",
+                  "contradictory",
+                  "declared-only",
+                  "missing",
+                  "identity-mismatch"
+                ]
+              },
+              "observed_at": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 32503680000
+              },
+              "generation": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          },
+          "probe": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "state",
+              "reason",
+              "observed_at",
+              "generation"
+            ],
+            "properties": {
+              "state": {
+                "enum": [
+                  "present",
+                  "absent",
+                  "unknown"
+                ]
+              },
+              "reason": {
+                "enum": [
+                  "complete",
+                  "not-checked",
+                  "incomplete",
+                  "malformed",
+                  "inaccessible",
+                  "timed-out",
+                  "busy",
+                  "stale",
+                  "local-network-denied",
+                  "unsupported",
+                  "contradictory",
+                  "declared-only",
+                  "missing",
+                  "identity-mismatch"
+                ]
+              },
+              "observed_at": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 32503680000
+              },
+              "generation": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          },
+          "application": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "state",
+              "reason",
+              "observed_at",
+              "generation"
+            ],
+            "properties": {
+              "state": {
+                "enum": [
+                  "present",
+                  "absent",
+                  "unknown"
+                ]
+              },
+              "reason": {
+                "enum": [
+                  "complete",
+                  "not-checked",
+                  "incomplete",
+                  "malformed",
+                  "inaccessible",
+                  "timed-out",
+                  "busy",
+                  "stale",
+                  "local-network-denied",
+                  "unsupported",
+                  "contradictory",
+                  "declared-only",
+                  "missing",
+                  "identity-mismatch"
+                ]
+              },
+              "observed_at": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 32503680000
+              },
+              "generation": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          },
+          "heard_audio": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "state",
+              "reason",
+              "observed_at",
+              "generation"
+            ],
+            "properties": {
+              "state": {
+                "enum": [
+                  "present",
+                  "absent",
+                  "unknown"
+                ]
+              },
+              "reason": {
+                "enum": [
+                  "complete",
+                  "not-checked",
+                  "incomplete",
+                  "malformed",
+                  "inaccessible",
+                  "timed-out",
+                  "busy",
+                  "stale",
+                  "local-network-denied",
+                  "unsupported",
+                  "contradictory",
+                  "declared-only",
+                  "missing",
+                  "identity-mismatch"
+                ]
+              },
+              "observed_at": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 32503680000
+              },
+              "generation": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          },
+          "receipt": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "digest",
+                  "recorded_at",
+                  "generation",
+                  "result"
+                ],
+                "properties": {
+                  "digest": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "recorded_at": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 32503680000
+                  },
+                  "generation": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "result": {
+                    "enum": [
+                      "passed",
+                      "failed",
+                      "unknown"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "components": {
+      "type": "array",
+      "maxItems": 128,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "service",
+          "id",
+          "observation"
+        ],
+        "properties": {
+          "service": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[a-z][a-z0-9-]{0,63}$"
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[a-z][a-z0-9-]{0,63}$"
+          },
+          "observation": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "state",
+              "reason",
+              "observed_at",
+              "generation"
+            ],
+            "properties": {
+              "state": {
+                "enum": [
+                  "present",
+                  "absent",
+                  "unknown"
+                ]
+              },
+              "reason": {
+                "enum": [
+                  "complete",
+                  "not-checked",
+                  "incomplete",
+                  "malformed",
+                  "inaccessible",
+                  "timed-out",
+                  "busy",
+                  "stale",
+                  "local-network-denied",
+                  "unsupported",
+                  "contradictory",
+                  "declared-only",
+                  "missing",
+                  "identity-mismatch"
+                ]
+              },
+              "observed_at": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 32503680000
+              },
+              "generation": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "workloads": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "observation"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[a-z][a-z0-9-]{0,63}$"
+          },
+          "observation": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "state",
+              "reason",
+              "observed_at",
+              "generation"
+            ],
+            "properties": {
+              "state": {
+                "enum": [
+                  "present",
+                  "absent",
+                  "unknown"
+                ]
+              },
+              "reason": {
+                "enum": [
+                  "complete",
+                  "not-checked",
+                  "incomplete",
+                  "malformed",
+                  "inaccessible",
+                  "timed-out",
+                  "busy",
+                  "stale",
+                  "local-network-denied",
+                  "unsupported",
+                  "contradictory",
+                  "declared-only",
+                  "missing",
+                  "identity-mismatch"
+                ]
+              },
+              "observed_at": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 32503680000
+              },
+              "generation": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

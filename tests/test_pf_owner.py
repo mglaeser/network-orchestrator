@@ -194,6 +194,67 @@ def test_changed_resolved_content_pending_not_id_only(environment: Any) -> None:
 @pytest.mark.parametrize(
     "field,value",
     [
+        ("interface", "example1"),
+        ("lan_cidr", "192.0.2.0/25"),
+        ("guest_cidr", "198.51.100.0/25"),
+        ("contract_sha256", "f" * 64),
+        ("ports", {"first": 54, "last": 54}),
+        ("target_ports", {"first": 54, "last": 54}),
+        ("max_age_seconds", 31),
+        ("unknown_limit", 2),
+        ("statement", "Changed bounded address-reuse residual requires its own review."),
+    ],
+)
+def test_review_rule2_root_preserves_approval_but_not_changed_effective_authority(
+    environment: Any, field: str, value: Any
+) -> None:
+    approve_all(environment)
+    run_pass(environment)
+    root, config, _, backend, _ = environment
+    approvals = root.read("admissions.json")
+    changed = to_dict(config)
+    if field in {"interface", "lan_cidr", "guest_cidr"}:
+        changed["scopes"][0][field] = value
+    elif field == "contract_sha256":
+        changed["services"][0][field] = value
+    elif field in {"ports", "target_ports"}:
+        changed["profiles"][0][field] = value
+    else:
+        changed["profiles"][0]["safety"][field] = value
+    root.write("policy.json", changed)
+    result = run_pass(environment)
+    assert result["phase"] == "inhibited"
+    assert root.read("admissions.json") == approvals
+    assert "dns-udp" in result["pending"]
+    assert "# netorch:dns-udp" not in backend.rules
+
+
+def test_review_rule2_single_sourced_range_widening_cannot_amplify_root_admission(
+    environment: Any,
+) -> None:
+    approve_all(environment)
+    run_pass(environment)
+    root, config, _, backend, _ = environment
+    approvals = root.read("admissions.json")
+    changed = to_dict(config)
+    widened = {"first": 45000, "last": 45511}
+    # This is the review's counterexample: renderer updates workload and root
+    # parameters together, so cross-owner equality alone no longer protects it.
+    next(item for item in changed["services"] if item["id"] == "media-controller")[
+        "automatic_ports"
+    ] = widened
+    next(item for item in changed["profiles"] if item["id"] == "media-udp")["ports"] = widened
+    root.write("policy.json", changed)
+    result = run_pass(environment)
+    assert result["phase"] == "inhibited" and "media-udp" in result["pending"]
+    assert root.read("admissions.json") == approvals
+    assert "static-port" not in backend.rules
+    assert "45511" not in backend.rules
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
         ("backend_sha256", "e" * 64),
         ("observer", {"schema_version": 2}),
         ("allow_apple_dns_coexistence", True),
@@ -260,6 +321,124 @@ def test_network_generation_change_retires_before_new_activation(environment: An
     snapshots.append(replace(snapshots[-1], profiles=fresh_profiles))
     assert run_pass(environment)["phase"] == "committed"
     assert root.read("live.json")["records"]["media-udp"]["network_generation"] == "network-2"
+
+
+def test_review_rule4_rebuilt_pool_redeals_old_target_but_retires_rules_and_states_first(
+    environment: Any,
+) -> None:
+    from netorch.safety_contract import RotatingAllocatorModel
+
+    root, config, _, backend, snapshots = environment
+    first_pool = RotatingAllocatorModel(config.scopes[0].guest_cidr)
+    current = snapshots[-1]
+    services = {
+        service.id: Observation(
+            "present",
+            "verified",
+            STAMP,
+            "instance-1",
+            {
+                **current.services[service.id].data,
+                "ipv4": first_pool.allocate(service.id),
+            },
+        )
+        for service in config.services
+    }
+    publications = {
+        key: Observation(
+            value.state,
+            value.reason,
+            STAMP,
+            "instance-1",
+            {
+                **value.data,
+                "target_ipv4": services[config.profile(key).service].data["ipv4"],
+            },
+        )
+        for key, value in current.profiles.items()
+    }
+    snapshots.append(Snapshot(STAMP, "network-1", services, publications))
+    approve_all(environment)
+    run_pass(environment)
+    old_target = services["media-controller"].data["ipv4"]
+    assert isinstance(old_target, str)
+    backend.flow_states = (
+        f"all udp {old_target}:45001 -> 192.0.2.82:80 NO_TRAFFIC:SINGLE\n"
+        f"all udp 192.0.2.82:80 -> {old_target}:45001 SINGLE:NO_TRAFFIC"
+    )
+    rebuilt = RotatingAllocatorModel(config.scopes[0].guest_cidr)
+    replacement_addresses = {
+        service.id: rebuilt.allocate(service.id) for service in reversed(config.services)
+    }
+    assert replacement_addresses["media-controller"] != old_target
+    assert old_target in replacement_addresses.values()
+    new_services = {
+        service.id: Observation(
+            "present",
+            "verified",
+            STAMP,
+            "instance-2",
+            {
+                **services[service.id].data,
+                "ipv4": replacement_addresses[service.id],
+            },
+        )
+        for service in config.services
+    }
+    new_publications = {
+        key: Observation(
+            value.state,
+            value.reason,
+            STAMP,
+            "instance-2",
+            {
+                **value.data,
+                "target_generation": "instance-2",
+                "network_generation": "network-2",
+                "target_ipv4": new_services[config.profile(key).service].data["ipv4"],
+            },
+        )
+        for key, value in publications.items()
+    }
+    snapshots.append(Snapshot(STAMP, "network-2", new_services, new_publications))
+    first = run_pass(environment)
+    assert not backend.rules and not backend.flow_states
+    assert ("drain", old_target) in backend.commands
+    assert not any("activate" in action for action in first["changed"])
+    assert run_pass(environment)["phase"] == "committed"
+    assert (
+        root.read("live.json")["records"]["media-udp"]["target_ipv4"]
+        == (replacement_addresses["media-controller"])
+    )
+
+
+@pytest.mark.parametrize("reason", ["timed-out", "stale", "local-network-denied", "busy"])
+def test_review_rule6_uncertainty_retires_without_becoming_recovery(
+    environment: Any, reason: str
+) -> None:
+    approve_all(environment)
+    run_pass(environment)
+    root, _, _, backend, snapshots = environment
+    backend.flow_states = (
+        "all udp 198.51.100.12:45001 -> 192.0.2.82:80 NO_TRAFFIC:SINGLE\n"
+        "all udp 192.0.2.82:80 -> 198.51.100.12:45001 SINGLE:NO_TRAFFIC"
+    )
+    snapshots.append(
+        Snapshot(
+            STAMP,
+            None,
+            {key: Observation("unknown", reason, STAMP, None) for key in snapshots[-1].services},
+            {},
+        )
+    )
+    result = run_pass(environment)
+    assert result["phase"] == "inhibited"
+    assert not backend.rules and not backend.flow_states
+    assert all(
+        command[0] in {"inspect", "replace", "drain", "reference", "endpoint"}
+        for command in backend.commands
+    )
+    assert root.read("journal.json")["phase"] == "inhibited"
 
 
 def test_paused_intent_survives_suspension_release(environment: Any) -> None:
@@ -443,9 +622,9 @@ def test_valid_empty_state_read_is_absent() -> None:
     assert state_addresses("") == ()
 
 
-def test_no_live_entrypoint_on_linux_or_nonroot(capsys: Any, tmp_path: Path) -> None:
-    assert main(["reconcile", "--root-dir", str(tmp_path)]) == 65
-    assert "independent owner operation failed" in capsys.readouterr().err
+def test_no_live_entrypoint_without_its_native_owner(capsys: Any, tmp_path: Path) -> None:
+    assert main(["reconcile", "--root-dir", str(tmp_path)]) == 78
+    assert "stage-not-qualified" in capsys.readouterr().err
 
 
 def test_launchd_schedule_has_no_rpc_or_sudo_grant(environment: Any) -> None:
@@ -885,6 +1064,7 @@ def test_native_observation_stderr_is_unknown(monkeypatch: Any) -> None:
     assert ShellBackend._native(["/absolute/fake"]) == "complete"
 
 
+@pytest.mark.usefixtures("legacy_cli_conformance")
 def test_cli_live_boundary_isolated_and_exact_admission(
     environment: Any, monkeypatch: Any, capsys: Any
 ) -> None:
@@ -1830,3 +2010,11 @@ def test_root_runtime_observer_must_prove_native_binaries_before_reading(
     monkeypatch.setattr(runtime, "observe_runtime", lambda *args: pytest.fail("unsafe code read"))
     with pytest.raises(UnsafeState, match="untrusted native"):
         module._runtime_observer(environment[1], raw)
+
+
+@pytest.fixture
+def legacy_cli_conformance(monkeypatch):
+    """Explicit CI-only seam for preserved owner internals; never qualification."""
+    import netorch.pf_owner as module
+
+    monkeypatch.setattr(module, "require_mutation_qualified", lambda _capability: None)

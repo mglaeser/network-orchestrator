@@ -75,6 +75,7 @@ def test_cli_build_validate_verify_and_plan(
 
 
 @pytest.mark.parametrize("scope", ["user", "root"])
+@pytest.mark.usefixtures("legacy_cli_conformance")
 def test_cli_install_and_rollback_exact_keywords(
     tmp_path: Path,
     manifest: dict[str, Any],
@@ -151,6 +152,7 @@ def test_cli_install_and_rollback_exact_keywords(
     assert result["preserved_intent"] is True
 
 
+@pytest.mark.usefixtures("legacy_cli_conformance")
 def test_cli_failed_install_recovers_exact_failed_digest(
     tmp_path: Path,
     manifest: dict[str, Any],
@@ -206,6 +208,7 @@ def test_cli_failed_install_recovers_exact_failed_digest(
 
 
 @pytest.mark.parametrize("command", ["verify", "install-user", "install-root"])
+@pytest.mark.usefixtures("legacy_cli_conformance")
 def test_cli_rejects_unreviewed_digest_before_platform(
     tmp_path: Path,
     manifest: dict[str, Any],
@@ -226,6 +229,7 @@ def policy() -> Path:
     return Path(__file__).resolve().parents[1] / "examples/network.json"
 
 
+@pytest.mark.usefixtures("legacy_cli_conformance")
 def test_user_admission_exact_review_preserves_pause(
     tmp_path: Path, policy: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -259,6 +263,7 @@ def test_user_admission_exact_review_preserves_pause(
     assert (store.directory / "admissions.json").read_bytes() == before
 
 
+@pytest.mark.usefixtures("legacy_cli_conformance")
 def test_user_admission_never_admits_root_profile(
     tmp_path: Path, policy: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -286,6 +291,7 @@ def test_user_admission_never_admits_root_profile(
     assert not (tmp_path / "state").exists()
 
 
+@pytest.mark.usefixtures("legacy_cli_conformance")
 def test_user_bounded_admission_requires_risk_ack(
     tmp_path: Path, policy: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -319,6 +325,7 @@ def test_user_bounded_admission_requires_risk_ack(
     assert invoke(capsys, [*args, "--ack-bounded-risk"])["admitted"] == "camera-web"
 
 
+@pytest.mark.usefixtures("legacy_cli_conformance")
 def test_corrupt_admissions_never_overwritten(
     tmp_path: Path, policy: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -348,6 +355,7 @@ def test_corrupt_admissions_never_overwritten(
     assert (store.directory / "admissions.json").read_bytes() == before
 
 
+@pytest.mark.usefixtures("legacy_cli_conformance")
 def test_reconcile_quiet_unchanged_ignores_time_only_then_reports_pause(
     tmp_path: Path,
     policy: Path,
@@ -406,3 +414,9 @@ def test_reconcile_quiet_unchanged_ignores_time_only_then_reports_pause(
     assert (store.directory / "status.json").stat().st_mtime_ns == before
     store.write("intent.json", intent_to_dict(Intent().pause()))
     assert invoke(capsys, args)["intent"]["operator_paused"] is True
+
+
+@pytest.fixture
+def legacy_cli_conformance(monkeypatch):
+    """Explicit CI-only seam for preserved owner internals; never qualification."""
+    monkeypatch.setattr(cli, "require_mutation_qualified", lambda _capability: None)
