@@ -197,15 +197,27 @@ def fake_platform(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
             fields = list(info)
             fields[0] = stat.S_IFDIR | 0o755
             fields[4] = 0
-            return os.stat_result(fields)
+            return os.stat_result(
+                fields,
+                {
+                    key: getattr(info, key)
+                    for key in ("st_atime_ns", "st_mtime_ns", "st_ctime_ns", "st_flags")
+                    if hasattr(info, key)
+                },
+            )
         return info
+
+    monkeypatch.setattr(Path, "lstat", protected_shared_ancestor)
+    # Only the unprivileged lab's ACL provider is replaced. Production root
+    # checks still execute for root scope under the synthetic current UID.
+    monkeypatch.setattr(implementation, "reject_acl", lambda path, **kwargs: None)
 
     def prepare_report(directory: Path, uid: int) -> None:
         if not directory.is_relative_to(namespace):
             raise AssertionError("fake report preparation must remain in its disposable namespace")
-        # Normalize only existing shared ancestry while the real production
-        # checks run. Fixture-local state and reports retain their actual
-        # permissions/ownership, and all reads outside this call stay real.
+        # Fixture-local state and reports retain their actual permissions,
+        # ownership and inode identity; shared metadata is synthetic throughout
+        # this protected root lab, not a production bypass.
         with monkeypatch.context() as scoped:
             scoped.setattr(Path, "lstat", protected_shared_ancestor)
             native_prepare(directory, uid)
@@ -251,6 +263,25 @@ def test_production_report_reader_refuses_shared_tmp_mode(monkeypatch: pytest.Mo
     monkeypatch.setattr(Path, "lstat", shared_tmp)
     with pytest.raises(DeploymentError, match="ancestor is replaceable"):
         implementation._prepare_report_directory(Path("/tmp/netorch-unused-report-fixture"), 0)
+
+
+def test_production_privileged_tree_refuses_shared_tmp_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    native_lstat = Path.lstat
+
+    def shared_tmp(path: Path, *args: Any, **kwargs: Any) -> os.stat_result:
+        info = native_lstat(path, *args, **kwargs)
+        if path == Path("/tmp"):
+            values = list(info)
+            values[0] = stat.S_IFDIR | 0o1777
+            values[4] = 0
+            return os.stat_result(values)
+        return info
+
+    monkeypatch.setattr(Path, "lstat", shared_tmp)
+    with pytest.raises(DeploymentError, match="ancestor permits other writers"):
+        implementation._check_tree(Path("/tmp"), os.geteuid(), privileged=True)
 
 
 def test_deterministic_bundle(tmp_path: Path, manifest: dict[str, Any], config: Any) -> None:

@@ -15,7 +15,7 @@ import re
 import shlex
 import stat
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -30,6 +30,7 @@ from .deployment_config import (
 from .deployment_model import Deployment, Job
 from .model import Config
 from .pf_owner import Installation as ForwardingSettings
+from .pf_owner import reject_acl
 from .process import Result, run
 from .state import Intent, intent_from_dict, intent_to_dict
 from .storage import Store
@@ -40,6 +41,43 @@ MAX_ARTIFACT_BYTES = 1_048_576
 
 def _sha(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
+
+
+def _privileged_acl(path: Path, *, content: bool = True) -> None:
+    """Reuse the independent owner's strict root ACL trust boundary."""
+    try:
+        before = path.lstat()
+        reject_acl(path)
+        after = path.lstat()
+        identity = _metadata if content else _trust_metadata
+        if identity(after) != identity(before):
+            raise DeploymentError("privileged path changed during ACL verification")
+    except FileNotFoundError:
+        raise
+    except (OSError, RuntimeError) as exc:
+        raise DeploymentError("privileged path has an ACL or incomplete protection") from exc
+
+
+def _metadata(info: os.stat_result) -> tuple[int, ...]:
+    # Access times may change through a read; trust/content metadata must not.
+    return (
+        info.st_dev,
+        info.st_ino,
+        info.st_mode,
+        info.st_uid,
+        info.st_gid,
+        info.st_nlink,
+        info.st_size,
+        info.st_mtime_ns,
+        info.st_ctime_ns,
+        getattr(info, "st_flags", 0),
+    )
+
+
+def _trust_metadata(info: os.stat_result) -> tuple[int, ...]:
+    # Append-only logs may grow during inspection; ownership, flags and identity
+    # must remain unchanged even when their content metadata legitimately moves.
+    return (*_metadata(info)[:6], getattr(info, "st_flags", 0))
 
 
 def _forwarding_settings(deployment: Deployment, captures: dict[str, bytes]) -> ForwardingSettings:
@@ -76,6 +114,7 @@ def _prepare_report_directory(directory: Path, uid: int) -> None:
             raise DeploymentError("root report ancestor is replaceable")
         if uid == 0 and (info.st_uid != 0 or not info.st_mode & 0o001):
             raise DeploymentError("root report must have root-owned publicly traversable ancestors")
+        _privileged_acl(current)
 
 
 def _read_file(
@@ -84,7 +123,11 @@ def _read_file(
     private: bool = False,
     root_owned: bool = False,
     allow_other_owner: bool = False,
+    privileged: bool = False,
 ) -> bytes:
+    if privileged or root_owned:
+        _check_tree(path.parent, os.geteuid(), privileged=True)
+        _privileged_acl(path)
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
     try:
         info = os.fstat(fd)
@@ -103,14 +146,16 @@ def _read_file(
         if len(value) > MAX_ARTIFACT_BYTES:
             raise DeploymentError("bundle input exceeds its size bound")
         final = path.lstat()
-        if (final.st_dev, final.st_ino) != (info.st_dev, info.st_ino):
+        if _metadata(final) != _metadata(info) or _metadata(os.fstat(fd)) != _metadata(info):
             raise DeploymentError("bundle input changed during capture")
+        if privileged or root_owned:
+            _privileged_acl(path)
         return value
     finally:
         os.close(fd)
 
 
-def _check_tree(path: Path, uid: int, *, create: bool = False) -> None:
+def _check_tree(path: Path, uid: int, *, create: bool = False, privileged: bool = False) -> None:
     """Check every pathname ancestor; do not follow links or replace foreign trees."""
     path = path.absolute()
     current = Path(path.anchor)
@@ -126,17 +171,23 @@ def _check_tree(path: Path, uid: int, *, create: bool = False) -> None:
         if not stat.S_ISDIR(info.st_mode) or info.st_uid not in {0, uid}:
             raise DeploymentError("installation ancestor is not an owned directory")
         writable = stat.S_IMODE(info.st_mode) & 0o022
-        sticky_root = info.st_uid == 0 and bool(info.st_mode & stat.S_ISVTX)
+        sticky_root = (
+            not privileged and uid != 0 and info.st_uid == 0 and bool(info.st_mode & stat.S_ISVTX)
+        )
         if writable and not sticky_root:
             raise DeploymentError("installation ancestor permits other writers")
         if uid == 0 and info.st_uid != 0:
             raise DeploymentError("privileged installation has a user-owned ancestor")
+        if privileged or uid == 0:
+            _privileged_acl(current)
     if path.lstat().st_uid != uid:
         raise DeploymentError("installation directory has the wrong owner")
 
 
-def _write_new(path: Path, payload: bytes, mode: int = 0o600) -> None:
+def _write_new(path: Path, payload: bytes, mode: int = 0o600, *, privileged: bool = False) -> None:
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if privileged:
+        _check_tree(path.parent, os.geteuid(), privileged=True)
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode)
     try:
         remaining = memoryview(payload)
@@ -148,6 +199,58 @@ def _write_new(path: Path, payload: bytes, mode: int = 0o600) -> None:
         os.fsync(fd)
     finally:
         os.close(fd)
+    if privileged and _read_file(path, private=True, privileged=True) != payload:
+        raise DeploymentError("generated privileged artifact differs from its reviewed bytes")
+
+
+class _PrivilegedStore(Store):
+    """Deployment-only guard for root journals/receipts; user Store is unchanged."""
+
+    def __init__(self, directory: Path) -> None:
+        _check_tree(directory, os.geteuid(), privileged=True)
+        super().__init__(directory)
+
+    def _check_current_directory(self, fd: int) -> None:
+        super()._check_current_directory(fd)
+        _check_tree(self.directory, os.geteuid(), privileged=True)
+
+    def read(self, name: str) -> Any:
+        path = self._path(name)
+        before = strict_loads(_read_file(path, private=True, privileged=True))
+        value = super().read(name)
+        after = strict_loads(_read_file(path, private=True, privileged=True))
+        if value != before or value != after:
+            raise DeploymentError("privileged operational record changed during capture")
+        return value
+
+    def write(self, name: str, value: Any) -> None:
+        _check_tree(self.directory, os.geteuid(), privileged=True)
+        path = self._path(name)
+        if path.exists() or path.is_symlink():
+            _read_file(path, private=True, privileged=True)
+        super().write(name, value)
+        if _read_file(path, private=True, privileged=True) != canonical_bytes(value) + b"\n":
+            raise DeploymentError("privileged operational write differs from its reviewed bytes")
+
+    @contextlib.contextmanager
+    def lock(self) -> Iterator[None]:
+        _check_tree(self.directory, os.geteuid(), privileged=True)
+        path = self._path("owner.lock")
+        if path.exists() or path.is_symlink():
+            _read_file(path, private=True, privileged=True)
+        with super().lock():
+            _read_file(path, private=True, privileged=True)
+            yield
+
+
+def _deployment_store(directory: Path, scope: str) -> Store:
+    return _PrivilegedStore(directory) if scope == "root" else Store(directory)
+
+
+def _fence_files(release: Path, files: dict[str, bytes], *, privileged: bool) -> None:
+    for name, expected in files.items():
+        if _read_file(release / name, private=True, privileged=privileged) != expected:
+            raise DeploymentError("installed release differs from its reviewed bytes")
 
 
 def _resolve(value: str, release: Path, state: str) -> str:
@@ -425,6 +528,7 @@ def _require_platform(scope: str, deployment: Deployment) -> int:
 
 
 def _protected_executable(path: Path) -> None:
+    _privileged_acl(path)
     descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
     try:
         info = os.fstat(descriptor)
@@ -461,20 +565,54 @@ def plan_install(bundle: Path, scope: str) -> dict[str, Any]:
     }
 
 
-def _atomic_record(path: Path, payload: bytes, uid: int) -> None:
-    _check_tree(path.parent, uid)
+def _atomic_record(path: Path, payload: bytes, uid: int, *, privileged: bool = False) -> None:
+    _check_tree(path.parent, uid, privileged=privileged)
     temporary = path.parent / f".{path.name}.netorch-new"
     if temporary.exists() or temporary.is_symlink():
         raise DeploymentError("unfinished file replacement needs inspection")
     if path.exists() or path.is_symlink():
-        _read_file(path)
-    _write_new(temporary, payload)
+        _read_file(path, privileged=privileged)
+    _write_new(temporary, payload, privileged=privileged)
+    _check_tree(path.parent, uid, privileged=privileged)
     os.replace(temporary, path)
     directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
         os.fsync(directory)
     finally:
         os.close(directory)
+    if _read_file(path, private=True, privileged=privileged) != payload:
+        raise DeploymentError("installed job differs from its reviewed bytes")
+
+
+def _fence_job(installed: Path, payload: bytes, job: Job, uid: int) -> None:
+    privileged = job.scope == "root"
+    _check_tree(installed.parent, uid, privileged=privileged)
+    if _read_file(installed, private=True, privileged=privileged) != payload:
+        raise DeploymentError("job changed before native bootstrap")
+    if privileged:
+        directory = Path(job.log_directory)
+        _check_tree(directory, uid, privileged=True)
+        for suffix in ("out.log", "err.log"):
+            path = directory / f"{job.label}.{suffix}"
+            if not path.exists() and not path.is_symlink():
+                continue
+            _privileged_acl(path, content=False)
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+            try:
+                info = os.fstat(fd)
+                if (
+                    not stat.S_ISREG(info.st_mode)
+                    or info.st_uid != uid
+                    or info.st_nlink != 1
+                    or info.st_mode & 0o022
+                ):
+                    raise DeploymentError("privileged launchd log target is unsafe")
+                final = path.lstat()
+                if _trust_metadata(info) != _trust_metadata(final):
+                    raise DeploymentError("privileged launchd log target changed")
+                _privileged_acl(path, content=False)
+            finally:
+                os.close(fd)
 
 
 def _receipt(value: Any, scope: str) -> dict[str, Any]:
@@ -517,7 +655,9 @@ def _receipt(value: Any, scope: str) -> dict[str, Any]:
 def _verified_release(receipt: dict[str, Any], scope: str) -> tuple[Path, dict[str, bytes]]:
     deployment = parse_deployment(canonical_bytes(receipt["deployment"]))
     release = Path(deployment.installation(scope).directory) / "releases" / receipt["release_id"]
-    metadata = strict_loads(_read_file(release / "bundle-manifest.json", private=True))
+    metadata = strict_loads(
+        _read_file(release / "bundle-manifest.json", private=True, privileged=scope == "root")
+    )
     if (
         not isinstance(metadata, dict)
         or metadata.get("bundle_digest") != receipt["bundle_digest"]
@@ -532,7 +672,7 @@ def _verified_release(receipt: dict[str, Any], scope: str) -> tuple[Path, dict[s
             relative = name.removeprefix(f"{scope}/")
             if PurePosixPath(relative).is_absolute() or ".." in PurePosixPath(relative).parts:
                 raise DeploymentError("retained release escapes its boundary")
-            payload = _read_file(release / relative, private=True)
+            payload = _read_file(release / relative, private=True, privileged=scope == "root")
             if _sha(payload) != record["sha256"]:
                 raise DeploymentError("retained release file was modified")
             captured[relative] = payload
@@ -582,10 +722,11 @@ def install_bundle(
     installation = deployment.installation(scope)
     target = Path(installation.directory)
     state_dir = Path(installation.state_directory)
-    _check_tree(target, uid, create=True)
-    _check_tree(state_dir, uid, create=True)
-    _check_tree(Path(installation.launchd_directory), uid, create=True)
-    store = Store(state_dir)
+    privileged = scope == "root"
+    _check_tree(target, uid, create=True, privileged=privileged)
+    _check_tree(state_dir, uid, create=True, privileged=privileged)
+    _check_tree(Path(installation.launchd_directory), uid, create=True, privileged=privileged)
+    store = _deployment_store(state_dir, scope)
     with store.lock():
         with contextlib.suppress(FileNotFoundError):
             previous_journal = store.read("installation-journal.json")
@@ -595,11 +736,13 @@ def install_bundle(
         with contextlib.suppress(FileNotFoundError):
             previous = _receipt(store.read("installation-receipt.json"), scope)
         if previous is not None and previous.get("release_id") == manifest["release_id"]:
-            _verified_release(previous, scope)
+            _, unchanged_files = _verified_release(previous, scope)
             for item in previous["jobs"]:
                 installed = Path(installation.launchd_directory) / f"{item['label']}.plist"
-                if _sha(_read_file(installed)) != item["sha256"]:
+                if _sha(_read_file(installed, privileged=privileged)) != item["sha256"]:
                     raise DeploymentError("installed job changed since the matching release")
+                job = next(job for job in deployment.jobs if job.label == item["label"])
+                _fence_job(installed, unchanged_files[f"launchd/{job.label}.plist"], job, uid)
                 _tool(
                     runner,
                     (deployment.launchctl, "print", f"{installation.domain}/{item['label']}"),
@@ -624,7 +767,10 @@ def install_bundle(
             installed = Path(installation.launchd_directory) / f"{label}.plist"
             if installed.exists() or installed.is_symlink():
                 old_record = old_inventory.get(label)
-                if old_record is None or _sha(_read_file(installed)) != old_record["sha256"]:
+                if (
+                    old_record is None
+                    or _sha(_read_file(installed, privileged=privileged)) != old_record["sha256"]
+                ):
                     raise DeploymentError(
                         "existing launchd file is not an unchanged owned artifact"
                     )
@@ -650,7 +796,7 @@ def install_bundle(
         root_held = False
         try:
             release = target / "releases" / manifest["release_id"]
-            _check_tree(release.parent, uid, create=True)
+            _check_tree(release.parent, uid, create=True, privileged=privileged)
             if release.exists() or release.is_symlink():
                 raise DeploymentError("release already exists without matching committed receipt")
             release.mkdir(mode=0o700)
@@ -660,8 +806,13 @@ def install_bundle(
                     _write_new(
                         release / name.removeprefix(f"{scope}/"),
                         captured[name],
+                        privileged=privileged,
                     )
-            _write_new(release / "bundle-manifest.json", canonical_bytes(manifest) + b"\n")
+            _write_new(
+                release / "bundle-manifest.json",
+                canonical_bytes(manifest) + b"\n",
+                privileged=privileged,
+            )
             journal["phase"] = "preflight-jobs"
             store.write("installation-journal.json", journal)
             for label in labels:
@@ -685,6 +836,15 @@ def install_bundle(
                     if item.id == deployment.forwarding.settings_artifact
                 )
                 root_job = next(job for job in deployment.jobs if job.scope == "root")
+                _fence_files(
+                    release,
+                    {
+                        name[5:]: payload
+                        for name, payload in captured.items()
+                        if name.startswith("root/")
+                    },
+                    privileged=True,
+                )
                 journal["phase"] = "installing-forwarding-owner"
                 store.write("installation-journal.json", journal)
                 _tool(
@@ -721,10 +881,12 @@ def install_bundle(
             store.write("installation-journal.json", journal)
             installed_jobs: list[dict[str, Any]] = []
             for job in jobs:
-                _check_tree(Path(job.log_directory), uid, create=True)
-                payload = _read_file(release / "launchd" / f"{job.label}.plist", private=True)
+                _check_tree(Path(job.log_directory), uid, create=True, privileged=privileged)
+                payload = _read_file(
+                    release / "launchd" / f"{job.label}.plist", private=True, privileged=privileged
+                )
                 installed = Path(installation.launchd_directory) / f"{job.label}.plist"
-                _atomic_record(installed, payload, uid)
+                _atomic_record(installed, payload, uid, privileged=privileged)
                 installed_jobs.append({"label": job.label, "sha256": _sha(payload)})
             new_labels = {job.label for job in jobs}
             for label in set(old_inventory) - new_labels:
@@ -733,6 +895,7 @@ def install_bundle(
             store.write("installation-journal.json", journal)
             for job in jobs:
                 installed = Path(installation.launchd_directory) / f"{job.label}.plist"
+                _fence_job(installed, captured[f"{scope}/launchd/{job.label}.plist"], job, uid)
                 _tool(
                     runner, (deployment.launchctl, "bootstrap", installation.domain, str(installed))
                 )
@@ -796,7 +959,7 @@ def rollback_install(
     directory: Path, scope: str, *, expected_current_digest: str, runner: ToolRunner = run_tool
 ) -> dict[str, Any]:
     """Explicit reversal of a committed file/job release; preserve current intent."""
-    store = Store(directory)
+    store = _deployment_store(directory, scope)
     with store.lock():
         receipt = _receipt(store.read("installation-receipt.json"), scope)
         if receipt["scope"] != scope or receipt["bundle_digest"] != expected_current_digest:
@@ -815,12 +978,19 @@ def rollback_install(
             and deployment.forwarding.directory != old_deployment.forwarding.directory
         ):
             raise DeploymentError("rollback cannot change installation boundaries")
-        _check_tree(Path(installation.directory), uid)
-        _check_tree(Path(installation.launchd_directory), uid)
+        privileged = scope == "root"
+        _check_tree(Path(installation.directory), uid, privileged=privileged)
+        _check_tree(Path(installation.launchd_directory), uid, privileged=privileged)
         release, old_files = _verified_release(previous, scope)
         for record in previous["jobs"]:
             if (
-                _sha(_read_file(release / "launchd" / f"{record['label']}.plist", private=True))
+                _sha(
+                    _read_file(
+                        release / "launchd" / f"{record['label']}.plist",
+                        private=True,
+                        privileged=privileged,
+                    )
+                )
                 != record["sha256"]
             ):
                 raise DeploymentError("previous release was modified; rollback unavailable")
@@ -845,7 +1015,7 @@ def rollback_install(
                 root_held = _root_hold(deployment, expected_current_digest, runner)
             for record in receipt["jobs"]:
                 installed = Path(installation.launchd_directory) / f"{record['label']}.plist"
-                if _sha(_read_file(installed)) != record["sha256"]:
+                if _sha(_read_file(installed, privileged=privileged)) != record["sha256"]:
                     raise DeploymentError("current managed file changed; inspect before rollback")
                 _tool(
                     runner,
@@ -860,6 +1030,7 @@ def rollback_install(
                     if item.id == old_deployment.forwarding.settings_artifact
                 )
                 root_job = next(job for job in old_deployment.jobs if job.scope == "root")
+                _fence_files(release, old_files, privileged=True)
                 _tool(
                     runner,
                     (
@@ -887,7 +1058,10 @@ def rollback_install(
                     installed,
                     old_files[f"launchd/{record['label']}.plist"],
                     uid,
+                    privileged=privileged,
                 )
+                job = next(job for job in old_deployment.jobs if job.label == record["label"])
+                _fence_job(installed, old_files[f"launchd/{record['label']}.plist"], job, uid)
                 _tool(
                     runner,
                     (old_deployment.launchctl, "bootstrap", installation.domain, str(installed)),
@@ -932,7 +1106,7 @@ def recover_install(
     evidence, removes only verified generated user jobs, and never deletes data.
     The next install must use a new bundle/release or explicit evidence cleanup.
     """
-    store = Store(directory)
+    store = _deployment_store(directory, scope)
     with store.lock():
         journal = store.read("installation-journal.json")
         if (
@@ -952,10 +1126,13 @@ def recover_install(
         deployment = parse_deployment(canonical_bytes(previous["deployment"]))
         uid = _require_platform(scope, deployment)
         installation = deployment.installation(scope)
+        privileged = scope == "root"
+        _check_tree(Path(installation.directory), uid, privileged=privileged)
+        _check_tree(Path(installation.launchd_directory), uid, privileged=privileged)
         release, old_files = _verified_release(previous, scope)
         failed_release = Path(installation.directory) / "releases" / release_id
         failed_manifest = strict_loads(
-            _read_file(failed_release / "bundle-manifest.json", private=True)
+            _read_file(failed_release / "bundle-manifest.json", private=True, privileged=privileged)
         )
         if (
             failed_manifest.get("bundle_digest") != expected_failed_digest
@@ -984,7 +1161,7 @@ def recover_install(
         for label in labels:
             installed = Path(installation.launchd_directory) / f"{label}.plist"
             if (installed.exists() or installed.is_symlink()) and _sha(
-                _read_file(installed)
+                _read_file(installed, privileged=privileged)
             ) not in {
                 old_hashes.get(label),
                 failed_hashes.get(label),
@@ -1013,6 +1190,7 @@ def recover_install(
                     if item.id == deployment.forwarding.settings_artifact
                 )
                 root_job = next(job for job in deployment.jobs if job.scope == "root")
+                _fence_files(release, old_files, privileged=True)
                 _tool(
                     runner,
                     (
@@ -1037,7 +1215,11 @@ def recover_install(
                     installed.unlink()
             for label in old_labels:
                 installed = Path(installation.launchd_directory) / f"{label}.plist"
-                _atomic_record(installed, old_files[f"launchd/{label}.plist"], uid)
+                _atomic_record(
+                    installed, old_files[f"launchd/{label}.plist"], uid, privileged=privileged
+                )
+                job = next(job for job in deployment.jobs if job.label == label)
+                _fence_job(installed, old_files[f"launchd/{label}.plist"], job, uid)
                 _tool(
                     runner, (deployment.launchctl, "bootstrap", installation.domain, str(installed))
                 )
@@ -1076,10 +1258,14 @@ def _recover_first(
     uid = _require_platform(scope, deployment)
     installation = deployment.installation(scope)
     release = Path(installation.directory) / "releases" / journal["release_id"]
-    _check_tree(Path(installation.launchd_directory), uid)
+    privileged = scope == "root"
+    _check_tree(Path(installation.directory), uid, privileged=privileged)
+    _check_tree(Path(installation.launchd_directory), uid, privileged=privileged)
     expected: dict[str, bytes] = {}
     if journal.get("failed_phase") not in {"staging", "preflight-jobs"}:
-        metadata = strict_loads(_read_file(release / "bundle-manifest.json", private=True))
+        metadata = strict_loads(
+            _read_file(release / "bundle-manifest.json", private=True, privileged=privileged)
+        )
         if (
             metadata["bundle_digest"] != failed_digest
             or digest({key: value for key, value in metadata.items() if key != "bundle_digest"})
@@ -1088,11 +1274,14 @@ def _recover_first(
             raise DeploymentError("failed first-release evidence was modified")
         for job in deployment.jobs:
             if job.scope == scope:
-                payload = _read_file(release / "launchd" / f"{job.label}.plist", private=True)
+                payload = _read_file(
+                    release / "launchd" / f"{job.label}.plist", private=True, privileged=privileged
+                )
                 expected[job.label] = payload
                 installed = Path(installation.launchd_directory) / f"{job.label}.plist"
                 if (installed.exists() or installed.is_symlink()) and _read_file(
-                    installed
+                    installed,
+                    privileged=privileged,
                 ) != payload:
                     raise DeploymentError("failed first-install job has foreign content")
     if scope == "user":
@@ -1129,7 +1318,9 @@ def _recover_first(
             )
         elif root_held:
             root_intent = intent_from_dict(
-                Store(Path(deployment.forwarding.directory)).read("operator-intent.json")
+                _deployment_store(Path(deployment.forwarding.directory), "root").read(
+                    "operator-intent.json"
+                )
             )
             if root_intent.damaged or not root_intent.operator_paused:
                 # No predecessor means no verified scheduler to restore. Keep

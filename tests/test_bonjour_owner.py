@@ -224,6 +224,189 @@ def test_browse_parser_preserves_names_and_removes_gone_records():
     assert native.browse_names(raw, "_airplay._tcp", 7, 8) == ("Living room speaker",)
 
 
+@pytest.mark.parametrize("stamp", [" 0:00:00.000", " 9:59:59.999", "10:00:00.000", "23:59:59.999"])
+def test_native_source_timestamp_format_in_all_discovery_parsers(stamp):
+    # Synthetic values, with spacing from Apple's printtimestamp_F (%2d hour),
+    # browse_reply, resolve_reply, addrinfo_reply and qr_reply. Source provenance:
+    # mDNSResponder-2881.120.11/Clients/dns-sd.c, not a production capture.
+    name = "Example  speaker"
+    fullname = name + "._airplay._tcp.local."
+    browse = (
+        "Using interface 7\nBrowsing for _airplay._tcp.local.\n"
+        "Timestamp     A/R    Flags  if Domain               Service Type         Instance Name\n"
+        f"{stamp}  Add        2   7 local.               _airplay._tcp.        {name}\n"
+    ).encode()
+    resolved = (
+        f"{stamp}  {fullname} can be reached at speaker.local.:7000 (interface 7) Flags: 2\n"
+    ).encode()
+    address = (
+        f"{stamp}  Add  2            7  speaker.local.                         192.0.2.82 120\n"
+    ).encode()
+    txt = (f"{stamp}  Add  2            7  {fullname} TXT    IN     2 bytes: 01 61\n").encode()
+    assert native.browse_names(browse, "_airplay._tcp", 7, 8) == (name,)
+    assert native.resolve_endpoint(resolved, 7) == (fullname, "speaker.local.", 7000)
+    assert native.resolve_ipv4(address, "speaker.local.", 7) == "192.0.2.82"
+    assert native.resolve_txt(txt, fullname, 7) == (b"a",)
+
+
+@pytest.mark.parametrize(
+    "stamp",
+    [
+        "9:00:00.000",
+        "09:00:00.000",
+        "  9:00:00.000",
+        "24:00:00.000",
+        "12:60:00.000",
+        "12:00:60.000",
+        "12:00:00.00",
+    ],
+)
+def test_discovery_parsers_reject_malformed_native_timestamp(stamp):
+    with pytest.raises(native.DiscoveryFailure):
+        native.browse_names(
+            f"{stamp}  Add 2 7 local. _airplay._tcp. Example speaker\n".encode(),
+            "_airplay._tcp",
+            7,
+            8,
+        )
+    with pytest.raises(native.DiscoveryFailure):
+        native.resolve_endpoint(
+            (
+                f"{stamp}  Example speaker._airplay._tcp.local. can be reached at "
+                "speaker.local.:7000 (interface 7)\n"
+            ).encode(),
+            7,
+        )
+    with pytest.raises(native.DiscoveryFailure):
+        native.resolve_ipv4(
+            f"{stamp}  Add 2 7 speaker.local. 192.0.2.82 120\n".encode(),
+            "speaker.local.",
+            7,
+        )
+    with pytest.raises(native.DiscoveryFailure):
+        native.resolve_txt(
+            (
+                f"{stamp}  Add 2 7 Example speaker._airplay._tcp.local. TXT IN 2 bytes: 01 61\n"
+            ).encode(),
+            "Example speaker._airplay._tcp.local.",
+            7,
+        )
+
+
+@pytest.mark.parametrize(
+    "stamp",
+    ["9:00:00.000", "09:00:00.000", "  9:00:00.000", "24:00:00.000", "12:60:00.000"],
+)
+def test_mixed_valid_and_malformed_native_callbacks_never_become_success(stamp):
+    good = "12:34:56.000"
+    browse = "{stamp}  Add 2 7 local. _airplay._tcp. Example speaker\n"
+    endpoint = (
+        "{stamp}  Example speaker._airplay._tcp.local. can be reached at "
+        "speaker.local.:7000 (interface 7)\n"
+    )
+    address = "{stamp}  Add 2 7 speaker.local. 192.0.2.82 120\n"
+    txt = "{stamp}  Add 2 7 Example speaker._airplay._tcp.local. TXT IN 2 bytes: 01 61\n"
+    cases = [
+        (browse, lambda raw: native.browse_names(raw, "_airplay._tcp", 7, 8)),
+        (endpoint, lambda raw: native.resolve_endpoint(raw, 7)),
+        (address, lambda raw: native.resolve_ipv4(raw, "speaker.local.", 7)),
+        (txt, lambda raw: native.resolve_txt(raw, "Example speaker._airplay._tcp.local.", 7)),
+    ]
+    for template, parser in cases:
+        with pytest.raises(native.DiscoveryFailure):
+            parser((template.format(stamp=good) + template.format(stamp=stamp)).encode())
+
+
+@pytest.mark.parametrize("unknown", [b"unexpected callback\n", b"12:34:56.000  damaged row\n"])
+def test_mixed_valid_and_unknown_query_rows_are_refused(unknown):
+    with pytest.raises(native.DiscoveryFailure):
+        native.resolve_endpoint(
+            b"12:34:56.000  Example speaker._airplay._tcp.local. can be reached at "
+            b"speaker.local.:7000 (interface 7)\n" + unknown,
+            7,
+        )
+    with pytest.raises(native.DiscoveryFailure):
+        native.resolve_ipv4(
+            b"12:34:56.000  Add 2 7 speaker.local. 192.0.2.82 120\n" + unknown,
+            "speaker.local.",
+            7,
+        )
+    with pytest.raises(native.DiscoveryFailure):
+        native.resolve_txt(
+            txt_output(b"\x01a") + unknown,
+            "Example speaker._airplay._tcp.local.",
+            7,
+        )
+
+
+def test_native_srv_banners_and_binary_txt_continuation_are_not_callback_data():
+    raw = (
+        b"Using interface 7\nLookup Example speaker._airplay._tcp.local.\n"
+        b"DATE: ---Mon 05 Oct 2026---\n"
+        b" 9:00:00.000  Example\\032speaker._airplay._tcp.local. can be reached at "
+        b"speaker.local.:7000 (interface 7)\n bin=\xff\\\\x00\n"
+    )
+    assert native.resolve_endpoint(raw, 7) == (
+        r"Example\032speaker._airplay._tcp.local.",
+        "speaker.local.",
+        7000,
+    )
+
+
+@pytest.mark.parametrize("continuation", [b"", b" key=value", b" \xff\\x00", b" 12\\:opaque"])
+def test_native_srv_allows_only_one_opaque_txt_continuation(continuation):
+    callback = (
+        b"12:34:56.000  Example speaker._airplay._tcp.local. can be reached at "
+        b"speaker.local.:7000 (interface 7)\n"
+    )
+    assert native.resolve_endpoint(callback + continuation + b"\n", 7)[2] == 7000
+    with pytest.raises(native.DiscoveryFailure):
+        native.resolve_endpoint(callback + continuation + b"\n unexpected\n", 7)
+
+
+def test_native_query_banners_are_closed_and_not_arbitrary_rows():
+    banners = b"Using interface 7\nDATE: ---Mon 05 Oct 2026---\n"
+    assert (
+        native.resolve_ipv4(
+            banners + b"Timestamp A/R Flags IF Hostname Address TTL\n"
+            b" 9:00:00.000  Add 2 7 speaker.local. 192.0.2.82 120\n",
+            "speaker.local.",
+            7,
+        )
+        == "192.0.2.82"
+    )
+    assert native.resolve_txt(
+        banners + b"Timestamp A/R Flags IF Name Type Class Rdata\n"
+        b" 9:00:00.000  Add 2 7 Example speaker._airplay._tcp.local. TXT IN 2 bytes: 01 61\n",
+        "Example speaker._airplay._tcp.local.",
+        7,
+    ) == (b"a",)
+
+
+@pytest.mark.parametrize("continuation", [b" key=\x00", b" key=\t", b" \tunknown"])
+def test_srv_does_not_accept_raw_controls_as_opaque_native_txt(continuation):
+    with pytest.raises(native.DiscoveryFailure):
+        native.resolve_endpoint(
+            b"12:34:56.000  Example speaker._airplay._tcp.local. can be reached at "
+            b"speaker.local.:7000 (interface 7)\n" + continuation + b"\n",
+            7,
+        )
+
+
+@pytest.mark.parametrize(
+    "fullname", [r"Example\.speaker._airplay._tcp.local.", r"Example\\speaker._airplay._tcp.local."]
+)
+def test_resolved_fullname_escaping_is_retained_for_txt_query(fullname):
+    # Service labels in browse/register replies are unescaped; resolve/query
+    # fullnames are native escaped DNS names and must pass through unchanged.
+    resolved = (
+        f"12:34:56.000  {fullname} can be reached at speaker.local.:7000 (interface 7)\n"
+    ).encode()
+    actual, _host, _port = native.resolve_endpoint(resolved, 7)
+    assert actual == fullname
+    assert native.resolve_txt(txt_output(b"\x01a", fullname), actual, 7) == (b"a",)
+
+
 @pytest.mark.parametrize(
     "row",
     [
@@ -334,7 +517,7 @@ def test_full_native_scan_uses_only_fixed_argv_and_hex_txt():
         elif "-L" in argv:
             payload = (
                 b"12:34:56.000 Example speaker._airplay._tcp.local. can be reached at "
-                b"speaker.local.:7000 (interface 7)\n"
+                b"speaker.local.:7000 (interface 7)\n bin=\xff\\\\x00\n"
             )
         elif "-G" in argv:
             payload = b"12:34:56.000 Add 2 7 speaker.local. 192.0.2.82 120\n"
@@ -632,15 +815,22 @@ def test_initial_absence_can_be_observed_without_bootstrap_request(config, setti
     assert all(item.data["interface_confirmed"] for item in result.profiles.values())
 
 
-def test_real_publisher_contract_with_fake_native_client(tmp_path, monkeypatch):
-    record = media_record()
+@pytest.mark.parametrize("stamp", [" 0:00:00.000", " 9:59:59.999", "12:34:56.000"])
+@pytest.mark.parametrize(
+    "name", ["Example speaker", "Example  speaker", "Example.speaker", r"Example\speaker"]
+)
+def test_real_publisher_contract_with_fake_native_client(tmp_path, monkeypatch, stamp, name):
+    record = replace(media_record(), name=name)
     fake = tmp_path / "fake-dns-sd"
+    service = (
+        f"{stamp}  Got a reply for service {name}._airplay._tcp.local.: "
+        "Name now registered and active"
+    )
+    address = f"{stamp}  Got a reply for record speaker.local.: Name now registered and active"
     fake.write_text(
         f"#!{sys.executable}\nimport time\nprint('Using interface 7',flush=True)\n"
-        "print('12:34:56.000  Got a reply for service Example speaker._airplay._tcp.local.: "
-        "Name now registered and active',flush=True)\n"
-        "print('12:34:56.000  Got a reply for record speaker.local.: "
-        "Name now registered and active',flush=True)\ntime.sleep(5)\n"
+        f"print({service!r},flush=True)\n"
+        f"print({address!r},flush=True)\ntime.sleep(5)\n"
     )
     fake.chmod(0o700)
     monkeypatch.setattr(native, "DNS_SD", str(fake))
@@ -654,6 +844,51 @@ def test_real_publisher_contract_with_fake_native_client(tmp_path, monkeypatch):
         registration.close()
     assert registration.process.poll() is not None
     registration.close()
+    with pytest.raises(native.DiscoveryFailure):
+        registration.poll()
+
+
+@pytest.mark.parametrize(
+    "service_callback",
+    [
+        "9:00:00.000  Got a reply for service Example  speaker._airplay._tcp.local.: "
+        "Name now registered and active",
+        "  9:00:00.000  Got a reply for service Example  speaker._airplay._tcp.local.: "
+        "Name now registered and active",
+        " 9:00:00.000 Got a reply for service Example  speaker._airplay._tcp.local.: "
+        "Name now registered and active",
+        " 9:00:00.000  Got a reply for service Example speaker._airplay._tcp.local.: "
+        "Name now registered and active",
+        " 9:00:00.000  Got a reply for service Example  speaker (2)._airplay._tcp.local.: "
+        "Name now registered and active",
+        " 9:00:00.000  Got a reply for service Example  speaker._airplay._tcp.local.: "
+        "Name registration removed",
+        " 9:00:00.000  Got a reply for service Example  speaker._airplay._tcp.local.: "
+        "Name in use, please choose another",
+    ],
+)
+def test_registration_rejects_malformed_timestamp_renaming_and_removal(service_callback):
+    class Live:
+        def poll(self):
+            return None
+
+    class Idle:
+        def select(self, _timeout):
+            return ()
+
+    registration = object.__new__(native.Registration)
+    registration.closed = False
+    registration.record = replace(media_record(), name="Example  speaker")
+    registration.index = 7
+    registration.process = Live()
+    registration.selector = Idle()
+    registration.output = bytearray(
+        (
+            "Using interface 7\n" + service_callback + "\n"
+            " 9:00:00.000  Got a reply for record speaker.local.: Name now registered and active\n"
+        ).encode()
+    )
+    registration.started = time.monotonic()
     with pytest.raises(native.DiscoveryFailure):
         registration.poll()
 

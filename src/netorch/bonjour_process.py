@@ -24,7 +24,9 @@ DNS_SD = "/usr/bin/dns-sd"
 IFCONFIG = "/sbin/ifconfig"
 MAX_OUTPUT = 1_048_576
 Runner = Callable[[list[str], float], Result]
-_STAMP = r"\d{1,2}:\d{2}:\d{2}\.\d{3}"
+# Apple's printtimestamp_F uses %2d for the hour: one padding space before
+# 00:00-09:59's single-digit hour, and no padding for 10:00-23:59.
+_STAMP = r"(?: [0-9]|1[0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]\.\d{3}"
 
 
 class DiscoveryFailure(RuntimeError):
@@ -110,13 +112,59 @@ def browse_names(raw: bytes, service_type: str, index: int, limit: int) -> tuple
     return tuple(sorted(active))
 
 
+def _banner(line: bytes, index: int, heading: bytes | None = None) -> bool:
+    """Only the fixed native interface/date/table banners are non-callbacks."""
+    return (
+        line == f"Using interface {index}".encode()
+        or re.fullmatch(
+            rb"DATE: ---(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun) "
+            rb"(?:0[1-9]|[12][0-9]|3[01]) "
+            rb"(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) [0-9]{4}---",
+            line,
+        )
+        is not None
+        or (heading is not None and b" ".join(line.split()) == heading)
+    )
+
+
 def resolve_endpoint(raw: bytes, index: int) -> tuple[str, str, int]:
     pattern = re.compile(
         rf"^{_STAMP}\s+(.+?) can be reached at ([^\s:]+):(\d+) "
-        rf"\(interface (\d+)\)(?: Flags: [0-9A-Fa-f]+)?$"
+        rf"\(interface (\d+)\)(?: Flags: [0-9A-Fa-f]+)?$".encode()
     )
-    matches = [match for line in raw.decode().splitlines() if (match := pattern.fullmatch(line))]
-    unique = {(match[1], match[2], int(match[3]), int(match[4])) for match in matches}
+    unique = set()
+    continuation = False
+    for line in raw.splitlines():
+        match = pattern.fullmatch(line)
+        if match is not None:
+            try:
+                unique.add(
+                    (
+                        match[1].decode("utf-8"),
+                        match[2].decode("utf-8"),
+                        int(match[3]),
+                        int(match[4]),
+                    )
+                )
+            except UnicodeError as exc:
+                raise DiscoveryFailure() from exc
+            continuation = True
+        elif _banner(line, index) or re.fullmatch(
+            rb"Lookup .+\._[A-Za-z0-9-]+\._(?:tcp|udp)\.local\.", line
+        ):
+            continuation = False
+        elif (
+            continuation
+            and (not line or line.startswith(b" "))
+            and all(byte >= 32 for byte in line)
+            and re.match(rb"^ *[0-9]{1,2}:", line) is None
+        ):
+            # ShowTXTRecord emits exactly one optional continuation; printable
+            # bytes are not necessarily UTF-8. The authoritative TXT query is
+            # -Q's hexadecimal RDATA, not this shell-friendly display.
+            continuation = False
+        else:
+            raise DiscoveryFailure()
     if len(unique) != 1:
         raise DiscoveryFailure()
     fullname, host, port, actual = unique.pop()
@@ -131,9 +179,13 @@ def resolve_ipv4(raw: bytes, hostname: str, index: int) -> str:
         rf"{re.escape(hostname)}\s+([0-9.]+)\s+\d+$"
     )
     active: set[str] = set()
-    for line in raw.decode().splitlines():
-        if not re.match(rf"^{_STAMP}\s", line):
+    for raw_line in raw.splitlines():
+        if _banner(raw_line, index, b"Timestamp A/R Flags IF Hostname Address TTL"):
             continue
+        try:
+            line = raw_line.decode("utf-8", "strict")
+        except UnicodeError as exc:
+            raise DiscoveryFailure() from exc
         match = pattern.fullmatch(line)
         if match is None or int(match[2]) != index:
             raise DiscoveryFailure()
@@ -153,9 +205,13 @@ def resolve_txt(raw: bytes, fullname: str, index: int) -> tuple[bytes, ...]:
         rf"{re.escape(fullname)}\s+TXT\s+IN\s+(\d+) bytes:?((?: [0-9A-Fa-f]{{2}})*)$"
     )
     active: set[bytes] = set()
-    for line in raw.decode("utf-8", errors="strict").splitlines():
-        if not re.match(rf"^{_STAMP}\s", line):
+    for raw_line in raw.splitlines():
+        if _banner(raw_line, index, b"Timestamp A/R Flags IF Name Type Class Rdata"):
             continue
+        try:
+            line = raw_line.decode("utf-8", "strict")
+        except UnicodeError as exc:
+            raise DiscoveryFailure() from exc
         match = pattern.fullmatch(line)
         if match is None or int(match[2]) != index:
             raise DiscoveryFailure()
@@ -291,11 +347,14 @@ class Registration:
         expected_address = (
             f"Got a reply for record {self.record.hostname}: Name now registered and active"
         ).encode()
-        callbacks = [
-            line.split(b"  ")[-1]
-            for line in lines
-            if b"Got a reply for service " in line or b"Got a reply for record " in line
-        ]
+        callbacks = []
+        pattern = re.compile(rf"^{_STAMP}  (Got a reply for (?:service|record) .+)$".encode())
+        for line in lines:
+            if b"Got a reply for service " in line or b"Got a reply for record " in line:
+                callback = pattern.fullmatch(line)
+                if callback is None:
+                    raise DiscoveryFailure("malformed")
+                callbacks.append(callback[1])
         if any(line not in {expected_service, expected_address} for line in callbacks):
             raise DiscoveryFailure("identity-mismatch")
         self.active = (

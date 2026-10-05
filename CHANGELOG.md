@@ -15,6 +15,8 @@
   exact service/publication dependencies and an independent expiry watchdog.
 - Deterministic launchd/Monit deployment, separate user/root installers,
   failed-install recovery and rollback retaining current negative intent.
+  Privileged paths and artifacts reject unsafe ACLs; release and job bytes are
+  verified again before execution, including rollback and recovery.
 - Read-only root readiness proof, user admission CLI and bounded status reporting.
 - Expanded process, property, mock-kernel, multi-workload provisioning and
   partial-failure tests. CI also checks Darwin PF grammar without loading rules

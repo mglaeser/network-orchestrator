@@ -83,6 +83,19 @@ raw hexadecimal output preserves binary, empty and non-UTF-8 entries. Every
 TXT byte is passed back through Apple's `\xHH` registration grammar. No shell
 interpolation, string splitting or fabricated cache entry is used.
 
+Synthetic native-format fixtures follow Apple's timestamp width, including the
+single leading hour-padding space before 10:00. Registration callbacks parse the
+timestamp prefix once and retain the full exact name, including consecutive
+spaces. These fixtures are source-derived contracts, not production captures.
+Every SRV/A/TXT callback must parse; a valid row cannot hide a malformed callback
+or unexpected query row. Fixed native banners are separately recognized. SRV's
+single optional shell-friendly TXT continuation stays opaque bytes because that
+native display can contain non-UTF-8 data; only `-Q` provides authoritative TXT.
+Browse/register instance labels remain unescaped, while native escaped
+resolve/query fullnames pass through unchanged. This follows Apple's
+[reply construction](https://github.com/apple-oss-distributions/mDNSResponder/blob/mDNSResponder-2881.120.11/mDNSShared/uds_daemon.c)
+and [fullname API](https://github.com/apple-oss-distributions/mDNSResponder/blob/mDNSResponder-2881.120.11/mDNSShared/dnssd_clientlib.c).
+
 Each `-P` registration must independently confirm both the exact unchanged
 service name and its own A-record hostname. Auto-renaming, conflict, removal,
 any child exit and missing confirmation invalidate it. This uses the maintained

@@ -107,7 +107,13 @@ live outside immutable releases. The generated LaunchDaemon then pulls this own
 snapshot on its independent schedule. No planner action or target enters root.
 
 The root scheduler must use the same resolved, protected interpreter as the
-administrator installer. The native launchctl executable is `/bin/launchctl`.
+administrator installer. Supply the physical executable path: this deployment
+installer rejects a lexical executable symlink with `O_NOFOLLOW`, even though
+the independent PF owner can validate protected interpreter symlink chains.
+A root-managed environment created with executable copies can satisfy that
+stricter requirement; its base interpreter, standard library and installed
+packages must also remain protected. Bootstrap remains an administrator action.
+The native launchctl executable is `/bin/launchctl`.
 The captured forwarding settings are parsed during rendering: backend hash,
 independent owner and polling interval must agree, and the schedule cannot exceed
 the profile observation-age bound. Its read-only report directory is separately
@@ -128,6 +134,18 @@ Administrator admission and root operator resume remain explicit owner commands,
 after reviewing the resolved content and bounded-risk decision. Installing a new
 image of this framework never inherits admission solely by profile name. A
 backend/observer semantic change invalidates the previous bound authority.
+
+Privileged installation, state, launchd and log ancestry must be root-owned,
+unwritable by other users and free of ACLs. The installer reuses the independent
+PF owner's strict ACL checks and refuses incomplete ACL inspection. Generated
+root artifacts and operational records receive descriptor-based metadata and
+content readback; immutable release bytes are fenced again before the root
+owner installer, and installed plist bytes immediately before launchd bootstrap.
+Existing launchd stdout/stderr targets must be protected, single-link regular
+files without ACLs; links, foreign owners or writable targets block bootstrap.
+These rules apply during installation, rollback and failed-upgrade recovery.
+User installation keeps its separate permission rules, including existing
+deny-only ACL support; it cannot supply privileged authority.
 
 ## Partial failure, recovery and rollback
 
@@ -180,6 +198,11 @@ filesystem staging, admission, independent PF planning and phase-aware recovery
 against fake launchctl/Monit/PF effects. They include a complete seven-workload
 deployment, changed-content pending, crash/failure paths, stable operator pause,
 foreign job protection and source replacement between validation and use.
+Privileged adversarial tests additionally cover ACL-bearing ancestry, journals,
+retained releases and log leaves; content replacement before owner installation
+or scheduler bootstrap; and operational-record changes during capture. The
+portable root lab models protected temporary ancestry without weakening real
+checks against writable shared directories such as Linux's `/tmp`.
 
 Native `monit -t` establishes config syntax. Launchctl readback establishes job
 registration, not workload readiness or packets. Platform acceptance still
