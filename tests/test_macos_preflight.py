@@ -263,3 +263,14 @@ def test_baseline_fifo_cannot_block_before_regular_file_check(tmp_path: Path) ->
     os.mkfifo(path)
     with pytest.raises(ValueError, match="invalid local baseline"):
         preflight._file_digest(path)
+
+
+def test_extension_version_numbers_are_not_bundle_identifiers() -> None:
+    # Synthetic output shape: vendor version strings are not installed IDs.
+    text = (
+        "1 extension(s)\n"
+        "--- com.apple.system_extension.network_extension\n"
+        "enabled active teamID bundleID (version) name [state]\n"
+        "* * ABCDE12345 org.example.driver (1.2.3/1.2.3) Example [activated enabled]"
+    )
+    assert preflight._parse("network_extensions", text) == ["org.example.driver"]

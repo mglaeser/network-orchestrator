@@ -137,7 +137,9 @@ def _parse(key: str, text: str) -> Any:
             raise ValueError("incomplete extension inventory")
         # Retain bundle IDs, omit names and all other fields. A successful
         # truncated command must not be mistaken for no extensions.
-        values = sorted(set(re.findall(r"\b([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+){2,})\b", text)))
+        values = sorted(
+            set(re.findall(r"\b([A-Za-z][A-Za-z0-9-]*(?:\.[A-Za-z0-9-]+){2,})\b", text))
+        )
         if len(values) != int(count[1]):
             raise ValueError("incomplete extension inventory")
         return values
