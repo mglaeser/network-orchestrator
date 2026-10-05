@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "requirement",
+    "profile",
+    "method",
+    "tier",
+    "observed_at",
+    "macos_build",
+    "runtime_version",
+    "framework_sha256",
+    "contract_sha256",
+    "signed_by",
+    "instance_schema_version",
+    "schema_version",
+    "kind",
+    "capture_context",
+    "result",
+    "source_versions"
+  ],
+  "properties": {
+    "requirement": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[A-Z][A-Z0-9-]{1,63}$"
+    },
+    "profile": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-z][a-z0-9-]{0,63}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "method": {
+      "enum": [
+        "schema-tests",
+        "fixture-parity",
+        "darwin-cli",
+        "native-publication",
+        "rule-readback",
+        "first-packet",
+        "state-drain",
+        "application-connect",
+        "cold-application-scan",
+        "receiver-change",
+        "heard-audio",
+        "dns-client-identity",
+        "unattended-reboot",
+        "restore-rehearsal",
+        "process-inventory",
+        "local-network-consent",
+        "root-runtime-observer",
+        "port-budget"
+      ]
+    },
+    "tier": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 5
+    },
+    "observed_at": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 20,
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "macos_build": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32,
+      "pattern": "^[A-Za-z0-9]{3,32}$"
+    },
+    "runtime_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[a-z0-9.-]+)?$"
+    },
+    "framework_sha256": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "contract_sha256": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "signed_by": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "instance_schema_version": {
+      "const": 1
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "kind": {
+      "enum": [
+        "owner-attestation",
+        "native-capture",
+        "synthetic"
+      ]
+    },
+    "capture_context": {
+      "enum": [
+        "host-person",
+        "user-launchagent",
+        "root-launchdaemon",
+        "macos-userspace",
+        "offline-fixture"
+      ]
+    },
+    "result": {
+      "enum": [
+        "passed",
+        "failed",
+        "unknown"
+      ]
+    },
+    "source_versions": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128
+      }
+    }
+  }
+}

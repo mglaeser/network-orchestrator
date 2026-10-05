@@ -1,5 +1,10 @@
 # Apple Container: enrollment, live evidence and recovery
 
+> **0.3 stage boundary:** this guide describes retained owner mechanisms and mock
+> contracts. Native authority expansion is unavailable while the accepted support
+> matrix is empty. Existing installed owners stay in place; see
+> [read-only workflow](getting-started.md) and [migration gates](site-migration.md).
+
 `netorch.apple_runtime` is the shared versioned reader. It observes existing
 containers and their native published ports; it does not install/upgrade the
 vendor runtime or take over application configuration. An independent PF owner

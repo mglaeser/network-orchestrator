@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-The latest unretracted `0.2.x` release receives fixes. This project is alpha;
+The latest unretracted `0.3.x` release receives fixes. This project is alpha;
 release and model tests do not certify a native owner or a production deployment.
 Use a reviewed tagged revision and locked dependencies. Recheck platform and
 provider compatibility before upgrading.
@@ -23,7 +23,9 @@ time or a bounty.
 
 - Policy is untrusted data. Duplicate keys, unsupported schema versions, unknown
   fields and nonfinite numbers are rejected. Bundled schemas are used offline.
-- Provider bindings are explicitly trusted executable paths controlled by the
+- The new canonical instance never contains executable paths or provider code.
+  Native activation is unavailable while the qualified support matrix is empty.
+- Retained legacy provider bindings are explicitly trusted executable paths controlled by the
   installing operator. They are not supplied by a network advertisement or policy
   record. Treat a provider as having the authority of the account running it.
 - The unprivileged executor never calls an external-root owner. Such an owner must
@@ -53,7 +55,7 @@ time or a bounty.
 
 ## CI and release security
 
-Public CI uses ephemeral hosted Linux/macOS runners, minimal token permissions,
+Public CI uses ephemeral hosted macOS runners, minimal token permissions,
 full SHA action pins and hashed dependencies. It receives no production secrets,
 hosts or deployment credentials. The hosted native PF step compiles synthetic
 rules with `-n` and never loads them. Fork pull requests must never run on a

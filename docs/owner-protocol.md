@@ -1,5 +1,10 @@
 # Existing-owner integration protocol
 
+> **0.3 stage boundary:** this guide describes retained owner mechanisms and mock
+> contracts. Native authority expansion is unavailable while the accepted support
+> matrix is empty. Existing installed owners stay in place; see
+> [read-only workflow](getting-started.md) and [migration gates](site-migration.md).
+
 This protocol lets private installation adapters reuse current service managers.
 No adapter or host configuration is inferred from a filename or port number.
 

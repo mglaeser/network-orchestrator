@@ -1578,9 +1578,11 @@ def test_ha_endpoint_url_projection_is_exact_and_preserves_other_txt():
 
 
 @pytest.mark.parametrize("command", ["endpoint", "serve", "publisher", "health"])
+@pytest.mark.usefixtures("legacy_cli_conformance")
 def test_bonjour_cli_uses_fixed_handlers_without_native_calls(
     config, settings, monkeypatch, command
 ):
+    Store(settings.state_dir)
     monkeypatch.setattr(owner, "load_settings", lambda _path: settings)
     monkeypatch.setattr(owner, "serve", lambda *_args: None)
     monkeypatch.setattr(owner, "publisher_loop", lambda *_args: None)
@@ -1603,18 +1605,22 @@ def test_bonjour_cli_uses_fixed_handlers_without_native_calls(
 
 
 def test_bonjour_health_failure_never_returns_container_restart_code(settings, monkeypatch):
+    Store(settings.state_dir)
     monkeypatch.setattr(owner, "load_settings", lambda _path: settings)
     monkeypatch.setattr(owner, "health", lambda *_args: False)
     assert owner.main(["--settings", "/unused/settings.json", "health"]) == 1
 
 
 @pytest.mark.parametrize("command", ["endpoint", "publisher", "serve", "health"])
+@pytest.mark.usefixtures("legacy_cli_conformance")
 def test_bonjour_cli_rejects_root_or_incomplete_settings(settings, monkeypatch, command):
     monkeypatch.setattr(owner.os, "geteuid", lambda: 0)
     assert owner.main(["--settings", "/unused/settings.json", command]) == 65
 
 
+@pytest.mark.usefixtures("legacy_cli_conformance")
 def test_standalone_publisher_without_scanner_parent_is_rejected(settings, monkeypatch):
+    Store(settings.state_dir)
     monkeypatch.setattr(owner, "load_settings", lambda _path: settings)
     assert owner.main(["--settings", "/unused/settings.json", "publisher"]) == 65
 
@@ -1677,3 +1683,9 @@ def test_collect_proof_rejects_policy_change_before_observing(config, settings, 
     write_private(settings.config, raw)
     with pytest.raises(ValueError):
         owner.collect_proof(config, settings, 1000)
+
+
+@pytest.fixture
+def legacy_cli_conformance(monkeypatch):
+    """Explicit CI-only seam for preserved owner internals; never qualification."""
+    monkeypatch.setattr(owner, "require_mutation_qualified", lambda _capability: None)

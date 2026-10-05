@@ -1,5 +1,9 @@
 # Test strategy and evidence tiers
 
+Version 0.3 has an empty native-qualified support matrix. Public native mutation
+entrypoints refuse before state or tools; tests of retained execution internals
+use explicit injected seams and never bypass production guards.
+
 A test establishes a claim at a boundary. A platform simulation can prove owner
 control flow, but cannot prove the platform's packet behavior. Keep provenance,
 versions, expected result and evidence tier explicit. Do not label fake output as
@@ -7,7 +11,9 @@ a captured production fixture.
 
 ## Automated public CI
 
-CI runs Ubuntu with Python 3.12, 3.13 and 3.14, and hosted macOS with Python 3.14.
+CI runs hosted macOS with Python 3.12, 3.13 and 3.14. Every job, including
+formatting, type checking and dependency audits, runs on macOS. Other host
+operating systems are outside this framework's scope.
 Every matrix job installs reviewed hash-locked dependencies, checks package
 consistency, runs unit/property/mock/process tests, validates synthetic policy,
 runs the mock demonstration, builds wheel/sdist and smoke-tests an installed
@@ -19,16 +25,15 @@ order, retained states or packet behavior. The fixed backend has a Bash syntax
 check, and installed-wheel smoke tests include all executable owner modules and
 packaged schema/backend resources.
 
-A separate job enforces Ruff lint/format, strict mypy and dependency advisory
+A separate job enforces the tracked-file public host-data guard, Ruff lint/format, strict mypy and dependency advisory
 checks. A scheduled advisory lookup does not update or deploy anything.
 Dependabot proposes dependency/Action updates for review. Actions are SHA-pinned
 with read-only repository permissions; workflows require no production secrets,
 services, Apple account or privileged self-hosted runner.
 
-Mypy targets Darwin explicitly on every CI host, matching the native deployment
-platform, and keeps strict checking and unreachable-code warnings enabled.
-The portable core has no platform branches; Linux fallback behavior is exercised
-by the Ubuntu pytest jobs rather than treated as native macOS deployment code.
+Mypy targets Darwin explicitly and keeps strict checking and unreachable-code
+warnings enabled. Hosted macOS userspace checks are evidence for their recorded
+runner version; they do not qualify a production macOS build or run guests.
 
 The combined line/branch coverage gate is 90%. Coverage records execution, not
 correctness. The test intent and rejected unsafe behavior matter more than a high
@@ -39,6 +44,7 @@ python -m pytest -m 'not acceptance' --cov=netorch --cov-branch --cov-report=ter
 ruff check .
 ruff format --check .
 mypy
+python -m netorch.privacy_check --root . --exceptions schemas/privacy-exceptions.json
 python -m build --no-isolation
 pip-audit -r requirements-dev-lock.txt --strict
 ```
@@ -54,6 +60,8 @@ ranges, injected clocks, closed synthetic observations and fake owners.
 
 | Area | Required claims |
 |---|---|
+| Instance/import | Canonical byte equality, literal-only extraction, exact source/owner conformance, no executable/live-endpoint data, two privacy guards |
+| Host view | Six verbs make no writes, owner calls or network probes; synthetic/unsigned/stale/wrong-context evidence cannot qualify native support |
 | Input | Duplicate keys at every depth, nonfinite values, booleans in numeric fields, unknown fields/versions and invalid types are rejected |
 | Policy | Duplicate IDs, bad references, overlapping claims, wrong address scopes and incompatible guest/return ranges are rejected |
 | Content | Canonical key ordering preserves digests; authority-relevant content changes invalidate admission |
@@ -165,7 +173,7 @@ open public pull-request workflow to a production self-hosted runner.
 Record actual OS/runtime/tool/code versions, digests, interface identities and
 fixture provenance. Required evidence can include:
 
-- First outbound UDP request and reply; ingress just below, at both ends of, and
+- First outbound UDP request to a LAN responder on port 80 and its first reply; ingress just below, at both ends of, and
   just above the admitted range; no out-of-range translation.
 - Native PF hook precedence, owned NAT/RDR grammar/readback and retained-state
   invalidation after a generation change.
@@ -186,7 +194,10 @@ registration callbacks, lease expiry, child/scanner crash and multiple devices.
   measured capacity problems must not silently widen admission.
 
 Use scoped scratch anchors and isolated test networks. Renderer equivalence is
-not packet evidence. Avoid global firewall flushing, unowned state deletion and
+not packet evidence. A warm Home Assistant/pyatv cache can conceal a dead inward
+projection: use the running application shared scanner and a cold start, genuine
+receiver address change, new receiver or supported administrator discovery
+subscription. A reload alone is insufficient. Avoid global firewall flushing, unowned state deletion and
 runtime-wide stops in routine diagnostics. Reuse existing safe evidence when it
 proves the exact same versioned claim.
 

@@ -1,3 +1,3 @@
-"""Portable orchestration contracts over independently owned network services."""
+"""macOS instance contracts over independently owned network services."""
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"

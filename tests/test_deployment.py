@@ -183,24 +183,35 @@ class FakeTools:
 @pytest.fixture
 def fake_platform(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     # Unit-test adapter boundaries; never exposed as live CLI bypasses. The
-    # disposable namespace models protected root ancestry even on Linux, where
-    # pytest's real /tmp parent is correctly refused by the production helper.
+    # disposable namespace models protected root ancestry. Writable shared
+    # temporary ancestry is correctly refused by the production helper.
     monkeypatch.setattr(implementation, "_require_platform", lambda scope, value: os.geteuid())
     native_prepare = implementation._prepare_report_directory
     native_lstat = Path.lstat
     namespace = tmp_path.resolve()
     shared_ancestors = set(namespace.parents)
+    # These ancestors represent a protected virtual installation tree, rather
+    # than the real shared pytest/macOS temporary root. Other tests and local
+    # processes may create siblings there. Freeze only their directory content
+    # metadata alongside the already synthetic root UID/mode; identity, group
+    # and flags still come from the current underlying directory.
+    shared_content = {path: native_lstat(path) for path in shared_ancestors}
 
     def protected_shared_ancestor(path: Path, *args: Any, **kwargs: Any) -> os.stat_result:
         info = native_lstat(path, *args, **kwargs)
         if path in shared_ancestors and stat.S_ISDIR(info.st_mode):
+            captured = shared_content[path]
             fields = list(info)
             fields[0] = stat.S_IFDIR | 0o755
+            fields[3] = captured.st_nlink
             fields[4] = 0
+            fields[6] = captured.st_size
+            fields[8] = captured.st_mtime
+            fields[9] = captured.st_ctime
             return os.stat_result(
                 fields,
                 {
-                    key: getattr(info, key)
+                    key: getattr(captured if key in {"st_mtime_ns", "st_ctime_ns"} else info, key)
                     for key in ("st_atime_ns", "st_mtime_ns", "st_ctime_ns", "st_flags")
                     if hasattr(info, key)
                 },
@@ -225,6 +236,71 @@ def fake_platform(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(implementation, "_prepare_report_directory", prepare_report)
 
 
+def test_sibling_creation_does_not_change_virtual_shared_ancestry(
+    tmp_path: Path, fake_platform: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    shared = tmp_path.parent
+    sibling = shared / ("outside-" + tmp_path.name)
+    real_before = os.lstat(shared)
+    virtual_before = implementation._metadata(shared.lstat())
+
+    def create_sibling(path: Path, **_kwargs: Any) -> None:
+        assert path == shared
+        sibling.mkdir(mode=0o700)
+
+    monkeypatch.setattr(implementation, "reject_acl", create_sibling)
+    try:
+        # Exercise the exact before/ACL/after fence that previously raced an
+        # unrelated sibling operation under the real shared temporary parent.
+        implementation._privileged_acl(shared)
+        assert sibling.is_dir()
+        assert implementation._metadata(shared.lstat()) == virtual_before
+        real_after = os.lstat(shared)
+        assert (
+            real_before.st_nlink,
+            real_before.st_size,
+            real_before.st_mtime_ns,
+            real_before.st_ctime_ns,
+        ) != (
+            real_after.st_nlink,
+            real_after.st_size,
+            real_after.st_mtime_ns,
+            real_after.st_ctime_ns,
+        )
+        assert (real_before.st_dev, real_before.st_ino) == (
+            real_after.st_dev,
+            real_after.st_ino,
+        )
+    finally:
+        if sibling.exists():
+            sibling.rmdir()
+
+
+@pytest.mark.parametrize("kind", ["file", "directory"])
+def test_fixture_owned_content_changes_keep_real_metadata_fences(
+    tmp_path: Path, fake_platform: None, monkeypatch: pytest.MonkeyPatch, kind: str
+) -> None:
+    owned = tmp_path / "owned"
+    if kind == "file":
+        owned.write_bytes(b"reviewed")
+        owned.chmod(0o600)
+    else:
+        owned.mkdir(mode=0o700)
+    before = implementation._metadata(owned.lstat())
+
+    def change_owned_content(path: Path, **_kwargs: Any) -> None:
+        assert path == owned
+        if kind == "file":
+            owned.write_bytes(b"changed reviewed bytes")
+        else:
+            (owned / "new-child").mkdir(mode=0o700)
+
+    monkeypatch.setattr(implementation, "reject_acl", change_owned_content)
+    with pytest.raises(DeploymentError, match="changed during ACL verification"):
+        implementation._privileged_acl(owned)
+    assert implementation._metadata(owned.lstat()) != before
+
+
 def test_writable_report_ancestor_is_refused_without_permission_changes(
     tmp_path: Path, fake_platform: None
 ) -> None:
@@ -244,10 +320,10 @@ def test_writable_report_ancestor_is_refused_without_permission_changes(
 
 
 def test_production_report_reader_refuses_shared_tmp_mode(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The real helper must reject Linux's /tmp1777 rather than relax it.
+    """The real helper must reject writable shared ancestry rather than relax it.
 
-    Model that standard metadata portably, so macOS CI also covers this Linux
-    trust boundary. The refused parent already exists; no file is created.
+    Model the metadata so macOS CI covers this trust boundary. The refused
+    parent already exists; no file is created.
     """
     native_lstat = Path.lstat
 
@@ -401,7 +477,7 @@ def test_live_platform_gate(
     tmp_path: Path, manifest: dict[str, Any], config: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     bundle, metadata = make_bundle(tmp_path, manifest, config)
-    monkeypatch.setattr(implementation.sys, "platform", "linux")
+    monkeypatch.setattr(implementation.sys, "platform", "unsupported-test")
     with pytest.raises(DeploymentError, match="macOS"):
         install_bundle(bundle, "user", expected_digest=metadata["bundle_digest"])
     assert not Path(manifest["user"]["directory"]).exists()

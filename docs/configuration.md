@@ -1,5 +1,10 @@
 # Configuration and site data
 
+> **0.3 stage boundary:** this guide describes retained owner mechanisms and mock
+> contracts. Native authority expansion is unavailable while the accepted support
+> matrix is empty. Existing installed owners stay in place; see
+> [read-only workflow](getting-started.md) and [migration gates](site-migration.md).
+
 Netorch's package contains logic; the installation supplies data. The executable
 provider bindings and mutable state are separate from the reviewed network policy.
 Nothing in a policy can select an executable, run a shell, authorize root work or

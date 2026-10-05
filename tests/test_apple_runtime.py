@@ -1006,6 +1006,7 @@ def test_monit_42_means_only_proven_stopped_and_unblocked(enrolled, monkeypatch,
     )
 
 
+@pytest.mark.usefixtures("legacy_cli_conformance")
 def test_runtime_cli_observe_enroll_and_recovery_do_not_publish_secrets(
     enrolled, monkeypatch, capsys, tmp_path
 ):
@@ -1091,3 +1092,9 @@ def test_derive_policy_cli_captures_private_content_without_replacing_source(
     assert load_config(source) == original
     assert runtime.main(args) == 69
     assert '"admitted":false' in capsys.readouterr().out
+
+
+@pytest.fixture
+def legacy_cli_conformance(monkeypatch):
+    """Explicit CI-only seam for preserved owner internals; never qualification."""
+    monkeypatch.setattr(runtime, "require_mutation_qualified", lambda _capability: None)

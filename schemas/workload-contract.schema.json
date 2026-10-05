@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "image_lock",
+    "cpus",
+    "memory_mib",
+    "mounts",
+    "kernel_arguments_sha256",
+    "network",
+    "preserve_application_data",
+    "recovery_class"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "image_lock": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*@sha256:[0-9a-f]{64}$"
+    },
+    "cpus": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 64
+    },
+    "memory_mib": {
+      "type": "integer",
+      "minimum": 128,
+      "maximum": 262144
+    },
+    "mounts": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "source",
+          "destination",
+          "read_only"
+        ],
+        "properties": {
+          "source": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096,
+            "pattern": "^/[^\\x00\\n\\r]+$"
+          },
+          "destination": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096,
+            "pattern": "^/[^\\x00\\n\\r]+$"
+          },
+          "read_only": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "kernel_arguments_sha256": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "network": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "mtu"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-z][a-z0-9-]{0,63}$"
+        },
+        "mtu": {
+          "type": "integer",
+          "minimum": 576,
+          "maximum": 9000
+        }
+      }
+    },
+    "preserve_application_data": {
+      "const": true
+    },
+    "recovery_class": {
+      "enum": [
+        "bind-data",
+        "named-volume",
+        "stateless"
+      ]
+    }
+  }
+}

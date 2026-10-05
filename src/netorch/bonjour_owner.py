@@ -49,6 +49,12 @@ from .state import (
     snapshot_to_dict,
 )
 from .storage import Store
+from .workflow_gate import (
+    NOT_QUALIFIED,
+    StageNotQualified,
+    require_mutation_qualified,
+    require_request_qualified,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1057,13 +1063,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("command", choices=("endpoint", "serve", "publisher", "health"))
     args = parser.parse_args(argv)
     try:
+        if args.command in {"serve", "publisher"}:
+            require_mutation_qualified("discovery-publication")
+        request: Any = None
+        if args.command == "endpoint":
+            request = strict_loads(sys.stdin.buffer.read(1_048_577))
+            require_request_qualified("bonjour", request)
         if os.geteuid() == 0:
             raise ValueError("Bonjour must run as its existing unprivileged user identity")
         settings = load_settings(args.settings)
         config = load_config(settings.config)
+        if not settings.state_dir.is_dir():
+            raise ValueError("existing discovery state is required")
         store = Store(settings.state_dir)
         if args.command == "endpoint":
-            request = strict_loads(sys.stdin.buffer.read(1_048_577))
             sys.stdout.buffer.write(
                 canonical_bytes(endpoint(config, settings, store, request)) + b"\n"
             )
@@ -1078,6 +1091,9 @@ def main(argv: list[str] | None = None) -> int:
         elif not health(settings, store):
             return 1
         return 0
+    except StageNotQualified as exc:
+        print(canonical_bytes(exc.to_dict()).decode("utf-8"), file=sys.stderr)
+        return NOT_QUALIFIED
     except Exception:
         sys.stderr.write("Bonjour owner could not establish complete scoped evidence.\n")
         return 65

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "netorch"
-version = "0.2.0"
+version = "0.3.0"
 description = "Typed network policy orchestration over independent platform owners"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -16,7 +16,7 @@ classifiers = [
   "Development Status :: 3 - Alpha",
   "Environment :: Console",
   "Intended Audience :: System Administrators",
-  "Operating System :: POSIX",
+  "Operating System :: MacOS :: MacOS X",
   "Programming Language :: Python :: 3 :: Only",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
@@ -32,6 +32,7 @@ Documentation = "https://github.com/mglaeser/network-orchestrator#readme"
 
 [project.scripts]
 netorch = "netorch.cli:main"
+netorch-host = "netorch.host_cli:main"
 
 [dependency-groups]
 dev = [
@@ -54,6 +55,10 @@ packages = ["src/netorch"]
 [tool.hatch.build.targets.wheel.force-include]
 "schemas/network.schema.json" = "netorch/network.schema.json"
 "schemas/deployment.schema.json" = "netorch/deployment.schema.json"
+"schemas/instance.schema.json" = "netorch/instance.schema.json"
+"schemas/host-evidence.schema.json" = "netorch/host-evidence.schema.json"
+"schemas/workload-contract.schema.json" = "netorch/workload-contract.schema.json"
+"schemas/acceptance-evidence.schema.json" = "netorch/acceptance-evidence.schema.json"
 "platform/macos/pf/backend.sh" = "netorch/platform/macos/pf/backend.sh"
 "examples/network.json" = "netorch/example-network.json"
 

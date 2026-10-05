@@ -1,5 +1,10 @@
 # Deployment and owner integration
 
+> **0.3 stage boundary:** this guide describes retained owner mechanisms and mock
+> contracts. Native authority expansion is unavailable while the accepted support
+> matrix is empty. Existing installed owners stay in place; see
+> [read-only workflow](getting-started.md) and [migration gates](site-migration.md).
+
 Version 0.2 supplies complete user/root deployment bundles, an Apple Container
 reader and lifecycle adapter, a native Bonjour owner and an independent PF owner.
 The same external tables can describe an entire site's custom container-networking
