@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:netorch:network:v1",
+  "title": "Netorch network policy version 1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "site", "scopes", "owners", "services", "profiles", "discovery"],
+  "properties": {
+    "schema_version": {"const": 1, "type": "integer"},
+    "site": {"$ref": "#/$defs/id"},
+    "scopes": {"type": "array", "maxItems": 128, "items": {"$ref": "#/$defs/scope"}},
+    "owners": {"type": "array", "maxItems": 128, "items": {"$ref": "#/$defs/owner"}},
+    "services": {"type": "array", "maxItems": 256, "items": {"$ref": "#/$defs/service"}},
+    "profiles": {"type": "array", "maxItems": 1024, "items": {"$ref": "#/$defs/profile"}},
+    "discovery": {"type": "array", "maxItems": 256, "items": {"$ref": "#/$defs/discovery"}}
+  },
+  "$defs": {
+    "id": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z][a-z0-9-]*$"},
+    "ports": {
+      "type": "object", "additionalProperties": false,
+      "required": ["first", "last"],
+      "properties": {
+        "first": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "last": {"type": "integer", "minimum": 1, "maximum": 65535}
+      }
+    },
+    "scope": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "interface", "host_ipv4", "lan_cidr", "guest_cidr"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "interface": {"type": "string", "minLength": 1, "maxLength": 32, "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$"},
+        "host_ipv4": {"type": "string", "format": "ipv4", "maxLength": 15},
+        "lan_cidr": {"type": "string", "maxLength": 18},
+        "guest_cidr": {"type": "string", "maxLength": 18}
+      }
+    },
+    "owner": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "privilege", "capabilities"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "privilege": {"enum": ["user", "external-root"]},
+        "capabilities": {
+          "type": "array", "minItems": 1, "maxItems": 5, "uniqueItems": true,
+          "items": {"enum": ["publication", "host-redirect", "guest-direct", "udp-return", "discovery"]}
+        }
+      }
+    },
+    "service": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "owner", "contract_sha256"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "owner": {"$ref": "#/$defs/id"},
+        "contract_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "automatic_ports": {"oneOf": [{"$ref": "#/$defs/ports"}, {"type": "null"}]}
+      }
+    },
+    "safety": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "max_age_seconds", "unknown_limit"],
+      "properties": {
+        "kind": {"enum": ["structural", "bounded"]},
+        "max_age_seconds": {"type": "integer", "minimum": 1, "maximum": 86400},
+        "unknown_limit": {"type": "integer", "minimum": 1, "maximum": 1000},
+        "statement": {"type": ["string", "null"], "maxLength": 2000}
+      },
+      "allOf": [{
+        "if": {"properties": {"kind": {"const": "bounded"}}},
+        "then": {"required": ["statement"], "properties": {"statement": {"type": "string", "minLength": 1}}}
+      }]
+    },
+    "profile": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "service", "scope", "kind", "protocol", "ports", "safety"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "service": {"$ref": "#/$defs/id"},
+        "scope": {"$ref": "#/$defs/id"},
+        "owner": {"oneOf": [{"$ref": "#/$defs/id"}, {"type": "null"}]},
+        "kind": {"enum": ["publication", "host-redirect", "guest-direct", "udp-return"]},
+        "protocol": {"enum": ["tcp", "udp"]},
+        "ports": {"$ref": "#/$defs/ports"},
+        "target_ports": {"oneOf": [{"$ref": "#/$defs/ports"}, {"type": "null"}]},
+        "safety": {"$ref": "#/$defs/safety"}
+      }
+    },
+    "discovery": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "owner", "service", "scope", "direction", "types", "dependencies", "max_age_seconds", "max_records"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "owner": {"$ref": "#/$defs/id"},
+        "service": {"$ref": "#/$defs/id"},
+        "scope": {"$ref": "#/$defs/id"},
+        "direction": {"enum": ["import", "export"]},
+        "types": {"type": "array", "minItems": 1, "maxItems": 64, "uniqueItems": true, "items": {
+          "type": "string", "maxLength": 70, "pattern": "^_[A-Za-z0-9][A-Za-z0-9-]{0,62}\\._(?:tcp|udp)$"
+        }},
+        "dependencies": {"type": "array", "maxItems": 128, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+        "max_age_seconds": {"type": "integer", "minimum": 1, "maximum": 86400},
+        "max_records": {"type": "integer", "minimum": 1, "maximum": 10000}
+      }
+    }
+  }
+}

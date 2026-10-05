@@ -1,0 +1,81 @@
+# Implementation contract
+
+Netorch is a portable policy and orchestration layer over existing owners. It does
+not confer privilege or replace an operating system packet implementation.
+
+The public model is in `netorch.model`. These frozen dataclasses are the shared API:
+
+- `PortRange(first: int, last: int)`
+- `Scope(id, interface, host_ipv4, lan_cidr, guest_cidr)`
+- `Owner(id, privilege, capabilities: tuple[str, ...])`; privilege is `user` or
+  `external-root`.
+- `Service(id, owner, contract_sha256, automatic_ports: PortRange | None)`
+- `Safety(kind, max_age_seconds, unknown_limit, statement)`; kind is `structural`
+  or `bounded`. `statement` is a nonempty risk declaration for bounded policies.
+- `Profile(id, service, scope, kind, protocol, ports: PortRange,
+  target_ports: PortRange | None, safety: Safety, owner: str | None = None)`; kind is `publication`,
+  `host-redirect`, `guest-direct` or `udp-return`; protocol `tcp` or `udp`.
+- `Discovery(id, owner, service, scope, direction, types: tuple[str, ...],
+  dependencies: tuple[str, ...], max_age_seconds, max_records)`.
+- `Config(schema_version, site, scopes, owners, services, profiles, discovery)`;
+  collection fields are tuples, with `scope(id)`, `owner(id)`, `service(id)`,
+  `profile(id)` and `profile_owner(profile_or_id)` lookup methods.
+
+Configuration syntax is the dataclass field names. Optional `automatic_ports` and
+`target_ports` may be omitted; `statement` may be null for structural policies.
+`netorch.config.load_config(path)` and `parse_config(text)` return a `Config`.
+`netorch.config.to_dict(config)` returns JSON data.
+`netorch.config.profile_digest(config, profile)` binds the resolved profile, scope,
+service and owner to canonical SHA-256. `config_digest(config)` covers all policy.
+
+`Service.owner` names the runtime/observation owner. `Profile.owner` can explicitly
+override it for transport execution; omitted/null means the service owner.
+`Discovery.owner` is an explicit user-level owner with the `discovery` capability.
+A service can therefore retain its user runtime manager, externally owned PF
+transport and separately owned user-level Bonjour projection. Admission binds
+the resolved profile owner and service observation owner independently.
+
+`netorch.codec` provides strict JSON and canonical digest functions. No duplicated
+keys, nonfinite numbers, remote schema retrieval or executable configuration.
+
+State/plan interfaces live in `netorch.state` and `netorch.planner`:
+
+- `Observation(state, reason, observed_at, generation, data)` uses exactly
+  `present`, `absent`, `unknown`; complete reads only establish present/absent.
+- `Snapshot(observed_at, network_generation, services, profiles)` uses dicts of
+  observations keyed by stable IDs. Endpoint data contains `ipv4`,
+  `contract_sha256`; profile data contains `policy_digest`, `target_ipv4`,
+  `target_generation`, `network_generation` and actual `states` list.
+- `Admission(profile, digest, approved_by, approved_at, risk_acknowledged)`;
+  admissions map IDs to entries and bind exact resolved content.
+- `Intent(revision, operator_paused, suspensions, damaged=False)` stores operator
+  pause independently from operation-ID -> holder records. Methods preserve pause,
+  enforce suspension ownership, and increment the revision on change.
+- `Action(profile, owner, operation, reason, target_ipv4=None)`; operations are
+  `activate`, `withdraw`, `drain`, `noop`, `pending`, `blocked`.
+- `Plan(policy_digest, snapshot_digest, intent_revision, actions)`.
+- `plan(config, snapshot, admissions, intent, now)` is pure. Fresh unknown/stale
+  observations never initiate recovery; stale existing targets are withdrawn and
+  their retained states drained. No-op only follows verified readback.
+
+Discovery interfaces in `netorch.discovery_plan`:
+
+- `DiscoveryAction(id, owner, active, reason, policy_digest, service_generation,
+  network_generation)` is a fixed activation/cleanup decision, with independently
+  checked runtime generations.
+- `discovery_digest(config, item)` binds resolved discovery declarations and their
+  dependency profile digests.
+- `plan_discovery(config, snapshot, transport_plan, intent, now)` independently
+  verifies dependency readback and publisher/interface evidence. No records are
+  fabricated and no packet mechanism is invoked.
+- Discovery observations share `Snapshot.profiles` with disjoint IDs, and contain
+  policy digest, confirmed interface and service/network generations. Unconfirmed
+  or missing evidence requests cleanup before activation in a later fresh cycle.
+
+The executor is an independent module. `MockOwner` is a simulation only; an
+`external-root` owner is never invoked by a live unprivileged executor. Root owners
+pull their own admitted content and observations on their existing schedule.
+
+All examples use synthetic service identities and RFC 5737 address ranges. Local
+configuration, production bindings, observations and private runtime data belong
+outside the checkout. Python 3.12+; no native runtime installation is implied.

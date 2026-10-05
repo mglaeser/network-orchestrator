@@ -1,0 +1,2 @@
+# Runtime dependency input. Compile to requirements-lock.txt after reviewed updates.
+jsonschema==4.26.0

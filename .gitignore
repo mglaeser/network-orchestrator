@@ -1,0 +1,26 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.hypothesis/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+coverage.json
+htmlcov/
+junit*.xml
+dist/
+build/
+*.egg-info/
+.DS_Store
+# Keep all real site data and mutable state outside the checkout.
+local/
+private/
+state/
+*.pem
+*.key
+.env
+.env.*
+.requirements*-resolved.txt

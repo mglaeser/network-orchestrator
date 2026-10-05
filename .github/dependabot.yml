@@ -1,0 +1,22 @@
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      development-tools:
+        patterns:
+          - pytest*
+          - hypothesis
+          - ruff
+          - mypy
+          - build
+          - hatchling
+          - pip-tools
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5

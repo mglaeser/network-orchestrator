@@ -1,0 +1,5 @@
+# Owner review is especially relevant for privilege and workflow boundaries.
+* @mglaeser
+/.github/ @mglaeser
+/schemas/ @mglaeser
+/src/netorch/ @mglaeser

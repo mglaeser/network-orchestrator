@@ -1,0 +1,13 @@
+# Development input; runtime pins must match pyproject.toml and requirements.txt.
+-r requirements.txt
+pytest==9.1.1
+hypothesis==6.168.4
+pytest-cov==7.1.0
+ruff==0.16.10
+mypy==2.4.0
+types-jsonschema==4.26.0.20260518
+build==1.6.1
+pip-audit==2.10.1
+pip-tools==7.6.1
+hatchling==1.32.4
+editables==0.6

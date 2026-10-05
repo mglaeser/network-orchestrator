@@ -1,0 +1,33 @@
+name: Bug report
+description: Report a reproducible behavior using synthetic data.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For a security issue, use SECURITY.md. Do not paste credentials, private
+        addresses, provider bindings, user paths or real packet payloads here.
+  - type: input
+    id: revision
+    attributes:
+      label: Version or revision
+      description: Include Python and OS versions when relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Synthetic reproduction
+      description: Minimal sample policy and commands; label the evidence tier.
+    validations:
+      required: true
+  - type: textarea
+    id: boundary
+    attributes:
+      label: Affected boundary
+      description: Policy, observation, admission, pause, planner, owner, or CLI.

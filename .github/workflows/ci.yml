@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Tests (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            python: "3.12"
+          - os: ubuntu-24.04
+            python: "3.13"
+          - os: ubuntu-24.04
+            python: "3.14"
+          - os: macos-26
+            python: "3.14"
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install reviewed dependencies
+        run: |
+          python -m pip install --require-hashes -r requirements-dev-lock.txt
+          python -m pip install --no-deps --no-build-isolation -e .
+          python -m pip check
+      - name: Pure, property and mocked tests
+        run: python -m pytest -m "not acceptance" --cov=netorch --cov-branch --cov-report=term-missing --cov-report=xml --junitxml=junit.xml
+      - name: Example policy and mock demonstration
+        run: |
+          netorch validate --config examples/network.json
+          netorch simulate --config examples/network.json
+          netorch demo
+      - name: Build distributions
+        run: python -m build --no-isolation
+      - name: Install and run wheel outside the checkout
+        shell: bash
+        run: |
+          smoke_dir=$(mktemp -d)
+          trap 'rm -rf "$smoke_dir"' EXIT
+          python -m venv "$smoke_dir/venv"
+          "$smoke_dir/venv/bin/python" -m pip install --require-hashes -r requirements-lock.txt
+          "$smoke_dir/venv/bin/python" -m pip install --no-deps --no-index dist/*.whl
+          cd "$smoke_dir"
+          "$smoke_dir/venv/bin/python" -m pip check
+          "$smoke_dir/venv/bin/netorch" --help
+          "$smoke_dir/venv/bin/netorch" demo
+      - name: Save test reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: reports-${{ matrix.os }}-${{ matrix.python }}
+          path: |
+            coverage.xml
+            junit.xml
+          if-no-files-found: ignore
+          retention-days: 7
+
+  quality:
+    name: Format, lint, types and dependency audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.14"
+      - name: Install reviewed dependencies
+        run: |
+          python -m pip install --require-hashes -r requirements-dev-lock.txt
+          python -m pip install --no-deps --no-build-isolation -e .
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: mypy
+      - run: pip-audit -r requirements-dev-lock.txt --strict
