@@ -502,10 +502,14 @@ def test_unverified_kernel_endpoint_or_coexistence_blocks_activation(
         environment[3].endpoint_valid = False
     else:
         environment[3].clear = False
-    with pytest.raises(PFError):
-        run_pass(environment)
+    # Nothing was written for a profile whose check did not pass: each is
+    # deferred to the next pass with its reason, and no acknowledgement is owed.
+    result = run_pass(environment)
     assert not environment[3].rules
-    assert environment[0].read("journal.json")["phase"] == "failed"
+    assert result["deferred"] == dict.fromkeys(
+        ("dns-tcp", "dns-udp", "media-udp", "proxy-standard"), f"{failure}-unverified"
+    )
+    assert environment[0].read("journal.json")["phase"] == "inhibited"
 
 
 def test_observer_exception_becomes_unknown_and_never_recovers(environment: Any) -> None:
@@ -996,6 +1000,8 @@ def test_shellbackend_unrecognized_reference_is_not_guessed(
 def test_shellbackend_state_drain_requires_absent_readback(
     environment: Any, monkeypatch: Any
 ) -> None:
+    import netorch.pf_owner as module
+
     backend = shell_backend(environment, monkeypatch)
     calls: list[tuple[str, ...]] = []
 
@@ -1008,9 +1014,13 @@ def test_shellbackend_state_drain_requires_absent_readback(
         )
 
     monkeypatch.setattr(backend, "_call", call)
-    with pytest.raises(PFError, match="remain"):
-        backend.drain("198.51.100.12")
-    assert calls[0] == ("drain", "198.51.100.12")
+    # The backend issues the scoped invalidation and reads nothing back itself.
+    backend.drain("198.51.100.12")
+    assert calls == [("drain", "198.51.100.12")]
+    # The owner's readback, here for a rule that the policy does not describe:
+    # a state that is still listed after the invalidation is not drained.
+    assert not module._own_states_gone(backend, None, "media-udp", "198.51.100.12", None)
+    assert calls[1:] == [("states",), ("drain", "198.51.100.12"), ("states",)]
 
 
 @pytest.mark.parametrize("failure", ["interface", "forwarding", "route", "mac", "arp"])
@@ -1296,6 +1306,10 @@ def test_admin_withdraw_draining_failure_retains_failed_journal(environment: Any
     approve_all(environment)
     run_pass(environment)
     backend = environment[3]
+    # An invalidation is issued only for a state of a retired rule: one LAN
+    # client still has a state of the DNS rule, and it cannot be invalidated.
+    resolver = environment[4][-1].services["resolver"].data["ipv4"]
+    backend.flow_states = f"all udp 192.0.2.77:54321 -> {resolver}:53 NO_TRAFFIC:SINGLE"
     backend.undrainable = True
     with pytest.raises(PFError):
         withdraw(environment[0], lambda root, settings: backend)

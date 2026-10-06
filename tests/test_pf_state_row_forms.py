@@ -13,7 +13,7 @@ from typing import Any
 
 import pytest
 
-from netorch.pf_owner import PFError, ShellBackend, state_addresses
+from netorch.pf_owner import PFError, ShellBackend, _own_states_gone, state_addresses
 from netorch.state import Intent, intent_to_dict
 from tests.test_pf_owner import approve_all, environment, run_pass
 
@@ -391,9 +391,13 @@ def address(environment: Any, service: str) -> str:
 
 
 def kernel_table(environment: Any) -> str:
-    """A translated outbound state of the media guest beside an unrelated IGMP row."""
+    """Two translated states of the media guest beside an unrelated IGMP row.
+
+    One is the guest's own outbound connection. The other is a return flow to
+    a LAN peer from a port of the published range, a state of the owner's rule.
+    """
     assert address(environment, "media-controller") == "198.51.100.12"
-    return f"{OUTBOUND}\n{IGMP}"
+    return f"{OUTBOUND}\n{MARKED}\n{IGMP}"
 
 
 def test_pass_commits_and_a_pause_drains_beside_translated_and_igmp_rows(
@@ -427,7 +431,7 @@ def test_pass_commits_and_a_pause_drains_beside_translated_and_igmp_rows(
     assert backend.rules == ""
     assert root.read("live.json")["records"] == {}
     assert ("drain", "198.51.100.12") in backend.commands
-    # The guest's translated state is gone; the row that names no guest stays.
+    # The guest's translated states are gone; the row that names no guest stays.
     assert backend.flow_states == IGMP
 
 
@@ -446,15 +450,19 @@ def test_damaged_translated_row_still_retires_everything_as_unknown(environment:
     assert backend.flow_states  # No complete read, so no drain is claimed.
 
 
-def drain_readback(table: str, ipv4: str) -> None:
-    """The owner's own drain against a kernel whose states do not go away."""
+def drain_readback(table: str, ipv4: str) -> bool:
+    """The owner's own drain against a kernel whose states do not go away.
+
+    The backend issues the invalidation; the owner reads the table back. No
+    policy describes the retired rule here, so every row naming the address counts.
+    """
 
     def call(operation: str, *arguments: str) -> str:
         return table if operation == "states" else ""
 
     shell = object.__new__(ShellBackend)
     shell._call = call  # type: ignore[method-assign]
-    shell.drain(ipv4)
+    return _own_states_gone(shell, None, "retired", ipv4, None)
 
 
 @pytest.mark.parametrize("named", CAPTURED["translated outbound"][1])
@@ -462,8 +470,7 @@ def test_drain_readback_counts_an_address_at_any_endpoint_of_a_translated_row(na
     # Only the translated row names these addresses: one as lan, gwy and ext each.
     table = f"{IGMP}\n{OUTBOUND}\n{TCP6}"
 
-    with pytest.raises(PFError, match="scoped PF states remain"):
-        drain_readback(table, named)
+    assert not drain_readback(table, named)
     # A complete read of the same table shows another address as drained, even
     # one whose text begins a named address.
-    drain_readback(table, "198.51.100.1")
+    assert drain_readback(table, "198.51.100.1")

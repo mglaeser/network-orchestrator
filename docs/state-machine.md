@@ -106,7 +106,9 @@ and establish ownership before touching retained states.
 Retirement retains the old observed target and generation. A second fresh read
 must show the old rule absent and its retained states empty before a replacement
 can activate. Merely removing a rule or changing a receipt does not establish
-that packet states are gone.
+that packet states are gone. Which states are retained states of a profile is
+the owner's definition: for the [PF owner](pf-owner.md), those that the
+withdrawn rule itself can have created.
 
 Discovery dependencies require `Plan.ready_profiles`, which contains only
 verified `noop` profiles. Planning or completing a write does not by itself
