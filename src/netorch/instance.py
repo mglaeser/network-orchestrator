@@ -448,6 +448,10 @@ def validate_instance(instance: Instance) -> None:
     container_names = [item.name for item in instance.workloads]
     if len(set(container_names)) != len(container_names):
         raise InstanceError("duplicate workload container name")
+    # The alias carries no parameter: it is the one LAN address inside one workload.
+    aliased = [item.service for item in instance.transport if item.strategy == "guest-lan-alias"]
+    if len(set(aliased)) != len(aliased):
+        raise InstanceError("a workload declares its LAN alias at most once")
     if {item.id for item in instance.transport}.intersection(
         item.id for item in instance.discovery
     ):
