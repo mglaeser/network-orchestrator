@@ -123,6 +123,7 @@ reported like any other; a following dot joins it to a longer token only when
 another component follows the dot. An instance's CI additionally
 uses `instance_literals(instance)` to scan its pinned framework for its own
 addresses, stable adapter identity, home path, network/name pins, namespace,
+declared baseline extension identifiers and proxy and VPN service names,
 workload names and range endpoints. Low-entropy chosen port literals require
 careful, narrow exceptions; they are not automatically ignored.
 

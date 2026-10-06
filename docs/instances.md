@@ -58,7 +58,8 @@ match the canonical, admitted and applied digests. An absent or different owner
 desired digest remains unready even when other observations are positive.
 
 The instance-to-framework privacy guard checks the instance name, workload and
-component IDs, profile/range/tool IDs and authoring owners as well as addresses,
+component IDs, profile/range/tool IDs, authoring owners and the declared baseline
+extension, proxy and VPN names as well as addresses,
 ports and pinned native names. Generic pattern checks alone cannot recognize
 these locally chosen names.
 
