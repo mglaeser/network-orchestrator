@@ -19,7 +19,7 @@
       "kind": "process",
       "argv": [
         "/operator/runtime/bin/python3", "-m", "netorch.bonjour_owner",
-        "--settings", "/operator/install/netorch/current/data/bonjour-settings.json", "request"
+        "--settings", "/operator/install/netorch/current/data/bonjour-settings.json", "endpoint"
       ]
     }
   ]

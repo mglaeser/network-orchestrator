@@ -23,6 +23,20 @@ unsupported types, oversized/deep input, malformed text and unavailable mappings
 are refused or represented as underivable. The pointer subset deliberately
 excludes escaping, empty segments and ambiguous array indices.
 
+Property lists require complete dictionary/array/scalar structure. Text outside
+scalar values cannot be silently discarded; scalar elements cannot contain child
+elements. Date and binary-data objects are outside the JSON projection contract
+and are refused before the standard-library decoder runs.
+
+Assignment files and data lists are read the way a line-feed-delimited reader
+reads them: only a line feed ends a line and only spaces and tabs are trimmed.
+A carriage return, form feed, NEL or any other control or line-separator
+character makes the whole file underivable. If such a character were treated as
+a line break, text that the owner reads as part of a comment could be imported
+as a setting. A bare literal consists of letters, digits and `: / . _ - @`, so a
+digest-pinned image reference needs no quotes. A property list must contain
+exactly one root object; a second one is refused, not silently preferred.
+
 Literal assignment data contains only comments, blank lines and standalone
 uppercase assignments with quoted or bare literals. Variable substitution,
 command substitution, sourcing, function bodies, conditionals, executable
@@ -55,8 +69,11 @@ source receipt and therefore fails the re-import gate.
 `project_instance(result, template)` fills explicitly available null slots,
 rejects unresolved inputs, and invokes the independent closed instance parser.
 It cannot fill authored values, relax a schema, insert code, or create an
-accepted decision. A partial generated report is useful evidence; it is not a
-complete or approved deployable instance.
+accepted decision. Any mapped destination under `decisions`, `acceptance`,
+`deviations`, `authoring` or `framework` is refused, even where the template
+holds a null slot: signatures, acceptance records, provenance and the release
+pin are written by a person. A partial generated report is useful evidence; it
+is not a complete or approved deployable instance.
 
 ## Flip only one owner with exact parity
 
@@ -64,15 +81,23 @@ complete or approved deployable instance.
 already-rendered data files. Its local manifest contains exactly
 `schema_version: 1`, `owner` and a bounded `artifacts` list. Every artifact has
 `id`, `captured` and `rendered`. It does not invoke the renderer. Reported values
-are hashes, sizes and an `identical` Boolean, never input contents.
+are hashes, sizes and an `identical` Boolean, never input contents. `captured`
+and `rendered` must be two different files: a manifest that names one file in
+both roles, under any spelling of its path, is refused. Every comparison records
+the manifest's `owner`. File identities come from the descriptors whose bytes
+were read, so replacing a parent link afterwards cannot substitute another
+identity. Captured and rendered roles remain disjoint across the entire manifest;
+swapping two captures into each other's rendered slots is also refused.
 
 `promote_owner(instance, owner, import_result, comparisons)` requires:
 
 1. One generated authoring record for that owner, including closed sections and
    stable subjects, with the freshly captured aggregate source digest.
 2. No underivable source for that owner.
-3. Every source ID compared exactly once, its capture digest equal to the fresh
-   source receipt, and identical captured/rendered bytes.
+3. Every source ID compared exactly once by a comparison made for that owner,
+   its capture digest equal to the fresh source receipt, and identical
+   captured/rendered bytes. A comparison made for another owner, or for none,
+   promotes no one.
 4. A provenance-only change to `mode: authored` and `source_sha256: null`.
 
 `check_owner_flip(before, after, owner)` rejects any accompanying desired change,
@@ -93,7 +118,9 @@ separate requirements and evidence-ledger records.
 `netorch.privacy.scan_framework` performs a generic framework check for private
 IPv4 literals, chosen interface names, home paths and site-like reverse-DNS
 namespaces. RFC5737 documentation networks, loopback and native Apple namespaces
-are distinguished from private instance values. An instance's CI additionally
+are distinguished from private instance values. A value that ends a sentence is
+reported like any other; a following dot joins it to a longer token only when
+another component follows the dot. An instance's CI additionally
 uses `instance_literals(instance)` to scan its pinned framework for its own
 addresses, stable adapter identity, home path, network/name pins, namespace,
 workload names and range endpoints. Low-entropy chosen port literals require
@@ -129,8 +156,9 @@ core.fsmonitor=false -c core.hooksPath=/dev/null ls-files --cached --others
 tracked files even if their names are now ignored, and checks nonignored candidate
 files before commit. It does not inspect ignored host state or execute a Git hook,
 filter, shell or network command. The checked-in exception data names finite
-file/kind/value-SHA256 pairs for synthetic fixtures, classifier CIDRs and the
-product's default namespace. An unhashed exception is refused by the CI entry point. No
+file/kind/value-SHA256 pairs for synthetic fixtures, classifier CIDRs, the
+product's default namespace and exact native or tooling tokens that only look
+like a namespace. An unhashed exception is refused by the CI entry point. No
 wildcard/path-prefix/whole-test-tree exception is implemented.
 
 For the private instance's CI, add its canonical instance file:

@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from .codec import MAX_JSON_BYTES, CodecError, canonical_bytes, strict_loads
-from .derive import DeriveError, literal_assignments
+from .derive import DeriveError, literal_assignments, literal_lines
 
 _ID = re.compile(r"[a-z][a-z0-9-]{0,63}")
 _SHA = re.compile(r"[0-9a-f]{64}")
@@ -30,6 +30,9 @@ _SECRET_KEY = re.compile(
     re.I,
 )
 _FORMATS = {"json", "plist", "toml", "literal-env", "text-list", "source-inventory"}
+# Decisions, acceptance records, deviations, provenance and the release pin are
+# written by a person; a static import never fills them.
+_AUTHORED_SECTIONS = frozenset({"decisions", "acceptance", "deviations", "authoring", "framework"})
 
 
 class ImportError(ValueError):
@@ -89,8 +92,14 @@ class ImportResult:
         }
 
 
-def read_static(path: str | Path, *, limit: int = MAX_JSON_BYTES) -> bytes:
-    """Bounded regular-file read with no final symlink and an identity fence."""
+@dataclass(frozen=True)
+class StaticCapture:
+    data: bytes
+    file_identity: tuple[int, int]
+
+
+def capture_static(path: str | Path, *, limit: int = MAX_JSON_BYTES) -> StaticCapture:
+    """Read bounded bytes and retain the identity of the descriptor read."""
     if not 1 <= limit <= MAX_JSON_BYTES:
         raise ImportError("Unsupported capture byte bound")
     p = Path(path)
@@ -118,11 +127,16 @@ def read_static(path: str | Path, *, limit: int = MAX_JSON_BYTES) -> bytes:
                 before
             ):
                 raise ImportError("Capture changed during reading")
-            return raw
+            return StaticCapture(raw, (opened.st_dev, opened.st_ino))
         finally:
             os.close(fd)
     except OSError as exc:
         raise ImportError("Static source is unavailable") from exc
+
+
+def read_static(path: str | Path, *, limit: int = MAX_JSON_BYTES) -> bytes:
+    """Bounded regular-file read with no final symlink and an identity fence."""
+    return capture_static(path, limit=limit).data
 
 
 def _identity(value: os.stat_result) -> tuple[int, ...]:
@@ -204,7 +218,7 @@ def _decode(raw: bytes, fmt: str) -> Any:
         ):
             raise ImportError("Only standard XML property-list data is supported")
         parser: ET.XMLPullParser[ET.Element] = ET.XMLPullParser(events=("start", "end"))
-        depth = nodes = 0
+        depth = nodes = roots = 0
         for offset in range(0, len(raw), 65536):
             parser.feed(raw[offset : offset + 65536])
             for event, element in cast(Iterable[tuple[str, ET.Element]], parser.read_events()):
@@ -219,30 +233,46 @@ def _decode(raw: bytes, fmt: str) -> Any:
                         "real",
                         "true",
                         "false",
-                        "date",
-                        "data",
                     } or (
                         element.attrib
                         and not (element.tag == "plist" and element.attrib == {"version": "1.0"})
                     ):
                         raise ImportError("Unknown property-list structure")
-                    if depth == 0 and element.tag != "plist":
+                    if (depth == 0) != (element.tag == "plist"):
                         raise ImportError("Property list must have a plist root")
+                    if depth == 1:
+                        # The standard parser silently keeps the last root object.
+                        roots += 1
+                        if roots > 1 or element.tag == "key":
+                            raise ImportError("Property list must contain one root object")
                     depth += 1
                     nodes += 1
                     if depth > 64 or nodes > 50000:
                         raise ImportError("Property list exceeds structural bounds")
                 else:
                     depth -= 1
+                    children = list(element)
+                    if element.tag in {"plist", "dict", "array", "true", "false"} and (
+                        (element.text or "").strip(" \t\r\n")
+                        or any((child.tail or "").strip(" \t\r\n") for child in children)
+                    ):
+                        raise ImportError("Unexpected property-list text")
+                    if element.tag == "plist" and len(children) != 1:
+                        raise ImportError("Property list must contain one root object")
                     if element.tag == "dict":
-                        children = list(element)
                         keys = [item.text or "" for item in children[::2]]
                         if (
                             len(children) % 2
                             or any(item.tag != "key" for item in children[::2])
+                            or any(item.tag == "key" for item in children[1::2])
                             or len(keys) != len(set(keys))
                         ):
                             raise ImportError("Duplicate or malformed property-list keys")
+                    elif element.tag == "array":
+                        if any(item.tag == "key" for item in children):
+                            raise ImportError("Property-list keys require a dictionary")
+                    elif element.tag != "plist" and children:
+                        raise ImportError("Property-list scalar cannot contain child elements")
         parser.close()
         return plistlib.loads(raw, fmt=plistlib.FMT_XML)
     text = raw.decode("utf-8", "strict")
@@ -251,11 +281,7 @@ def _decode(raw: bytes, fmt: str) -> Any:
     if fmt == "literal-env":
         return literal_assignments(text)
     if fmt == "text-list":
-        values = [
-            line.strip()
-            for line in text.splitlines()
-            if line.strip() and not line.strip().startswith("#")
-        ]
+        values = [line for line in literal_lines(text) if line and not line.startswith("#")]
         if (
             len(values) > 1024
             or len(set(values)) != len(values)
@@ -381,6 +407,8 @@ def project_instance(result: ImportResult, template: dict[str, Any]) -> bytes:
     """Fill explicit null slots and validate the independently closed instance model."""
     from .instance import canonical_instance_bytes, parse_instance
 
+    if not _AUTHORED_SECTIONS.isdisjoint(result.values):
+        raise ImportError("Authored instance sections cannot be filled by an import")
     data = copy.deepcopy(template)
 
     def apply(node: Any, prefix: str) -> None:

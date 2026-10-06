@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.3.2 — repeated adversarial review
+
+- Integrate all fifteen reviewed follow-up PRs with independent counterexamples
+  and supplemental corrections. The [second review](docs/reviews/2026-10-06-adversarial-review-round2.md)
+  records every PR disposition, source evidence and remaining qualification gates.
+- Fresh local facts use the post-collection clock. Negative facts, blank signatures,
+  residuals and deviations cannot falsely improve requirement reports or replace
+  required safety, native, lifecycle or application proof.
+- Resolved profile/discovery evidence envelopes become version 2, binding target
+  name, supervision, account, platform and runtime context. Old evidence is invalid.
+- Correct macOS version grammar and enforce closed number/text/name contracts.
+  Static imports preserve literal meaning, validate complete XML structure and
+  cannot author decisions, signatures, provenance or framework pins.
+- Conformance comparisons bind their owner and captured descriptor identities,
+  rejecting aliases and capture/render reuse across entries.
+- Privacy guards recognize sentence-ending values. PF status exposes only state
+  existence, preventing peer disclosure and unbounded snapshot growth.
+- Parse native Bonjour STARTING output and fixed-width browse labels without
+  changing device identity. Discovery digest version 3 rejects older approvals.
+  Starter discovery bindings call the actual endpoint command.
+- Withdraw every retiring PF rule before draining states; interruption tests
+  cover each write boundary. Direct privilege escalation and explicit shell
+  command strings are refused consistently for jobs and monitor bindings.
+- Reject duplicate mount source/target aliases according to the vendor parser.
+
+No dependencies or platform qualification were added. Instance schema version 1
+is retained with corrected grammar and validation; see the review's migration
+decision. Native owners remain gated and production installations are unchanged.
+
 ## 0.3.1 — adversarial review corrections
 
 - Current discovery readiness now requires the owner's desired configuration to

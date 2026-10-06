@@ -16,6 +16,7 @@ from jsonschema import Draft202012Validator
 from .codec import canonical_bytes, strict_loads
 from .instance import (
     InstanceError,
+    check_plain_data,
     instance_contract_digest,
     instance_digest,
     instance_to_dict,
@@ -87,6 +88,33 @@ FACT_KEYS = (
     "dns_secondary_resolver",
 )
 MAX_FACT_AGE_SECONDS = 300
+# A supplied absent or false observation keeps its requirement not fulfilled until a
+# positive one replaces it. Growing stale never clears it.
+BLOCKING_FACTS = {
+    "HOST-DATA": ("framework_literal_check", "instance_literal_check"),
+    "NAMES-PRESERVED": ("names_preserved",),
+    "OWNER-CONFORMANCE": ("owner_conformance",),
+    "RESTORE-REHEARSAL": ("recovery_material",),
+}
+# Safety/provenance gates and every native, lifecycle or application acceptance
+# need their own proof. A generic deviation cannot replace that proving ladder.
+MANDATORY_PROVING_GATES = frozenset(
+    {
+        "BOUNDED-IDENTITY",
+        "PLATFORM-SUPPORT",
+        "SOURCE-AUTHORSHIP",
+        "OWNER-CONFORMANCE",
+        "ROOT-ADMISSION",
+        "ROOT-HARD-BOUNDS",
+        "ROOT-INDEPENDENCE",
+        "PAUSE-PRESERVED",
+        "UNKNOWN-NO-RECOVERY",
+        "RESTORE-REHEARSAL",
+        "NO-LOCAL-NETWORK",
+        "CURRENT-OBSERVATIONS",
+    }
+    | {item.id for item in REQUIREMENTS if item.minimum_tier >= 3}
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -163,6 +191,8 @@ def parse_host_evidence(raw: bytes | str | dict[str, Any]) -> HostEvidence:
     data = strict_loads(canonical_bytes(raw)) if isinstance(raw, dict) else strict_loads(raw)
     if list(_validator("host-evidence.schema.json").iter_errors(data)):
         raise InstanceError("host evidence violates its closed bounded schema")
+    # Evidence times are epoch seconds; every other number in a closed document is an integer.
+    check_plain_data(data, frozenset({"observed_at", "recorded_at"}))
     facts = tuple(Fact(**item) for item in data["facts"])
     profiles = tuple(
         ProfileEvidence(
@@ -205,7 +235,7 @@ def parse_host_evidence(raw: bytes | str | dict[str, Any]) -> HostEvidence:
                 "internet_sharing",
                 "proxies",
                 "vpns",
-            }
+            } | {key for keys in BLOCKING_FACTS.values() for key in keys}
             list_keys = {"network_extensions", "pf_anchors", "anchor_order", "runtime_resolvers"}
             int_keys = {"udp_sockets_idle", "udp_sockets_loaded"}
             if (
@@ -218,6 +248,10 @@ def parse_host_evidence(raw: bytes | str | dict[str, Any]) -> HostEvidence:
                 not isinstance(item.value, str) or item.value not in {"on", "off"}
             ):
                 raise InstanceError("FileVault value has the wrong declared type")
+            if item.key == "local_network_identity" and (
+                not isinstance(item.value, str) or not item.value.strip()
+            ):
+                raise InstanceError("Local Network identity must be nonblank text")
     return HostEvidence(
         data["schema_version"],
         data["observed_at"],
@@ -266,6 +300,11 @@ def fact_view(evidence: HostEvidence, key: str, now: float) -> dict[str, Any]:
     }
 
 
+def _reported(evidence: HostEvidence, key: str) -> Fact | None:
+    """The supplied record whatever its age; only ``fact_view`` says what is current."""
+    return next((item for item in evidence.facts if item.key == key), None)
+
+
 def observation_view(observation: Observation | None, now: float, maximum: float) -> dict[str, Any]:
     if observation is None:
         return {
@@ -293,6 +332,7 @@ def verify_contracts(instance: Instance, data_directory: Path) -> list[dict[str,
         try:
             raw = read_data(data_directory / item.contract.data_path)
             data = strict_loads(raw)
+            check_plain_data(data)
             if raw != canonical_bytes(data) + b"\n" or list(
                 _validator("workload-contract.schema.json").iter_errors(data)
             ):
@@ -385,9 +425,12 @@ def _acceptance(
     for entry in instance.acceptance:
         if (
             entry.requirement != requirement.id
+            or not entry.signed_by.strip()
             or entry.method not in requirement.acceptance_methods
             or entry.tier < requirement.minimum_tier
             or (entry.profile is not None and entry.profile not in relevant)
+            # One instance-wide record is never proof for each applicable profile.
+            or (entry.profile is None and bool(relevant))
         ):
             continue
         expected = instance_contract_digest(instance)
@@ -424,6 +467,7 @@ def _acceptance(
             try:
                 artifact = read_data(directory / (entry.evidence_sha256 + ".json"))
                 proof = strict_loads(artifact)
+                check_plain_data(proof)
                 if artifact != canonical_bytes(proof) + b"\n" or list(
                     _validator("acceptance-evidence.schema.json").iter_errors(proof)
                 ):
@@ -502,6 +546,15 @@ def _base_assessment(
             "Implemented read-only model/command contract; native behavior is separate.",
         )
     if identifier == "FRAMEWORK-PIN":
+        installed = _reported(evidence, "installed_framework_sha256")
+        if installed is not None and installed.value not in (
+            None,
+            instance.framework.artifact_sha256,
+        ):
+            return (
+                "not-fulfilled",
+                "Host evidence reports an installed framework other than the pinned artifact.",
+            )
         return (
             ("fulfilled-verified", "Exact local release artifact matches its declared SHA-256.")
             if release_verified
@@ -555,8 +608,10 @@ def _base_assessment(
                 "accepted-residual",
                 "Owner-recorded residual; not authentication against a hostile API client.",
             )
-            if value.residual
-            and value.signed_by
+            if value.residual is not None
+            and value.residual.strip()
+            and value.signed_by is not None
+            and value.signed_by.strip()
             and value.signed_at
             and datetime.strptime(value.signed_at, "%Y-%m-%dT%H:%M:%SZ")
             .replace(tzinfo=UTC)
@@ -618,14 +673,24 @@ def _base_assessment(
         )
     if identifier == "BOOT-RECOVERY":
         filevault = fact_view(evidence, "filevault", now)
+        reported = _reported(evidence, "filevault")
+        baseline = instance.host.baseline.filevault
         decision = instance.decisions.unattended_recovery
-        if filevault["state"] == "present" and filevault["value"] == "on":
+        # Only a current observation says off. A reported on blocks at any age, and
+        # the declared baseline speaks when nothing current is observed.
+        off = filevault["state"] == "present" and filevault["value"] == "off"
+        if (reported is not None and reported.value == "on") or (not off and baseline is True):
             return (
                 "not-fulfilled",
                 "FileVault needs a person; automatic login cannot establish unattended recovery.",
             )
         if decision.accepted is not True or decision.max_dns_ready_seconds is None:
             return "not-fulfilled", "Unattended recovery and its DNS-ready limit are undecided."
+        if not off and baseline is not False:
+            return (
+                "not-fulfilled",
+                "FileVault is neither currently observed off nor declared off.",
+            )
     if identifier == "PLATFORM-SUPPORT":
         values = [
             fact_view(evidence, key, now)
@@ -659,10 +724,43 @@ def _base_assessment(
                     "not-fulfilled",
                     "LAN stable identity or current address is unknown or differs.",
                 )
+    for key in BLOCKING_FACTS.get(identifier, ()):
+        negative = _reported(evidence, key)
+        if negative is not None and (negative.state == "absent" or negative.value is False):
+            return "not-fulfilled", "Host evidence reports this prerequisite as absent."
     return (
         "fulfilled-unverified",
         "Declared capability requires its proving test at the recorded host tier.",
     )
+
+
+def _deviation(instance: Instance, identifier: str, now: float) -> tuple[str, str] | None:
+    """A recorded deviation means the requirement is not met, accepted or not."""
+    named = [item for item in instance.deviations if item.requirement == identifier]
+    if not named:
+        return None
+    for item in named:
+        if not item.statement.strip():
+            return "not-fulfilled", "A recorded deviation has no nonblank statement to accept."
+        if (
+            item.accepted_by is None
+            or not item.accepted_by.strip()
+            or item.accepted_at is None
+            or datetime.strptime(item.accepted_at, "%Y-%m-%dT%H:%M:%SZ")
+            .replace(tzinfo=UTC)
+            .timestamp()
+            > now
+        ):
+            return (
+                "not-fulfilled",
+                "A recorded deviation from this requirement has no current owner acceptance.",
+            )
+    if identifier in MANDATORY_PROVING_GATES:
+        return (
+            "not-fulfilled",
+            "An owner-accepted deviation cannot replace this mandatory proving gate.",
+        )
+    return "accepted-residual", "Owner-accepted deviation; the requirement itself is not met."
 
 
 def _state_layers(
@@ -711,7 +809,13 @@ def build_report(
                 instance, requirement, evidence, now, contracts, release_verified
             )
             if (
-                requirement.id not in {"BOUNDED-IDENTITY", "PLATFORM-SUPPORT", "IMPORT-VISIBILITY"}
+                requirement.id
+                not in {
+                    "BOUNDED-IDENTITY",
+                    "PLATFORM-SUPPORT",
+                    "IMPORT-VISIBILITY",
+                    "LIFECYCLE-WRITERS",
+                }
                 and status != "not-fulfilled"
                 and _acceptance(instance, requirement, evidence, now, evidence_directory)
             ):
@@ -719,6 +823,13 @@ def build_report(
                     "fulfilled-verified",
                     "Current content-bound owner acceptance and retained evidence hash verified.",
                 )
+            deviation = _deviation(instance, requirement.id, now)
+            # Never better than an accepted residual, and never a lift for a row that is
+            # not fulfilled for another reason.
+            if deviation is not None and (
+                deviation[0] == "not-fulfilled" or status != "not-fulfilled"
+            ):
+                status, reason = deviation
         rows.append(
             {
                 "id": requirement.id,

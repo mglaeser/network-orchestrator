@@ -46,6 +46,8 @@ from .instance_model import (
     Workload,
 )
 from .profile_library import discovery_profile, strategy
+from .requirements import REQUIREMENTS
+from .safety_contract import assess_bounded_safety
 
 SECTIONS = (
     "host",
@@ -61,6 +63,8 @@ SECTIONS = (
     "deviations",
 )
 _ADDRESS = re.compile(r"(?<![0-9.])(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?:/[0-9]{1,2})?(?![0-9.])")
+# C0, DEL and C1 controls plus the Unicode line and paragraph separators.
+_CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
 
 
 class InstanceError(ValueError):
@@ -253,7 +257,11 @@ def resolved_profile(instance: Instance, profile: Transport) -> dict[str, Any]:
         "dependencies": list(profile.dependencies),
         "fallback_publication": profile.fallback_publication,
         "lan": asdict(instance.host.lan),
-        "workload": {"id": workload.id, "contract_sha256": workload.contract.sha256},
+        "workload": {
+            "id": workload.id,
+            "name": workload.name,
+            "contract_sha256": workload.contract.sha256,
+        },
         "bounded_policy": None
         if decision is None
         else {
@@ -278,11 +286,15 @@ def resolved_profile_digest(instance: Instance, profile: Transport) -> str:
             pending.append(value.fallback_publication)
     return digest(
         {
-            "resolved_profile_version": 1,
+            "resolved_profile_version": 2,
             "profile": profile.id,
             "references": references,
             "names": resolved_names(instance),
             "framework": asdict(instance.framework),
+            "supervision": asdict(instance.supervision),
+            "account": asdict(instance.host.account),
+            "runtime": asdict(instance.host.runtime),
+            "platform": asdict(instance.host.platform),
         }
     )
 
@@ -290,7 +302,7 @@ def resolved_profile_digest(instance: Instance, profile: Transport) -> str:
 def resolved_discovery_digest(instance: Instance, selection: DiscoverySelection) -> str:
     return digest(
         {
-            "resolved_discovery_version": 1,
+            "resolved_discovery_version": 2,
             "selection": asdict(selection),
             "lan": asdict(instance.host.lan),
             "names": resolved_names(instance),
@@ -321,6 +333,27 @@ def resolved_names(instance: Instance) -> dict[str, str]:
         "import_prefix": slug + "-lan-",
     }
     return {key: value or defaults[key] for key, value in asdict(instance.names).items()}
+
+
+def check_plain_data(data: Any, float_keys: frozenset[str] = frozenset()) -> None:
+    """Closed documents hold JSON integers and single-line text only.
+
+    The schema library accepts ``1.0`` wherever an integer is required, and a
+    pattern ending in ``$`` accepts one trailing newline; both are refused here.
+    ``float_keys`` names the only members that may be fractional.
+    """
+    if isinstance(data, dict):
+        for key, value in data.items():
+            check_plain_data(key)
+            if not (isinstance(value, float) and key in float_keys):
+                check_plain_data(value, float_keys)
+    elif isinstance(data, list):
+        for value in data:
+            check_plain_data(value, float_keys)
+    elif isinstance(data, float):
+        raise InstanceError("closed data requires JSON integers, not fractional numbers")
+    elif isinstance(data, str) and _CONTROL.search(data):
+        raise InstanceError("closed data strings cannot contain control characters")
 
 
 def _check_data_strings(data: Any, allowed_addresses: set[str]) -> None:
@@ -361,6 +394,7 @@ def validate_instance(instance: Instance) -> None:
     errors = list(instance_validator().iter_errors(data))
     if errors:
         raise InstanceError("instance violates its closed versioned schema")
+    check_plain_data(data)
     try:
         lan = IPv4Network(instance.host.lan.cidr, strict=True)
         address = IPv4Address(instance.host.lan.ipv4)
@@ -381,6 +415,15 @@ def validate_instance(instance: Instance) -> None:
         len(resolved[key]) > 63 for key in ("bonjour_prefix", "import_prefix")
     ):
         raise InstanceError("namespace-derived names exceed native name bounds; pin explicit names")
+    labels = [value for key, value in resolved.items() if key.endswith("label")]
+    if (
+        len(set(labels)) != len(labels)
+        or resolved["bonjour_prefix"] == resolved["import_prefix"]
+        or resolved["state_directory"] == resolved["root_state_directory"]
+    ):
+        raise InstanceError(
+            "launchd labels, discovery prefixes and state directories must each be distinct"
+        )
     for path in (
         instance.host.account.home,
         instance.names.state_directory,
@@ -402,6 +445,9 @@ def validate_instance(instance: Instance) -> None:
         identifiers = [item.id for item in items]
         if len(set(identifiers)) != len(identifiers):
             raise InstanceError("duplicate instance identifier")
+    container_names = [item.name for item in instance.workloads]
+    if len(set(container_names)) != len(container_names):
+        raise InstanceError("duplicate workload container name")
     if {item.id for item in instance.transport}.intersection(
         item.id for item in instance.discovery
     ):
@@ -511,6 +557,18 @@ def validate_instance(instance: Instance) -> None:
             _timestamp(decision.signed_at)
             if (decision.signed_by is None) != (decision.signed_at is None):
                 raise InstanceError("owner signature and timestamp must occur together")
+            try:
+                # The report assesses every decision; refuse here what it would refuse.
+                assess_bounded_safety(
+                    decision.max_age_seconds,
+                    decision.unknown_limit,
+                    decision.residual,
+                    decision.signed_by,
+                    decision.signed_at,
+                    interval_seconds=instance.supervision.reconcile_seconds,
+                )
+            except ValueError as exc:
+                raise InstanceError("bounded decision cannot be assessed") from exc
     except (StopIteration, KeyError) as exc:
         raise InstanceError("instance reference does not identify declared data") from exc
     for index, item in enumerate(instance.transport):
@@ -577,12 +635,17 @@ def validate_instance(instance: Instance) -> None:
     known_profiles = {item.id for item in instance.transport} | {
         item.id for item in instance.discovery
     }
+    registered = {item.id for item in REQUIREMENTS}
     for acceptance_entry in instance.acceptance:
         _timestamp(acceptance_entry.observed_at)
+        if acceptance_entry.requirement not in registered:
+            raise InstanceError("acceptance names an unregistered requirement")
         if acceptance_entry.profile is not None and acceptance_entry.profile not in known_profiles:
             raise InstanceError("acceptance names an undeclared profile")
     for deviation_entry in instance.deviations:
         _timestamp(deviation_entry.accepted_at)
+        if deviation_entry.requirement not in registered:
+            raise InstanceError("deviation names an unregistered requirement")
         if (deviation_entry.accepted_by is None) != (deviation_entry.accepted_at is None):
             raise InstanceError("deviation signature and timestamp must occur together")
     for owner_decision in (

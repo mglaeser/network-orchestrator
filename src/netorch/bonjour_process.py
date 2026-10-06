@@ -26,7 +26,10 @@ MAX_OUTPUT = 1_048_576
 Runner = Callable[[list[str], float], Result]
 # Apple's printtimestamp_F uses %2d for the hour: one padding space before
 # 00:00-09:59's single-digit hour, and no padding for 10:00-23:59.
-_STAMP = r"(?: [0-9]|1[0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]\.\d{3}"
+_STAMP = r"(?: [0-9]|1[0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]\.[0-9]{3}"
+# Every dns-sd operation prints this one line, after its timestamp, before it
+# enters the event loop: printtimestamp(); printf("...STARTING...\n").
+_STARTING = rf"{_STAMP}  \.\.\.STARTING\.\.\."
 
 
 class DiscoveryFailure(RuntimeError):
@@ -84,16 +87,22 @@ def confirmed_output(result: Result, index: int) -> bytes:
 def browse_names(raw: bytes, service_type: str, index: int, limit: int) -> tuple[str, ...]:
     """Strictly parse current Add/Rmv rows for exactly one type and interface."""
     pattern = re.compile(
-        rf"^{_STAMP}\s+(Add|Rmv)\s+[0-9A-Fa-f]+\s+(\d+)\s+local\.\s+"
-        rf"{re.escape(service_type)}\.?\s+(.+)$"
+        rf"^{_STAMP}  (Add|Rmv) ( {{0,7}}[0-9A-F]{{1,8}}) ( {{0,2}}[0-9]+) "
+        rf"{re.escape('local.'.ljust(20))} {re.escape((service_type + '.').ljust(20))} (.+)$"
     )
     active: set[str] = set()
-    for line in raw.decode("utf-8", errors="strict").splitlines():
+    # browse_reply uses fixed-width columns, then an unescaped instance label.
+    # Splitting after Unicode decoding would treat valid U+0085/U+2028 labels
+    # as new lines; greedy whitespace would merge distinct "Name"/" Name".
+    for raw_line in raw.splitlines():
+        line = raw_line.decode("utf-8", errors="strict")
+        if re.fullmatch(_STARTING, line):
+            continue
         if re.match(rf"^{_STAMP}\s", line):
             match = pattern.fullmatch(line)
-            if match is None or int(match[2]) != index:
+            if match is None or match[2] != f"{int(match[2], 16):8X}" or match[3] != f"{index:3d}":
                 raise DiscoveryFailure()
-            name = match[3]
+            name = match[4]
             if not name or len(name.encode()) > 63 or any(ord(char) < 32 for char in name):
                 raise DiscoveryFailure()
             if match[1] == "Add":
@@ -113,9 +122,10 @@ def browse_names(raw: bytes, service_type: str, index: int, limit: int) -> tuple
 
 
 def _banner(line: bytes, index: int, heading: bytes | None = None) -> bool:
-    """Only the fixed native interface/date/table banners are non-callbacks."""
+    """Only the fixed native interface/date/start/table banners are non-callbacks."""
     return (
         line == f"Using interface {index}".encode()
+        or re.fullmatch(_STARTING.encode(), line) is not None
         or re.fullmatch(
             rb"DATE: ---(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun) "
             rb"(?:0[1-9]|[12][0-9]|3[01]) "

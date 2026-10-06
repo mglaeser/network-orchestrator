@@ -73,10 +73,14 @@ real LAN device address on the guest interface. Projected records are excluded
 from the reverse path to prevent loops, including case variations of both reserved
 projection prefixes in names and hostnames.
 
-Discovery digest version 2 binds these selection semantics. Version 1 requests,
-candidates and cached readbacks are rejected by the owner; they cannot authorize
-the changed implementation. Transport policy digests are unchanged. This does not
-open the current native qualification gate.
+Discovery digest version 3 retains the version 2 selection semantics above and
+binds the corrected native `...STARTING...` banner and browse-label grammar
+described below. This is a source-format correction, not a broader device
+selector. Version 1 and 2
+requests, candidates and cached readbacks are rejected at the owner boundary;
+unchanged policy cannot retain an older implementation's discovery authority.
+Fresh planning and observation are required. Transport policy digests are
+unchanged. This does not open the current native qualification gate.
 
 Discovery does not supply the audio/video return path. A verified UDP-return
 dependency is required by the canonical import policy. The forwarding owner
@@ -102,7 +106,13 @@ timestamp prefix once and retain the full exact name, including consecutive
 spaces. These fixtures are source-derived contracts, not production captures.
 Asynchronous registration reads retain incomplete trailing lines until their
 newline; a split pipe read is not a conflicting identity. Every SRV/A/TXT callback must parse; a valid row cannot hide a malformed callback
-or unexpected query row. Fixed native banners are separately recognized. SRV's
+or unexpected query row. Fixed native banners are separately recognized,
+including the timestamped `...STARTING...` line that `dns-sd` prints once before
+its event loop for every operation; a near-miss of that line stays malformed.
+Browse callbacks use Apple's exact fixed-width columns before the unescaped
+instance label. Leading/trailing spaces and Unicode separators remain part of
+that label; only byte line endings split native output. Distinct labels such as
+`Speaker` and ` Speaker` cannot collapse or remove one another. SRV's
 single optional shell-friendly TXT continuation stays opaque bytes because that
 native display can contain non-UTF-8 data; only `-Q` provides authoritative TXT.
 Browse/register instance labels remain unescaped, while native escaped

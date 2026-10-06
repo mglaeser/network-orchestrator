@@ -106,7 +106,9 @@ The source manifest supports bounded JSON fragments and strictly literal `.env`
 values mapped through JSON pointers. See [owner-facts.json](../examples/owner-facts.json)
 and [static-owner.env](../examples/static-owner.env). The importer never sources
 shell files, expands variables or evaluates code. Conflicting authors, executable
-fragments, duplicate keys and unsupported fields fail validation.
+fragments, duplicate keys and unsupported fields fail validation. So does a
+literal file with a carriage return or any other control character except tab
+and line feed: only a line feed ends a line.
 
 `derive --check --output ...` checks byte-for-byte canonical equivalence against
 the authored sources. Keep this check in the private installation's provisioning

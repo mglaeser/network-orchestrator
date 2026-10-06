@@ -1055,10 +1055,16 @@ def _snapshot(
         data: dict[str, Any] = {"states": ()}
         if record is not None:
             target = record["target_ipv4"]
+            # Only the fact that states remain is evidence for planning. Raw
+            # kernel rows name a guest's remote peers and the clients on the
+            # LAN: they stay out of the snapshot that is hashed for the plan
+            # and out of the world-readable report, and they cannot grow
+            # either one beyond its serialization bound.
             matching = (
                 ()
                 if record["kind"] == "host-redirect"
-                else tuple(line for line, addresses in states if target in addresses)
+                or not any(target in addresses for _, addresses in states)
+                else ("retained",)
             )
             data = {
                 key: record[key]
@@ -1297,6 +1303,14 @@ def reconcile(
                     ),
                 )
             )
+        # Retire every rule before invalidating any state, as the administrator
+        # withdrawal and the unknown-state path do. A state readback that fails
+        # for one profile must not leave a later profile's rule loaded, and a
+        # sibling rule that is still loaded must not keep creating states for
+        # the address being drained. Everything else keeps its planned order.
+        actions = [action for action in actions if action.operation == "withdraw"] + [
+            action for action in actions if action.operation != "withdraw"
+        ]
         root.write(
             "journal.json",
             {

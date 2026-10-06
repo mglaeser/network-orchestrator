@@ -67,6 +67,11 @@ def main(
 
                 collector = collect_preflight
             evidence = parse_host_evidence(collector(instance))
+            if now is None:
+                # The collector stamps each fact while it runs. A report clock
+                # read before collection sees every fresh fact as dated in the
+                # future and discards it as contradictory.
+                clock = time.time()
         else:
             evidence = (
                 empty_evidence(clock)

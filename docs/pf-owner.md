@@ -41,6 +41,8 @@ Transient parser/rule files are confined to that protected directory. The
 published snapshot lives under a separately protected root-owned directory and
 is readable at mode `0644`. It contains only this owner's profile observations,
 not raw inspection output, account credentials, or user environment variables.
+A profile's `states` entry says only whether states for its target remain; the
+kernel's state rows, which name peers and LAN clients, are not copied into it.
 `admitted` records exact protected approval. The separate `root_ready` flag
 requires that approval, unblocked final root intent and an exact verified final
 plan/readback. Downstream planning requires both flags; a truthful observation
@@ -188,6 +190,11 @@ exposure. Partial writes journal the exact candidate before mutation; the next
 pass accepts only the old or known candidate kernel view, withdraws it and drains
 its states. An explicit administrator journal acknowledgement is required before
 activation resumes. Unknown foreign drift is never overwritten as recovery.
+
+Within one pass the owner applies every planned withdrawal before it invalidates
+any state, as the administrator withdrawal does. A state readback that fails
+then fails the pass with all planned rules already retired; it cannot leave the
+rule of a later profile loaded. Drains and activations keep their planned order.
 
 The owner holds only its own PF enable reference and keeps it while paused or
 empty. It never globally disables PF or releases a token owned by another
