@@ -222,7 +222,9 @@ file, changed boundary, damaged intent, replaced release, unavailable restore
 material or ambiguous state inhibits recovery instead of inventing a repair.
 Failed releases are retained for inspection and cannot be overwritten; retry
 with a separately reviewed new release or retire evidence only after checking
-live references. No timer clears an installation suspension.
+live references. An installation whose release directory is already retained is
+refused before it takes its suspension or opens a journal, so that refusal
+leaves nothing to recover. No timer clears an installation suspension.
 
 Before any privileged scheduler stop or policy replacement, the administrator
 installer takes a holder-specific root installation suspension and invokes the
