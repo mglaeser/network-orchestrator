@@ -35,6 +35,15 @@ def _path(value: str) -> None:
         raise DeploymentError("deployment paths must be canonical absolute paths")
 
 
+def _unprivileged(argv: tuple[str, ...]) -> None:
+    # Jobs run under launchd and monitors under Monit; neither may reach root.
+    if any(
+        value in {"sudo", "su", "doas"} or value.endswith(("/sudo", "/su", "/doas"))
+        for value in argv
+    ):
+        raise DeploymentError("deployment never embeds privilege escalation")
+
+
 def _shape(value: Any) -> None:
     schema_path = resources.files("netorch").joinpath("deployment.schema.json")
     schema = (
@@ -135,15 +144,13 @@ def validate_deployment(deployment: Deployment) -> None:
             raise DeploymentError("only the independent forwarding owner is a root job")
         if job.scope == "user" and job.role == "forwarding":
             raise DeploymentError("forwarding cannot be invoked by a user launch job")
-        if any(
-            value in {"sudo", "su", "doas"} or value.endswith(("/sudo", "/su", "/doas"))
-            for value in job.argv
-        ):
-            raise DeploymentError("deployment never embeds privilege escalation")
+        _unprivileged(job.argv)
     for monitor in deployment.monitors:
         _path(monitor.check_argv[0])
+        _unprivileged(monitor.check_argv)
         if monitor.recovery_argv is not None:
             _path(monitor.recovery_argv[0])
+            _unprivileged(monitor.recovery_argv)
         if monitor.role != "workload" and monitor.recovery_argv is not None:
             raise DeploymentError("networking failure must not initiate workload recovery")
     _path(deployment.launchctl)
