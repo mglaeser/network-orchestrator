@@ -102,7 +102,9 @@ timestamp prefix once and retain the full exact name, including consecutive
 spaces. These fixtures are source-derived contracts, not production captures.
 Asynchronous registration reads retain incomplete trailing lines until their
 newline; a split pipe read is not a conflicting identity. Every SRV/A/TXT callback must parse; a valid row cannot hide a malformed callback
-or unexpected query row. Fixed native banners are separately recognized. SRV's
+or unexpected query row. Fixed native banners are separately recognized,
+including the timestamped `...STARTING...` line that `dns-sd` prints once before
+its event loop for every operation; a near-miss of that line stays malformed. SRV's
 single optional shell-friendly TXT continuation stays opaque bytes because that
 native display can contain non-UTF-8 data; only `-Q` provides authoritative TXT.
 Browse/register instance labels remain unescaped, while native escaped
