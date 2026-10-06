@@ -88,6 +88,9 @@ profiles; the model intentionally has no arbitrary dependency graph.
 Exports require the actual source service's native publication and match its
 guest address, port and generation. Imports select genuine eligible endpoints
 within the configured LAN/interface, then related records from the same endpoint.
+The bundled discovery owner decides eligibility on a device's `_airplay._tcp`
+record, so it refuses to load an import declaration of its own that does not
+list that type: such a declaration could never import anything.
 Apple-media import declares a UDP-return dependency. Selection has wall-clock age,
 record-count and loop/provenance bounds. Binary TXT fields remain lossless.
 

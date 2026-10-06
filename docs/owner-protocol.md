@@ -202,7 +202,11 @@ Discovery observations use `Snapshot.profiles[discovery_id]`; transport and
 discovery IDs are disjoint. Their `data` contains `policy_digest` (the resolved
 discovery digest), `interface_confirmed` (a boolean), `service_generation`, and
 `network_generation`. Include them in observation responses as well as fixed
-operation readback. Exact current generations are required for both inactive and
+operation readback. The bundled owner also reports `record_count`, the number of
+records it has registered and confirmed for the declaration. `present` means the
+declaration is active and its registrations are complete; with `record_count`
+0 that is "active, nothing to publish", not evidence that anything is
+discoverable. Exact current generations are required for both inactive and
 active reconciliation. Complete absence with a confirmed interface permits
 activation only after transport dependencies already have verified readback in
 the initial snapshot. Unknown, stale, generation-changed or unconfirmed evidence
