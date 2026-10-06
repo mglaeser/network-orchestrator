@@ -137,6 +137,7 @@ class DiscoverySelection:
     dependencies: tuple[str, ...]
     misses: int | None = None
     service_types: tuple[str, ...] | None = None
+    return_path: str = "required"
 
 
 @dataclass(frozen=True, slots=True)

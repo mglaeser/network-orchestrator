@@ -363,8 +363,32 @@ def resolved_discovery_digest(instance: Instance, selection: DiscoverySelection)
                 )
                 for identifier in selection.dependencies
             },
+            **_independent_context(instance, selection),
         }
     )
+
+
+def _independent_context(instance: Instance, selection: DiscoverySelection) -> dict[str, Any]:
+    """What a selection otherwise binds through its required transport dependency.
+
+    The resolved digest of that dependency carries the target workload's
+    container name, the release pin, the supervision settings and the account,
+    runtime and platform context. An independent import may list no dependency
+    at all, so its envelope carries the same members itself. A selection without
+    the setting gets nothing here and keeps its digest.
+    """
+    if selection.return_path == "required":
+        return {}
+    return {
+        "context": {
+            "workload_name": instance.workload(selection.service).name,
+            "framework": asdict(instance.framework),
+            "supervision": asdict(instance.supervision),
+            "account": asdict(instance.host.account),
+            "runtime": asdict(instance.host.runtime),
+            "platform": asdict(instance.host.platform),
+        }
+    }
 
 
 def resolved_names(instance: Instance) -> dict[str, str]:
@@ -634,7 +658,14 @@ def validate_instance(instance: Instance) -> None:
             required = (
                 "published-port" if selection.direction == "export" else "guest-udp-range-forward"
             )
-            if not any(value.strategy == required for value in matching):
+            if selection.return_path != "required":
+                # The setting lifts the requirement below and nothing else. A selection
+                # that lists a return path depends on it and cannot say otherwise.
+                if selection.direction != "import":
+                    raise InstanceError("only an import can be independent of the return path")
+                if any(value.strategy == "guest-udp-range-forward" for value in dependencies):
+                    raise InstanceError("an independent import lists no return-path dependency")
+            elif not any(value.strategy == required for value in matching):
                 raise InstanceError("discovery requires its own service's transport dependency")
             if selection.direction == "export" and not any(
                 value.strategy == "published-port" and value.protocol == "tcp" for value in matching

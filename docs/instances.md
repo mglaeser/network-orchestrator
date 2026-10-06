@@ -99,6 +99,20 @@ for arbitrary secret values; mappings still require review before committing.
 
 Discovery selections have their own rows and resolved digests, with dependency states. Warm-cache reload does not establish inward Apple-media discovery. The pinned Home Assistant shared-scanner cold-start/receiver-change proof remains a named **unverified** acceptance requirement; offline synthetic coverage does not claim it happened.
 
+An import selection lists a UDP return profile of its own workload. A site that
+imports receivers for discovery only, or that admits the return path as a
+separate decision, says so with `"return_path": "independent"` on that
+selection. It then lists no return profile, and its dependency list may be
+empty; its report row then reads `dependencies-none`. The default has no
+spelling: `"required"` is refused, and so is the member on an export. A
+selection otherwise binds the target workload's container name, the release
+pin, the supervision settings and the account, runtime and platform context
+through its required dependency; an independent import carries them in its own
+resolved digest. `HEARD-AUDIO` and `MULTI-RECEIVER` are asked where an
+importing workload also declares a UDP return profile, whether a selection
+lists it or not. Every instance that was valid before the setting existed
+reports them as before.
+
 Every current export profile requires a TCP publication for its own workload;
 a UDP socket at the same port cannot substantiate a TCP DNS-SD announcement.
 Instances with imports also report `IMPORT-VISIBILITY`: visibility must be

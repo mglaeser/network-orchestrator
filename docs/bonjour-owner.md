@@ -89,8 +89,12 @@ behavior. Version 1 to 3 requests, candidates and cached readbacks are
 rejected at the owner boundary in the same way.
 
 Discovery does not supply the audio/video return path. A verified UDP-return
-dependency is required by the canonical import policy. The forwarding owner
-remains its sole writer and its independent safety/approval boundary is retained.
+dependency is required by the canonical import policy, unless its entry says
+`"return_path": "independent"` ([configuration](configuration.md)). The owner
+then projects the eligible records without waiting for a return path; it
+still waits for every dependency the entry lists. The forwarding owner
+remains the return path's sole writer and its independent safety/approval
+boundary is retained.
 
 ## Native CLI parsing and confirmation
 
