@@ -800,6 +800,13 @@ def build_report(
     evidence_directory: Path | None = None,
 ) -> dict[str, Any]:
     contracts = verify_contracts(instance, data_directory)
+    # Only the shipped matrix says whether the declared platform can be accepted at
+    # all. Until it lists that platform, no retained record counts for PLATFORM-SUPPORT.
+    listed = (
+        instance.host.platform.macos_version,
+        instance.host.platform.macos_build,
+        instance.host.runtime.version,
+    ) in ACCEPTED_PLATFORMS
     rows: list[dict[str, Any]] = []
     for requirement in REQUIREMENTS:
         if not _applicable(instance, requirement):
@@ -812,10 +819,10 @@ def build_report(
                 requirement.id
                 not in {
                     "BOUNDED-IDENTITY",
-                    "PLATFORM-SUPPORT",
                     "IMPORT-VISIBILITY",
                     "LIFECYCLE-WRITERS",
                 }
+                and (requirement.id != "PLATFORM-SUPPORT" or listed)
                 and status != "not-fulfilled"
                 and _acceptance(instance, requirement, evidence, now, evidence_directory)
             ):
@@ -956,12 +963,7 @@ def build_report(
     accepted = (
         next(item for item in rows if item["id"] == "PLATFORM-SUPPORT")["status"]
         == "fulfilled-verified"
-        and (
-            instance.host.platform.macos_version,
-            instance.host.platform.macos_build,
-            instance.host.runtime.version,
-        )
-        in ACCEPTED_PLATFORMS
+        and listed
     )
     current_ready = (
         evidence.source != "synthetic"
