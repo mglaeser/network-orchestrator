@@ -1,3 +1,3 @@
 """macOS instance contracts over independently owned network services."""
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"

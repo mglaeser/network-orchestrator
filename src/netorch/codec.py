@@ -10,6 +10,8 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
+import stat
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any
@@ -114,10 +116,28 @@ def strict_loads(
         raise CodecError("Malformed JSON input") from exc
 
 
+def read_bounded_file(path: str | Path, *, maximum: int = MAX_JSON_BYTES) -> bytes:
+    """Read at most limit + 1 bytes from regular data; callers reject overflow.
+
+    Open nonblocking before inspecting the descriptor: opening a FIFO for read
+    otherwise waits for a writer before its nonregular type can be rejected.
+    Symlink behavior matches the original general data reader; protected owner
+    readers separately enforce O_NOFOLLOW, metadata and authority boundaries.
+    """
+    if type(maximum) is not int or maximum < 1:
+        raise CodecError("File read limit must be positive")
+    fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise CodecError("Input must be a regular file")
+        with os.fdopen(os.dup(fd), "rb") as stream:
+            return stream.read(maximum + 1)
+    finally:
+        os.close(fd)
+
+
 def strict_load(path: str | Path) -> Any:
-    with Path(path).open("rb") as stream:
-        raw = stream.read(MAX_JSON_BYTES + 1)
-    return strict_loads(raw)
+    return strict_loads(read_bounded_file(path))
 
 
 def canonical_json(value: Any) -> str:

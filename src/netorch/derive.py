@@ -12,7 +12,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from .codec import MAX_JSON_BYTES, strict_load
+from .codec import MAX_JSON_BYTES, read_bounded_file, strict_load
 from .config import ConfigError, parse_config
 from .model import Config
 
@@ -136,8 +136,7 @@ def derive(source: str | Path) -> Config:
                 )
             ):
                 raise DeriveError("Literal owner source requires a closed key-to-pointer mapping")
-            with path.open("rb") as stream:
-                raw = stream.read(MAX_JSON_BYTES + 1)
+            raw = read_bounded_file(path)
             if len(raw) > MAX_JSON_BYTES:
                 raise DeriveError("Literal owner input exceeds the byte limit")
             try:

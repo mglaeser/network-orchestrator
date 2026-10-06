@@ -339,7 +339,9 @@ class Registration:
             text,
         ):
             raise DiscoveryFailure()
-        lines = text.splitlines()
+        # Pipe reads can split a native callback anywhere. A partial final
+        # line is not a conflicting registration; retain it until its newline.
+        lines = text[: text.rfind(b"\n") + 1].splitlines()
         expected_service = (
             f"Got a reply for service {self.record.name}."
             f"{self.record.service_type}.local.: Name now registered and active"

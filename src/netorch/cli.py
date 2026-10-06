@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from . import __version__
-from .codec import canonical_json, strict_load
+from .codec import canonical_json, read_bounded_file, strict_load
 from .config import config_digest, load_config, parse_config, profile_digest, to_dict
 from .deployment import (
     install_bundle,
@@ -238,7 +238,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "derive":
             value = canonical_json(to_dict(derive(args.source))) + "\n"
             if args.check:
-                if args.output is None or args.output.read_text() != value:
+                if args.output is None or read_bounded_file(args.output).decode("utf-8") != value:
                     raise ValueError(
                         "derived view differs; regenerate it from its authored sources"
                     )

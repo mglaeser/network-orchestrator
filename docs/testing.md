@@ -35,6 +35,22 @@ Mypy targets Darwin explicitly and keeps strict checking and unreachable-code
 warnings enabled. Hosted macOS userspace checks are evidence for their recorded
 runner version; they do not qualify a production macOS build or run guests.
 
+Local preflight parsers validate complete known native output shapes before
+reporting coexistence or restart facts. Proxy dictionaries include scoped and
+supplemental settings; malformed nesting, duplicate keys and invalid enable
+values remain unknown. VPN rows use the status column, never text in a service
+name. A header-only VPN result remains unknown because Apple's implementation
+prints the same header and exits zero for an empty list and a failed list read.
+The source contracts are Apple's [SCPrint description renderer](https://github.com/apple-oss-distributions/configd/blob/585b7f2fca293f4642d21d15c5daf187f63c4796/SystemConfiguration.fproj/SCD.c#L255-L402)
+and [VPN list producer](https://github.com/apple-oss-distributions/configd/blob/585b7f2fca293f4642d21d15c5daf187f63c4796/scutil.tproj/nc.c#L703-L794).
+Power restart is the explicit AC preference in a complete sectioned
+[pmset inventory](https://github.com/apple-oss-distributions/PowerManagement/blob/d415e45501842834a280930c3eed9186544a67f0/pmset/pmset.m#L1474-L1522).
+Internet Sharing reads the XML output of `defaults export DOMAIN -`, documented
+by macOS `defaults(1)`, and validates `NAT.Enabled` without evaluating the human
+property-list description. Extension inventories validate counted native rows
+and documented `systemextensionsctl(8)` states. These synthetic parser tests
+prove refusal and interpretation rules; they do not qualify a macOS build.
+
 The combined line/branch coverage gate is 90%. Coverage records execution, not
 correctness. The test intent and rejected unsafe behavior matter more than a high
 number. Add regressions at the smallest tier that proves each reported failure.

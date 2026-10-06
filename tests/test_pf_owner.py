@@ -1001,7 +1001,11 @@ def test_shellbackend_state_drain_requires_absent_readback(
 
     def call(*args: str) -> str:
         calls.append(args)
-        return "all udp 198.51.100.12:45001 -> 192.0.2.82:7000 X:Y" if args[0] == "states" else ""
+        return (
+            "all udp 198.51.100.12:45001 -> 192.0.2.82:7000 SINGLE:MULTIPLE"
+            if args[0] == "states"
+            else ""
+        )
 
     monkeypatch.setattr(backend, "_call", call)
     with pytest.raises(PFError, match="remain"):
@@ -1385,7 +1389,7 @@ def test_dns_mode_changes_retire_guest_states_then_later_restore_direct(environm
     configure_fallback(environment)
     assert run_pass(environment)["phase"] == "committed"
     backend = environment[3]
-    backend.flow_states = "all udp 198.51.100.10:53 -> 192.0.2.50:53000 X:Y"
+    backend.flow_states = "all udp 198.51.100.10:53 -> 192.0.2.50:53000 SINGLE:MULTIPLE"
     backend.unavailable_guests.add("198.51.100.10")
     first = run_pass(environment)
     assert "dns-udp:withdraw" in first["changed"]
@@ -1605,7 +1609,7 @@ def test_native_endpoint_unrecognized_topology_cannot_be_admitted(
     values = {
         "/sbin/route": route,
         "/usr/sbin/arp": arp,
-        "/sbin/ifconfig": "inet 192.0.2.10 netmask 0xffffff00",
+        "/sbin/ifconfig": "en0: flags=1\n inet 192.0.2.10 netmask 0xffffff00",
         "/usr/sbin/sysctl": "1",
     }
     monkeypatch.setattr(backend, "_native", lambda args: values[args[0]])
@@ -2018,3 +2022,211 @@ def legacy_cli_conformance(monkeypatch):
     import netorch.pf_owner as module
 
     monkeypatch.setattr(module, "require_mutation_qualified", lambda _capability: None)
+
+
+@pytest.mark.parametrize(
+    "row,addresses",
+    [
+        (
+            "all udp 192.0.2.10:45001 (198.51.100.12:45001) -> 192.0.2.82:80 SINGLE:MULTIPLE",
+            ("192.0.2.10", "198.51.100.12", "192.0.2.82"),
+        ),
+        (
+            "all tcp 192.0.2.10:8443 <- 192.0.2.20:53000 "
+            "(198.51.100.12:443) ESTABLISHED:ESTABLISHED",
+            ("192.0.2.10", "192.0.2.20", "198.51.100.12"),
+        ),
+        (
+            "all udp 192.0.2.10:45001 (198.51.100.12:45001) <- "
+            "192.0.2.82:7000 (198.51.100.20:7000) NO_TRAFFIC:SINGLE",
+            ("192.0.2.10", "198.51.100.12", "192.0.2.82", "198.51.100.20"),
+        ),
+        ("all tcp 2001:db8::1[443] -> 2001:db8::2[12345] TIME_WAIT:TIME_WAIT", ()),
+        ("all icmp6 2001:db8::1 -> 2001:db8::2 0:0", ()),
+        ("all ipv6-icmp 2001:db8::1[123] <- 2001:db8::2 0:0", ()),
+        (
+            "all icmp 192.0.2.10:123 -> 192.0.2.20 0:0",
+            ("192.0.2.10", "192.0.2.20"),
+        ),
+        (
+            "all tcp 192.0.2.10:443 -> 192.0.2.20:53000 PROXY:DST",
+            ("192.0.2.10", "192.0.2.20"),
+        ),
+        (
+            "all udp ::ffff:192.0.2.10[123] -> ::ffff:192.0.2.20[456] SINGLE:SINGLE",
+            ("192.0.2.10", "192.0.2.20"),
+        ),
+        (
+            "all udp 2001:db8::1[123] (192.0.2.10:123) -> "
+            "2001:db8::2[456] (192.0.2.20:456) MULTIPLE:MULTIPLE",
+            ("192.0.2.10", "192.0.2.20"),
+        ),
+    ],
+)
+def test_complete_numeric_pf_state_grammar(row: str, addresses: tuple[str, ...]) -> None:
+    # Source-derived synthetic rows: this proves parser behavior only. Upstream
+    # print_host/print_state at openbsd/src b1a43ff550949e2a4899e600bb41c53aef12ecfd
+    # defines suffixes, translation parentheses, both directions and status tail.
+    # These are not captured evidence qualifying any Darwin build.
+    assert state_addresses(row) == ((row, addresses),)
+
+
+@pytest.mark.parametrize(
+    "row",
+    [
+        "all udp truncated:line -> missing:endpoint",
+        "all udp bad-host:40000 -> 192.0.2.2:80 SINGLE:SINGLE",
+        "all udp 192.0.2.1:40000 -> bad-host:80 SINGLE:SINGLE",
+        "all udp 192.0.2.1:40000 -> 192.0.2.2:80",
+        "all udp 192.0.2.1:40000 -> 192.0.2.2:80 SINGLE:",
+        "all udp 192.0.2.1:40000 -> 192.0.2.2:80 NOT_A_STATE:SINGLE",
+        "all udp bad::v6[40000] -> 2001:db8::2[80] SINGLE:SINGLE",
+        "all udp 2001:db8::1[40000 -> 2001:db8::2[80] SINGLE:SINGLE",
+        "all udp 192.0.2.1:65536 -> 192.0.2.2:80 SINGLE:SINGLE",
+        "all udp 192.0.2.1:80 (garbage) -> 192.0.2.2:80 SINGLE:SINGLE",
+        "all udp 192.0.2.1:80 -> 192.0.2.2:80 (garbage) SINGLE:SINGLE",
+        "all udp 192.0.2.1:80 (198.51.100.12:80 -> 192.0.2.2:80 SINGLE:SINGLE",
+        "all udp 192.0.2.1:80 198.51.100.12:80 -> 192.0.2.2:80 SINGLE:SINGLE",
+        "all udp 192.0.2.1:80 -> <- 192.0.2.2:80 SINGLE:SINGLE",
+        "all udp 192.0.2.1:80 -> SINGLE:SINGLE",
+        "all udp -> 192.0.2.2:80 (192.0.2.3:80) SINGLE:SINGLE",
+        "all udp (192.0.2.1:80) -> 192.0.2.2:80 SINGLE:SINGLE",
+        "all udp 192.0.2.1:0 -> 192.0.2.2:80 SINGLE:SINGLE",
+        "all udp 192.0.2.1:abc -> 192.0.2.2:80 SINGLE:SINGLE",
+        "all udp 192.0.2.1[80] -> 192.0.2.2:80 SINGLE:SINGLE",
+        "all udp fe80::1%example[80] -> 2001:db8::2[80] SINGLE:SINGLE",
+        "all icmp 192.0.2.1 -> 192.0.2.2 256:0",
+        "all icmp 192.0.2.1 -> 192.0.2.2 bad:0",
+    ],
+)
+def test_partial_or_malformed_pf_row_never_proves_absence(row: str) -> None:
+    with pytest.raises(PFError):
+        state_addresses(row)
+
+
+def test_unknown_numeric_state_row_withdraws_without_claiming_drain(environment: Any) -> None:
+    approve_all(environment)
+    assert run_pass(environment)["phase"] == "committed"
+    backend = environment[3]
+    backend.flow_states = "all udp incomplete:endpoint -> missing:address"
+    result = run_pass(environment)
+    assert result["phase"] == "failed"
+    assert not backend.rules
+    assert backend.flow_states  # No complete read, so no successful drain evidence.
+    journal = environment[0].read("journal.json")
+    assert journal["reason"] == "kernel-state-unknown"
+    assert not any(change.endswith(":activate") for change in result["changed"])
+
+
+def test_pf_status_missing_root_is_not_created(
+    tmp_path: Path, monkeypatch: Any, capsys: Any
+) -> None:
+    import netorch.pf_owner as module
+
+    missing = tmp_path / "absent"
+    monkeypatch.setattr(module.sys, "platform", "darwin")
+    monkeypatch.setattr(module.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(module, "protected_code", lambda *args, **kwargs: None)
+    # Keep the real ancestor reader. The CI-owned temp parent may be rejected
+    # before the missing leaf, but neither path may construct writable state.
+    monkeypatch.setattr(module, "Store", lambda *_args: pytest.fail("status created state"))
+    assert module.main(["status", "--root-dir", str(missing)]) == 65
+    assert not missing.exists()
+    assert strict_loads(capsys.readouterr().err)["error"] in {"UnsafeState", "FileNotFoundError"}
+
+
+@pytest.mark.parametrize(
+    "declared,mask,expected",
+    [
+        ("192.0.2.0/24", "0xffffff00", True),
+        ("192.0.2.0/25", "0xffffff00", True),
+        ("192.0.0.0/16", "0xffffff00", False),
+        ("192.0.0.0/8", "0xffffff00", False),
+        ("192.0.2.0/24", "0xffffff80", False),
+        ("192.0.2.0/24", "0xffff00ff", False),
+        ("192.0.2.0/24", "0x000000ff", False),
+        ("192.0.2.0/24", "0x0000ffff", False),
+        ("192.0.2.0/24", "0x00ffffff", False),
+        ("192.0.2.0/24", "0x00000001", False),
+        ("192.0.2.0/24", "invalid", False),
+        ("192.0.2.0/24", "0xffffff", False),
+        ("192.0.2.0/24", "0x1ffffff00", False),
+        ("192.0.2.0/24", "0xFFFFFF00", True),
+        ("192.0.2.1/24", "0xffffff00", False),
+    ],
+)
+def test_root_scope_cannot_exceed_observed_interface_prefix(
+    environment: Any, monkeypatch: Any, declared: str, mask: str, expected: bool
+) -> None:
+    backend = shell_backend(environment, monkeypatch)
+    scope = replace(environment[1].scopes[0], lan_cidr=declared)
+    calls = []
+
+    def native(argv):
+        calls.append(argv)
+        return (
+            f"{scope.interface}: flags=1\n"
+            f" inet {scope.host_ipv4} netmask {mask} broadcast 192.0.2.255"
+        )
+
+    monkeypatch.setattr(backend, "_native", native)
+    assert backend.endpoint(scope, scope.host_ipv4, None, direct=False) is expected
+    assert calls == [["/sbin/ifconfig", scope.interface]]
+
+
+@pytest.mark.parametrize(
+    "rows",
+    [
+        "inet 192.0.2.10",
+        "inet 192.0.2.10 missing 0xffffff00",
+        "inet 192.0.2.10 netmask 0xffffff00 netmask 0xffff0000",
+        "inet 192.0.2.10 netmask 0xffffff00\ninet 192.0.2.10 netmask 0xffff0000",
+        "inet 192.0.2.11 netmask 0xffffff00",
+    ],
+)
+def test_root_scope_requires_complete_unambiguous_interface_prefix(
+    environment: Any, monkeypatch: Any, rows: str
+) -> None:
+    backend = shell_backend(environment, monkeypatch)
+    scope = environment[1].scopes[0]
+    monkeypatch.setattr(backend, "_native", lambda _argv: f"{scope.interface}: flags=1\n {rows}")
+    assert not backend.endpoint(scope, scope.host_ipv4, None, direct=False)
+
+
+def test_oversized_root_scope_stops_before_direct_guest_probe(environment: Any, monkeypatch: Any):
+    backend = shell_backend(environment, monkeypatch)
+    scope = replace(environment[1].scopes[0], lan_cidr="192.0.0.0/8")
+    calls = []
+
+    def native(argv):
+        calls.append(argv)
+        assert argv[0] == "/sbin/ifconfig", "widened scope reached guest or route inspection"
+        return f"{scope.interface}: flags=1\n inet 192.0.2.10 netmask 0xffffff00"
+
+    monkeypatch.setattr(backend, "_native", native)
+    assert not backend.endpoint(scope, "198.51.100.12", "02:00:00:00:00:01", direct=True)
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize(
+    "header,extra",
+    [
+        ("", ""),
+        ("different0: flags=1\n", ""),
+        ("en0: malformed\n", ""),
+        ("diagnostic only\nen0: flags=1\n", ""),
+        ("en0: flags=1\n", "\nother0: flags=1\n inet 198.51.100.10 netmask 0xffffff00"),
+        ("en0: flags=1\n", "\nen0: flags=1"),
+    ],
+)
+def test_root_endpoint_requires_single_declared_interface_header(
+    environment: Any, monkeypatch: Any, header: str, extra: str
+) -> None:
+    backend = shell_backend(environment, monkeypatch)
+    scope = environment[1].scopes[0]
+    monkeypatch.setattr(
+        backend,
+        "_native",
+        lambda _argv: header + f" inet {scope.host_ipv4} netmask 0xffffff00" + extra,
+    )
+    assert not backend.endpoint(scope, scope.host_ipv4, None, direct=False)

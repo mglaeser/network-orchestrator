@@ -9,7 +9,7 @@ from typing import Any
 
 from jsonschema import Draft202012Validator
 
-from .codec import canonical_bytes, strict_load, strict_loads
+from .codec import canonical_bytes, read_bounded_file, strict_load, strict_loads
 from .deployment_model import (
     Artifact,
     Deployment,
@@ -81,7 +81,7 @@ def parse_deployment(raw: str | bytes) -> Deployment:
 
 
 def load_deployment(path: Path) -> Deployment:
-    return parse_deployment(path.read_bytes())
+    return parse_deployment(read_bounded_file(path))
 
 
 def deployment_to_dict(deployment: Deployment) -> dict[str, Any]:

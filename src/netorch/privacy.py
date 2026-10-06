@@ -258,10 +258,28 @@ def instance_literals(instance: dict[str, Any]) -> tuple[HostLiteral, ...]:
             for item in node:
                 visit(item, kind)
 
+    visit(instance.get("instance"), "name")
     visit(instance.get("names", {}), "name")
+    for section in (
+        "workloads",
+        "port_ranges",
+        "transport",
+        "discovery",
+        "lifecycle_tools",
+        "deviations",
+    ):
+        for item in instance.get(section, []):
+            if isinstance(item, dict):
+                visit(item.get("id"), "name")
+    for author in instance.get("authoring", []):
+        if isinstance(author, dict):
+            visit(author.get("owner"), "name")
     for workload in instance.get("workloads", []):
-        if isinstance(workload, dict) and isinstance(workload.get("name"), str):
-            values.add(HostLiteral("name", workload["name"]))
+        if isinstance(workload, dict):
+            visit(workload.get("name"), "name")
+            for component in workload.get("components", []):
+                if isinstance(component, dict):
+                    visit(component.get("id"), "name")
     for port_range in instance.get("port_ranges", []):
         if isinstance(port_range, dict):
             for key in ("first", "last"):

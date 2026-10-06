@@ -215,11 +215,16 @@ def instance_digest(instance: Instance) -> str:
 
 
 def instance_contract_digest(instance: Instance) -> str:
-    """Bind desired behavior without a circular hash of its acceptance ledger."""
+    """Bind desired behavior and its authorship without hashing its own proofs.
+
+    Source hashes and owner flips change the provenance being attested, even
+    when rendered behavior stays byte-identical. Historical acceptance must
+    therefore be renewed after either changes.
+    """
     data = instance_to_dict(instance)
-    for key in ("acceptance", "deviations", "authoring"):
+    for key in ("acceptance", "deviations"):
         del data[key]
-    return digest({"instance_contract_version": 1, "contract": data})
+    return digest({"instance_contract_version": 2, "contract": data})
 
 
 def resolve_ports(instance: Instance, ports: Ports | None) -> tuple[int, int] | None:
@@ -490,6 +495,12 @@ def validate_instance(instance: Instance) -> None:
             )
             if not any(value.strategy == required for value in matching):
                 raise InstanceError("discovery requires its own service's transport dependency")
+            if selection.direction == "export" and not any(
+                value.strategy == "published-port" and value.protocol == "tcp" for value in matching
+            ):
+                # Every supported export profile emits TCP DNS-SD services.
+                # A UDP socket on the same numeric port is a different endpoint.
+                raise InstanceError("discovery export requires its own TCP publication")
         decision_ids = [item.profile for item in instance.decisions.bounded]
         if len(set(decision_ids)) != len(decision_ids):
             raise InstanceError("duplicate bounded decision")

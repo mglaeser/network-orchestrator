@@ -372,7 +372,7 @@ def check_identity(
     ):
         raise RuntimeReadError("identity-mismatch")
     if identity.sha256 is not None:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
         try:
             opened = os.fstat(fd)
             if (

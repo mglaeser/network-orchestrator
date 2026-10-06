@@ -199,6 +199,19 @@ def test_export_needs_own_publication(instance_data: dict[str, Any]) -> None:
         parse(instance_data)
 
 
+@pytest.mark.parametrize(
+    "profile", ["published-tcp-export", "homekit-export", "home-assistant-export"]
+)
+def test_tcp_discovery_export_rejects_udp_only_publication(
+    instance_data: dict[str, Any], profile: str
+) -> None:
+    instance_data["discovery"][0]["profile"] = profile
+    parse(instance_data)
+    instance_data["transport"][0]["protocol"] = "udp"
+    with pytest.raises(InstanceError, match="TCP publication"):
+        parse(instance_data)
+
+
 def test_dependency_cycle_is_bounded(instance_data: dict[str, Any]) -> None:
     instance_data["transport"][0]["dependencies"] = ["example-return"]
     instance_data["transport"][1]["dependencies"] = ["example-publication"]

@@ -11,6 +11,24 @@ from dataclasses import dataclass, replace
 from .model import Config, Discovery
 from .state import Observation
 
+_DNS_ASCII_LOWER = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
+
+
+def dns_name_key(value: str) -> str:
+    """RFC 4343 section 3: compare ASCII letter case, never Unicode casefold.
+
+    Only comparison keys are normalized; records retain their observed spelling.
+    """
+    return value.translate(_DNS_ASCII_LOWER)
+
+
+def is_own_projection(record: Record) -> bool:
+    """Reserved projection prefixes cannot be reflected in either direction."""
+    return any(
+        dns_name_key(value).startswith(("netorch-container-", "netorch-lan-"))
+        for value in (record.name, record.hostname)
+    )
+
 
 @dataclass(frozen=True, slots=True)
 class Record:
@@ -102,7 +120,7 @@ def project_export(
         raise ValueError("an export policy is required")
     if not interface_confirmed or record.interface == scope.interface:
         return Projection("unknown", "interface-unverified")
-    if record.name.startswith("netorch-lan-") or record.hostname.startswith("netorch-lan-"):
+    if is_own_projection(record):
         return Projection("absent", "loop-excluded")
     if not set(policy.dependencies) <= verified_dependencies:
         return Projection("absent", "dependency-unverified")
@@ -174,16 +192,18 @@ def select_imports(
         and item.service_type in policy.types
         and item.seen_at <= now <= item.seen_at + policy.max_age_seconds
         and ipaddress.IPv4Address(item.ipv4) in ipaddress.IPv4Network(scope.lan_cidr)
-        and not item.hostname.startswith("netorch-container-")
+        and not is_own_projection(item)
     ]
     eligible = {
-        item.ipv4
+        (dns_name_key(item.hostname), item.ipv4)
         for item in fresh
         if item.service_type == "_airplay._tcp"
         and any(value in eligible_models for value in item.txt if value.startswith(b"model="))
     }
     selected = [
-        replace(item, interface=target_interface) for item in fresh if item.ipv4 in eligible
+        replace(item, interface=target_interface)
+        for item in fresh
+        if (dns_name_key(item.hostname), item.ipv4) in eligible
     ]
     # A flood or ambiguous duplicate registration is not truncated into success.
     if len(selected) > policy.max_records:

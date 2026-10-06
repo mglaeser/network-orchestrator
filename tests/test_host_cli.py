@@ -216,6 +216,47 @@ def test_unsigned_lifecycle_residual_is_not_accepted(data: dict[str, Any]) -> No
     assert status(report(data), "LIFECYCLE-WRITERS") == "not-fulfilled"
 
 
+@pytest.mark.parametrize("problem", ["unknown", "declined", "unsigned", "blank", "future"])
+def test_import_visibility_requires_current_explicit_owner_decision(
+    data: dict[str, Any], problem: str
+) -> None:
+    decision = data["decisions"]["import_visibility"]
+    decision.update(accepted=True, signed_by="example-reviewer", signed_at="1970-01-01T00:15:00Z")
+    assert status(report(data), "IMPORT-VISIBILITY") == "accepted-residual"
+    if problem == "unknown":
+        decision["accepted"] = None
+    elif problem == "declined":
+        decision["accepted"] = False
+    elif problem == "unsigned":
+        decision.update(signed_by=None, signed_at=None)
+    elif problem == "blank":
+        decision["signed_by"] = " "
+    else:
+        decision["signed_at"] = "1970-01-01T01:00:00Z"
+    assert status(report(data), "IMPORT-VISIBILITY") == "not-fulfilled"
+
+
+def test_import_visibility_attestation_does_not_become_verified_authorization(
+    data: dict[str, Any], tmp_path: Path
+) -> None:
+    data["decisions"]["import_visibility"].update(
+        accepted=True, signed_by="example-reviewer", signed_at="1970-01-01T00:15:00Z"
+    )
+    proof(
+        data,
+        tmp_path,
+        requirement="IMPORT-VISIBILITY",
+        method="schema-tests",
+        tier=1,
+        profile=None,
+    )
+    result = report(data, platform_evidence(), evidence_directory=tmp_path)
+    assert status(result, "IMPORT-VISIBILITY") == "accepted-residual"
+    data["discovery"] = [item for item in data["discovery"] if item["direction"] != "import"]
+    data["acceptance"] = []
+    assert status(report(data), "IMPORT-VISIBILITY") == "not-applicable"
+
+
 def test_no_guessed_withdrawal_bound(data: dict[str, Any]) -> None:
     assert status(report(data), "BOUNDED-IDENTITY") == "not-fulfilled"
     data["decisions"]["bounded"] = [
@@ -711,3 +752,67 @@ def test_missing_authoring_subject_is_not_fulfilled(data: dict[str, Any]) -> Non
         }
     )
     assert status(report(data), "SOURCE-AUTHORSHIP") == "not-fulfilled"
+
+
+@pytest.mark.parametrize("requirement", ["SOURCE-AUTHORSHIP", "OWNER-CONFORMANCE"])
+@pytest.mark.parametrize("change", ["source", "owner", "mode"])
+def test_authoring_changes_invalidate_retained_conformance(
+    tmp_path: Path, data: dict[str, Any], requirement: str, change: str
+) -> None:
+    row = data["authoring"][0]
+    row.update(mode="generated", source_sha256="3" * 64)
+    proof(data, tmp_path, requirement=requirement, profile=None, method="fixture-parity", tier=1)
+    assert (
+        status(report(data, platform_evidence(), evidence_directory=tmp_path), requirement)
+        == "fulfilled-verified"
+    )
+    if change == "source":
+        row["source_sha256"] = "4" * 64
+    elif change == "owner":
+        row["owner"] = "example-replacement-owner"
+    else:
+        row.update(mode="authored", source_sha256=None)
+    assert (
+        status(report(data, platform_evidence(), evidence_directory=tmp_path), requirement)
+        == "fulfilled-unverified"
+    )
+
+
+@pytest.mark.parametrize("desired", [None, "f" * 64])
+def test_discovery_current_readiness_requires_owner_desired_digest(
+    data: dict[str, Any], desired: str | None
+) -> None:
+    instance = parsed(data)
+    evidence = evidence_dict()
+    for item in instance.transport:
+        evidence["profiles"].append(
+            profile_evidence(item.id, resolved_profile_digest(instance, item), transport="present")
+        )
+    for item in instance.discovery:
+        evidence["profiles"].append(
+            profile_evidence(
+                item.id,
+                resolved_discovery_digest(instance, item),
+                discovery="present",
+                application="present",
+            )
+        )
+    observation = {
+        "state": "present",
+        "reason": "complete",
+        "observed_at": NOW,
+        "generation": "example-generation",
+    }
+    evidence["workloads"] = [
+        {"id": workload.id, "observation": observation} for workload in instance.workloads
+    ]
+    evidence["components"] = [
+        {"service": workload.id, "id": component.id, "observation": observation}
+        for workload in instance.workloads
+        for component in workload.components
+    ]
+    assert report(data, evidence)["current_ready"]
+    evidence["profiles"][-1]["desired_digest"] = desired
+    result = report(data, evidence)
+    assert not result["current_ready"]
+    assert result["discovery_profiles"][-1]["owner_desired_digest"] == desired

@@ -567,6 +567,26 @@ def _base_assessment(
                 "Container API authority residual has no current owner signature.",
             )
         )
+    if identifier == "IMPORT-VISIBILITY":
+        visibility = instance.decisions.import_visibility
+        if (
+            visibility.accepted is True
+            and visibility.signed_by is not None
+            and visibility.signed_by.strip()
+            and visibility.signed_at is not None
+            and datetime.strptime(visibility.signed_at, "%Y-%m-%dT%H:%M:%SZ")
+            .replace(tzinfo=UTC)
+            .timestamp()
+            <= now
+        ):
+            return (
+                "accepted-residual",
+                "Owner-recorded import visibility decision; not authenticated authorization.",
+            )
+        return (
+            "not-fulfilled",
+            "Imported record visibility is declined, undecided or lacks a current owner signature.",
+        )
     if identifier == "BOUNDED-IDENTITY":
         bounded = [
             item
@@ -691,7 +711,7 @@ def build_report(
                 instance, requirement, evidence, now, contracts, release_verified
             )
             if (
-                requirement.id not in {"BOUNDED-IDENTITY", "PLATFORM-SUPPORT"}
+                requirement.id not in {"BOUNDED-IDENTITY", "PLATFORM-SUPPORT", "IMPORT-VISIBILITY"}
                 and status != "not-fulfilled"
                 and _acceptance(instance, requirement, evidence, now, evidence_directory)
             ):
@@ -792,6 +812,7 @@ def build_report(
                 "profile_version": selection.version,
                 "direction": selection.direction,
                 "desired_digest": expected,
+                "owner_desired_digest": None if current is None else current.desired_digest,
                 "dependencies": dependencies,
                 "states": _state_layers(expected, current, layers, now),
                 "observations": layers,
@@ -846,7 +867,8 @@ def build_report(
         and all(
             row["paused"] is False
             and not row["suspensions"]
-            and row["states"]["admitted"]["digest"]
+            and row["owner_desired_digest"]
+            == row["states"]["admitted"]["digest"]
             == row["desired_digest"]
             == row["states"]["applied"]["digest"]
             and row["observations"]["discovery"]["state"] == "present"

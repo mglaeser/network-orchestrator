@@ -26,7 +26,7 @@ from .derive import DeriveError, literal_assignments
 _ID = re.compile(r"[a-z][a-z0-9-]{0,63}")
 _SHA = re.compile(r"[0-9a-f]{64}")
 _SECRET_KEY = re.compile(
-    r"(?:^|[_-])(env|environment|password|passwd|token|secret|credential|credentials|authorization|privatekey|api_key)(?:$|[_-])",
+    r"(?:^|[_-])(env|environment|password|passwd|token|secret|credential|credentials|authorization|private_?key|api_?key)(?:$|[_-])",
     re.I,
 )
 _FORMATS = {"json", "plist", "toml", "literal-env", "text-list", "source-inventory"}
@@ -34,6 +34,17 @@ _FORMATS = {"json", "plist", "toml", "literal-env", "text-list", "source-invento
 
 class ImportError(ValueError):
     """The static migration contract is ambiguous or cannot be read safely."""
+
+
+def _secret_key(key: str) -> bool:
+    """Recognize closed credential words across common data-key spellings.
+
+    This filters known key names, not arbitrary secret values. Preserve word
+    boundaries so harmless substrings such as ``monkey`` stay ordinary data.
+    """
+    words = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", key)
+    words = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", words).replace("-", "_")
+    return _SECRET_KEY.search(words) is not None
 
 
 @dataclass(frozen=True)
@@ -260,7 +271,7 @@ def _safe_projection(value: Any) -> None:
     while nodes:
         node = nodes.pop()
         if isinstance(node, dict):
-            if any(_SECRET_KEY.search(key) for key in node):
+            if any(_secret_key(key) for key in node):
                 raise ImportError("Credential and environment values are not instance data")
             nodes.extend(node.values())
         elif isinstance(node, list):
@@ -314,7 +325,7 @@ def import_sources(manifest: str | Path) -> ImportResult:
         if not isinstance(mapping, dict) or len(mapping) > 1024:
             raise ImportError("Static mappings must be a bounded object")
         for selector, pointer in mapping.items():
-            if any(_SECRET_KEY.search(part) for part in _pointer(selector) + _pointer(pointer)):
+            if any(_secret_key(part) for part in _pointer(selector) + _pointer(pointer)):
                 raise ImportError("Credential and environment values are not instance data")
         if fmt == "source-inventory" and mapping:
             raise ImportError("Executable owner sources cannot provide desired settings")

@@ -165,6 +165,23 @@ anchor.
    only in a later pass with fresh identity evidence.
 8. Publish a typed snapshot. Unknown never restarts a container or other service.
 
+The independent endpoint check reads the selected address's actual contiguous
+IPv4 netmask. The admitted LAN scope must be equal to or narrower than that
+live prefix. A matching host address alone cannot authorize a wider source
+network; missing, duplicate or malformed mask observations inhibit activation.
+
+The state reader checks both numerical endpoints, optional translated endpoints,
+IPv4 `:port` and IPv6 `[port]` suffixes, one direction arrow and a complete
+protocol-specific status tail. A colon by itself is not evidence of IPv6. An
+unrecognized row makes the whole inventory unknown. It never supplies an empty
+owned-state result or permits a successful drain report.
+
+These parser regressions use synthetic rows derived from the upstream
+[PF state printer](https://github.com/openbsd/src/blob/b1a43ff550949e2a4899e600bb41c53aef12ecfd/sbin/pfctl/pf_print_state.c#L151-L296).
+They are not Darwin captures or hardware acceptance. Any changed native format
+must remain unknown until its complete grammar is established by reviewed
+captured output; the native qualification gate remains closed.
+
 A runtime inspection exception is unknown and withdraws existing guest exposure.
 A corrupt root admission record also inhibits activation and retires known
 exposure. Partial writes journal the exact candidate before mutation; the next
