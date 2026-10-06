@@ -16,6 +16,7 @@ from jsonschema import Draft202012Validator
 from .codec import canonical_bytes, strict_loads
 from .instance import (
     InstanceError,
+    check_plain_data,
     instance_contract_digest,
     instance_digest,
     instance_to_dict,
@@ -171,6 +172,8 @@ def parse_host_evidence(raw: bytes | str | dict[str, Any]) -> HostEvidence:
     data = strict_loads(canonical_bytes(raw)) if isinstance(raw, dict) else strict_loads(raw)
     if list(_validator("host-evidence.schema.json").iter_errors(data)):
         raise InstanceError("host evidence violates its closed bounded schema")
+    # Evidence times are epoch seconds; every other number in a closed document is an integer.
+    check_plain_data(data, frozenset({"observed_at", "recorded_at"}))
     facts = tuple(Fact(**item) for item in data["facts"])
     profiles = tuple(
         ProfileEvidence(
@@ -306,6 +309,7 @@ def verify_contracts(instance: Instance, data_directory: Path) -> list[dict[str,
         try:
             raw = read_data(data_directory / item.contract.data_path)
             data = strict_loads(raw)
+            check_plain_data(data)
             if raw != canonical_bytes(data) + b"\n" or list(
                 _validator("workload-contract.schema.json").iter_errors(data)
             ):
@@ -439,6 +443,7 @@ def _acceptance(
             try:
                 artifact = read_data(directory / (entry.evidence_sha256 + ".json"))
                 proof = strict_loads(artifact)
+                check_plain_data(proof)
                 if artifact != canonical_bytes(proof) + b"\n" or list(
                     _validator("acceptance-evidence.schema.json").iter_errors(proof)
                 ):

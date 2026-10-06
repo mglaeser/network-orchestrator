@@ -6,7 +6,7 @@ The public repository contains the schemas, named strategy and application profi
 
 ## Instance contract
 
-`schemas/instance.schema.json` closes every object. `instance.json` must use sorted keys, compact UTF-8 JSON, and exactly one final newline. Duplicate keys, non-finite values, extra fields, expressions, templates, executable paths, shell snippets, raw PF text and live guest/receiver addresses are rejected. All arrays and reads are bounded. Exactly one chosen IPv4 LAN is allowed. IPv6 is outside this custom policy; it is not declared blocked.
+`schemas/instance.schema.json` closes every object. `instance.json` must use sorted keys, compact UTF-8 JSON, and exactly one final newline. Duplicate keys, non-finite values, extra fields, expressions, templates, executable paths, shell snippets, raw PF text and live guest/receiver addresses are rejected. Every number must be written as a JSON integer (`1.0` is refused), and no string may contain a control character or a line or paragraph separator, so a trailing newline is refused too. The same two rules apply to workload contract files, evidence documents and retained acceptance files; only evidence times may be fractional. Acceptance and deviation entries must name a registered requirement. A bounded decision must be one the safety assessment can evaluate: a blank residual statement or one longer than 2000 characters, a blank signer, or a signature dated before 1970 is refused when the instance is parsed. All arrays and reads are bounded. Exactly one chosen IPv4 LAN is allowed. IPv6 is outside this custom policy; it is not declared blocked.
 
 An instance pins the framework version, exact release-artifact SHA-256, source revision, dependency-lock SHA-256 and schema version. Content verification is not publisher authentication: acquire the release and reviewed digests through your trusted release process. Synthetic example pins are deliberately zero placeholders and cannot verify a real release.
 
@@ -14,7 +14,7 @@ Workloads reference canonical private contract files by relative data path and S
 
 Automatic UDP socket ranges have one named definition. The workload and its return-forwarding profile refer to that same definition; an independently copied range is invalid. Strategy/profile versions and cross-owner dependencies are explicit. Resolved digests include names, framework pins, workload contract, LAN identity, relevant policy and transitive publication/fallback contracts. Changing them invalidates older matching evidence.
 
-Installed names and state paths can be pinned. Null names are deterministically derived from the private namespace; the PF namespace stays under the platform-defined `com.apple/` anchor namespace. Changing names is a reviewed owner migration, not an automatic rename.
+Installed names and state paths can be pinned. Null names are deterministically derived from the private namespace; the PF namespace stays under the platform-defined `com.apple/` anchor namespace. Pinned or derived, the five launchd labels must be distinct, the export prefix must differ from the import prefix, and the user state directory must differ from the root state directory; two workloads cannot share a container name. Changing names is a reviewed owner migration, not an automatic rename.
 
 ## One source of settings during migration
 
