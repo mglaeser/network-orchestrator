@@ -527,6 +527,7 @@ def _observation(
     *,
     interface: bool,
     count: int = 0,
+    skipped: int = 0,
 ) -> Observation:
     endpoint = snapshot.services.get(policy.service) if snapshot else None
     return Observation(
@@ -541,6 +542,7 @@ def _observation(
             "network_generation": snapshot.network_generation if snapshot else None,
             "states": [],
             "record_count": count,
+            "skipped_count": skipped,
         },
     )
 
@@ -553,14 +555,30 @@ def scan_policy(
     ready: frozenset[str],
     interfaces: dict[str, tuple[int, int]],
     now: float,
-) -> tuple[Record, ...]:
+) -> tuple[tuple[Record, ...], int]:
+    """The policy's projected records and the number of instances left out."""
     scope = config.scope(policy.scope)
     guest = next(item for item in settings.scopes if item.id == policy.scope)
     source = scope.interface if policy.direction == "import" else guest.guest_interface
     index = interfaces[policy.scope][0 if policy.direction == "import" else 1]
+    # An export ties a record to its service by the inspected guest address; a
+    # guest may hold further addresses. An import keeps exactly one address.
+    inspected = snapshot.services[policy.service].data.get("ipv4")
+    guest_ipv4 = inspected if policy.direction == "export" and isinstance(inspected, str) else None
+    left_out: list[str] = []
     with ThreadPoolExecutor(max_workers=min(8, len(policy.types))) as pool:
         futures = [
-            pool.submit(scan, source, index, kind, policy.max_records, settings.scan_seconds, now)
+            pool.submit(
+                scan,
+                source,
+                index,
+                kind,
+                policy.max_records,
+                settings.scan_seconds,
+                now,
+                guest_ipv4=guest_ipv4,
+                skipped=left_out,
+            )
             for kind in policy.types
         ]
         collected: list[Record] = []
@@ -569,7 +587,8 @@ def scan_policy(
             collected.extend(future.result(timeout=max(0.01, deadline - time.monotonic())))
             if len(collected) > policy.max_records:
                 raise DiscoveryFailure("incomplete")
-    return project_records(config, policy, tuple(collected), snapshot, ready, settings, now)
+    projected = project_records(config, policy, tuple(collected), snapshot, ready, settings, now)
+    return projected, len(left_out)
 
 
 def scan_pass(config: Config, settings: BonjourSettings, store: Store) -> None:
@@ -580,10 +599,13 @@ def scan_pass(config: Config, settings: BonjourSettings, store: Store) -> None:
     candidates: dict[str, Any] = {}
     for policy in _owned(config, settings):
         records: tuple[Record, ...] = ()
+        skipped = 0
         error = None
         try:
             if dependencies_ready(config, policy, snapshot, intent, ready, now):
-                records = scan_policy(config, settings, policy, snapshot, ready, interfaces, now)
+                records, skipped = scan_policy(
+                    config, settings, policy, snapshot, ready, interfaces, now
+                )
         except Exception as exc:
             error = exc.reason if isinstance(exc, DiscoveryFailure) else "malformed"
         candidates[policy.id] = {
@@ -594,6 +616,10 @@ def scan_pass(config: Config, settings: BonjourSettings, store: Store) -> None:
             "interface_confirmed": True,
             "observed_at": now,
         }
+        # Left out while zero: a pass that read every instance writes the same
+        # candidate as before.
+        if skipped:
+            candidates[policy.id]["skipped"] = skipped
         if error is not None:
             candidates[policy.id]["reason"] = error
     document = {
@@ -664,7 +690,7 @@ def lease_records(
         return None
     if not request["active"]:
         return ()
-    if not isinstance(candidate, dict) or set(candidate) != {
+    if not isinstance(candidate, dict) or set(candidate) - {"skipped"} != {
         "policy_digest",
         "service_generation",
         "network_generation",
@@ -672,6 +698,13 @@ def lease_records(
         "interface_confirmed",
         "observed_at",
     }:
+        return None
+    # Instances the scan left out: absent while none, at most one per browsed
+    # name of each type.
+    if "skipped" in candidate and (
+        type(candidate["skipped"]) is not int
+        or not 1 <= candidate["skipped"] <= policy.max_records * len(policy.types)
+    ):
         return None
     endpoint = snapshot.services.get(policy.service)
     if endpoint is None or not dependencies_ready(config, policy, snapshot, intent, ready, now):
@@ -852,6 +885,7 @@ def publisher_tick(
                 isinstance(request, dict) and request.get("active") is False
             )
             records: tuple[Record, ...] | None = None
+            left_out = 0
             maximum = min(
                 [
                     policy.max_age_seconds,
@@ -873,6 +907,9 @@ def publisher_tick(
                         proof[2],
                         now,
                     )
+                    if records is not None:
+                        # lease_records has accepted this candidate and its count.
+                        left_out = candidates["policies"][policy.id].get("skipped", 0)
             if records is None:
                 publisher.reconcile(policy, (), 1, now)
                 uncertainty = (
@@ -918,6 +955,7 @@ def publisher_tick(
                     "verified" if state == "present" else "confirmed-absent",
                     now,
                     proof[0],
+                    skipped=left_out,
                     interface=True,
                     count=len(records) - publisher.renewals(policy),
                 )

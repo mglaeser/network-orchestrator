@@ -37,8 +37,11 @@ optimistic `active` flag alone cannot create a registration.
 ## Export: guest services to reachable LAN endpoints
 
 Browse only configured service types on the named guest interface. Resolve the
-genuine instance, SRV port, IPv4 address and raw TXT bytes. The source address
-must equal the current announcing service's inspected guest address. The
+genuine instance, SRV port, IPv4 address and raw TXT bytes. The source host
+must currently hold the announcing service's inspected guest address. A guest
+may hold further addresses, an alias for example; its record is then read by
+the guest address, and the published address and port still come from the
+verified publication alone. The
 service generation is the independently inspected running instance generation.
 
 A source record is exportable only when exactly one verified publication owned
@@ -105,7 +108,8 @@ success exit status alone is insufficient. Wrong-interface, malformed,
 duplicate, ambiguous, oversized, denied and timed-out output fails closed.
 
 Browse Add/Rmv rows preserve Unicode names and spaces without shell evaluation.
-SRV and IPv4 must resolve uniquely. TXT is read with `-Q … TXT IN`, whose native
+SRV must resolve uniquely, and so must IPv4 for an import; an export accepts
+the inspected guest address among several. TXT is read with `-Q … TXT IN`, whose native
 raw hexadecimal output preserves binary, empty and non-UTF-8 entries. Every
 TXT byte is passed back through Apple's `\xHH` registration grammar. No shell
 interpolation, string splitting or fabricated cache entry is used.
@@ -183,6 +187,48 @@ service name and its own A-record hostname. Auto-renaming, conflict, removal,
 any child exit other than the client's own timer (see below) and missing
 confirmation invalidate it. This uses the maintained
 [Apple DNS-SD client implementation](https://github.com/apple-oss-distributions/mDNSResponder/blob/mDNSResponder-2881.120.11/Clients/dns-sd.c).
+
+## One instance and the scan as a whole
+
+A failure that is confined to one instance's own resolution costs that
+instance alone, not its policy. A scan runs one browse for a type and then three
+commands for each browsed instance. An instance whose own replies cannot be
+used is left out of that pass: it gets no lease, a registration made for it
+earlier is withdrawn, and the healthy records of the policy are projected and
+leased as usual. The candidate carries the number of instances left out as
+`skipped` (absent while there is none, at most `max_records` for each type),
+and the observation shows it as `skipped_count` beside `record_count`. That
+count is the only trace of a device that is being left out. Everything that
+concerns the scan as a whole still fails it and withdraws the policy:
+
+| Failure | Detected by | Outcome |
+| --- | --- | --- |
+| A command does not complete: time limit, output bound | the bounded runner | the scan fails |
+| A command cannot prove itself: exit status, any error stream, a missing or second `Using interface N` line | `confirmed_output` | the scan fails |
+| A diagnostic of the client in any command, a denial among them, or any other line that is neither a banner nor a well-formed reply | `confirmed_output`, the command's reader | the scan fails |
+| The browse: more names than `max_records`, a name that cannot be passed on | `browse_names` | the scan fails |
+| The time budget of the scan is used up | `scan` | the scan fails |
+| Resolve: no reply (a browse entry whose instance is gone), replies that differ, a reply for another interface, a port outside 1-65535, a target outside `.local.` or not UTF-8 | `resolve_endpoint` | the instance is left out |
+| Address: none, several for an import, several without the guest address for an export | `resolve_ipv4` | the instance is left out |
+| TXT: no record, records that differ, a record shorter than one of its strings declares | `resolve_txt` | the instance is left out |
+| The answers form no valid record: a host name longer than 255 bytes | `scan` | the instance is left out |
+| More usable records than the policy's `max_records`, a duplicate or an unverified dependency in the projection | `scan_policy`, `project_records` | the policy is withdrawn |
+| A candidate whose `skipped` is not an integer from 1 to its bound, stale or foreign evidence | `lease_records` | the policy is withdrawn |
+
+An instance is left out only by a command that has proved itself, that is
+seen to have entered its event loop (its `...STARTING...` line) and whose every
+output line was a banner or a well-formed reply. Nothing the client reports as
+an error and nothing unreadable is passed over, so a denial, a daemon that is
+not running, a wrong interface or a client that never waited for a reply cannot
+hide behind the count.
+Leaving an instance out can only shorten what is published: each record is
+built from that instance's own three answers. For a record that is shorter
+than it declares, the client's resolve display reads `<< invalid data >>`
+(`Clients/dns-sd.c` line 788 at the revision above); it is accepted as the
+display, and the query then shows the record to be unusable. An instance that
+does not answer costs one resolve of `scan_seconds`; enough of them use up the
+scan's budget, which fails the scan as before. This is part of discovery
+digest version 4.
 
 ## Supervision, leases and recovery
 
