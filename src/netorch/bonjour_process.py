@@ -27,6 +27,9 @@ Runner = Callable[[list[str], float], Result]
 # Apple's printtimestamp_F uses %2d for the hour: one padding space before
 # 00:00-09:59's single-digit hour, and no padding for 10:00-23:59.
 _STAMP = r"(?: [0-9]|1[0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]\.\d{3}"
+# Every dns-sd operation prints this one line, after its timestamp, before it
+# enters the event loop: printtimestamp(); printf("...STARTING...\n").
+_STARTING = rf"{_STAMP}  \.\.\.STARTING\.\.\."
 
 
 class DiscoveryFailure(RuntimeError):
@@ -89,6 +92,8 @@ def browse_names(raw: bytes, service_type: str, index: int, limit: int) -> tuple
     )
     active: set[str] = set()
     for line in raw.decode("utf-8", errors="strict").splitlines():
+        if re.fullmatch(_STARTING, line):
+            continue
         if re.match(rf"^{_STAMP}\s", line):
             match = pattern.fullmatch(line)
             if match is None or int(match[2]) != index:
@@ -113,9 +118,10 @@ def browse_names(raw: bytes, service_type: str, index: int, limit: int) -> tuple
 
 
 def _banner(line: bytes, index: int, heading: bytes | None = None) -> bool:
-    """Only the fixed native interface/date/table banners are non-callbacks."""
+    """Only the fixed native interface/date/start/table banners are non-callbacks."""
     return (
         line == f"Using interface {index}".encode()
+        or re.fullmatch(_STARTING.encode(), line) is not None
         or re.fullmatch(
             rb"DATE: ---(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun) "
             rb"(?:0[1-9]|[12][0-9]|3[01]) "
