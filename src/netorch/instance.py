@@ -6,7 +6,7 @@ import hashlib
 import os
 import re
 import stat
-from dataclasses import asdict
+from dataclasses import MISSING, asdict, fields
 from datetime import datetime
 from functools import lru_cache
 from importlib import resources
@@ -45,7 +45,7 @@ from .instance_model import (
     VisibilityDecision,
     Workload,
 )
-from .profile_library import discovery_profile, strategy
+from .profile_library import AUTOMATIC_TYPES, discovery_profile, strategy
 from .requirements import REQUIREMENTS
 from .safety_contract import assess_bounded_safety
 
@@ -173,7 +173,16 @@ def _construct(data: dict[str, Any]) -> Instance:
             for item in data["transport"]
         ),
         tuple(
-            DiscoverySelection(**{**item, "dependencies": tuple(item["dependencies"])})
+            DiscoverySelection(
+                **{
+                    **item,
+                    **{
+                        key: tuple(item[key])
+                        for key in ("dependencies", "service_types")
+                        if key in item
+                    },
+                }
+            )
             for item in data["discovery"]
         ),
         Supervision(**data["supervision"]),
@@ -206,7 +215,26 @@ def instance_to_dict(instance: Instance) -> dict[str, Any]:
                     if value["range"] is not None
                     else {"first": value["first"], "last": value["last"]}
                 )
+    for item in data["discovery"]:
+        _selection_data(item)
     return data
+
+
+_SELECTION_DEFAULTS = {
+    item.name: item.default for item in fields(DiscoverySelection) if item.default is not MISSING
+}
+
+
+def _selection_data(selection: dict[str, Any]) -> dict[str, Any]:
+    """Leave out each optional member of a discovery selection that has its default.
+
+    A default has no spelling. A selection written before a member existed
+    therefore keeps its canonical bytes and its resolved digest.
+    """
+    for key, default in _SELECTION_DEFAULTS.items():
+        if selection[key] == default:
+            del selection[key]
+    return selection
 
 
 def canonical_instance_bytes(instance: Instance) -> bytes:
@@ -240,6 +268,20 @@ def resolve_ports(instance: Instance, ports: Ports | None) -> tuple[int, int] | 
     if ports.first is None or ports.last is None:
         raise InstanceError("port selector is incomplete")
     return ports.first, ports.last
+
+
+def selection_types(selection: DiscoverySelection) -> tuple[str, ...] | None:
+    """The DNS-SD service types a selection names, or ``None`` for the automatic form.
+
+    The generic export names none unless the selection lists them. Its automatic
+    form, whatever TCP services the workload announces, is implemented by no
+    retained owner. Whatever turns an instance into retained discovery policy
+    refuses ``None``; it never guesses a list.
+    """
+    if selection.service_types is not None:
+        return selection.service_types
+    library = discovery_profile(selection.profile, selection.version).service_types
+    return None if library == AUTOMATIC_TYPES else library
 
 
 def resolved_profile(instance: Instance, profile: Transport) -> dict[str, Any]:
@@ -303,7 +345,7 @@ def resolved_discovery_digest(instance: Instance, selection: DiscoverySelection)
     return digest(
         {
             "resolved_discovery_version": 2,
-            "selection": asdict(selection),
+            "selection": _selection_data(asdict(selection)),
             "lan": asdict(instance.host.lan),
             "names": resolved_names(instance),
             "workload_contract": instance.workload(selection.service).contract.sha256,
@@ -534,6 +576,31 @@ def validate_instance(instance: Instance) -> None:
             selected = discovery_profile(selection.profile, selection.version)
             if selected.direction != selection.direction:
                 raise InstanceError("discovery profile direction mismatch")
+            chosen = selection.service_types
+            if chosen is not None:
+                listed = selected.service_types
+                if listed == AUTOMATIC_TYPES:
+                    # The generic export has no list of its own: one order, one spelling.
+                    # DNS compares a service type without regard to ASCII case.
+                    if list(chosen) != sorted(chosen) or len(
+                        {kind.lower() for kind in chosen}
+                    ) != len(chosen):
+                        raise InstanceError(
+                            "explicit export service types are distinct and in ascending order"
+                        )
+                elif (
+                    # The whole list is said by leaving the member out.
+                    chosen != tuple(kind for kind in listed if kind in chosen)
+                    or len(chosen) == len(listed)
+                    or (
+                        selected.eligibility_type is not None
+                        and selected.eligibility_type not in chosen
+                    )
+                ):
+                    raise InstanceError(
+                        "service types are a proper subset of the profile's, in its order, "
+                        "and keep the type eligibility is decided from"
+                    )
             dependencies = [instance.transport_profile(value) for value in selection.dependencies]
             matching = [value for value in dependencies if value.service == selection.service]
             required = (

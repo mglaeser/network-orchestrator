@@ -944,6 +944,8 @@ def build_report(
                 "observation_authority": "owner-reported; never root admission authority",
             }
         )
+        if selection.service_types is not None:
+            discovery_rows[-1]["service_types"] = list(selection.service_types)
     observed_platform = [
         fact_view(evidence, key, now)
         for key in ("macos_version", "macos_build", "runtime_version", "hardware_class")

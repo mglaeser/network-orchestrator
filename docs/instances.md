@@ -14,6 +14,21 @@ Workloads reference canonical private contract files by relative data path and S
 
 Automatic UDP socket ranges have one named definition. The workload and its return-forwarding profile refer to that same definition; an independently copied range is invalid. Strategy/profile versions and cross-owner dependencies are explicit. Resolved digests include names, framework pins, workload contract, LAN identity, relevant policy and transitive publication/fallback contracts. Changing them invalidates older matching evidence.
 
+A discovery selection takes its DNS-SD service types from its named profile.
+Optional `service_types` states them where they differ: 1 to 16 distinct TCP
+types. For the generic export `published-tcp-export` it lists the types to
+export, in ascending order. Without it that profile keeps its automatic form,
+which stands for whatever TCP services the workload announces. For a profile
+with a list of its own it names a proper subset in the profile's order, and an
+import keeps `_airplay._tcp`, the type its eligibility is decided from. The
+whole list is said by leaving the member out. No retained owner implements the
+automatic form, and its token `auto-tcp` is not a service type of the retained
+policy. Whatever turns an instance into retained discovery policy therefore
+refuses a selection in the automatic form (`instance.selection_types` returns
+`None` for it) and never guesses its types; a listed selection is that
+policy's `types` exactly. A report's discovery row carries `service_types`
+only where the selection declares them.
+
 Resolved transport and discovery digest envelopes are version 2. They now bind the target workload's container name, owning account, runtime/platform context and supervision settings, including observation/read bounds and discovery timing, through each required transport dependency. Version 1 profile acceptance and owner-state digests require renewed evidence; renaming a target or changing its account, runtime, platform or supervision cannot reuse a previous profile's receipt or readiness.
 
 Installed names and state paths can be pinned. Null names are deterministically derived from the private namespace; the PF namespace stays under the platform-defined `com.apple/` anchor namespace. Pinned or derived, the five launchd labels must be distinct, the export prefix must differ from the import prefix, and the user state directory must differ from the root state directory; two workloads cannot share a container name. Changing names is a reviewed owner migration, not an automatic rename.
