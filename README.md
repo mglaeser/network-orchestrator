@@ -127,7 +127,7 @@ separate. Each observation has its own age, generation and closed reason.
 Discovery and transport remain distinct: a discoverable receiver can have a
 withdrawn return path. A receipt establishes historical completion only.
 
-Requirements report **fulfilled and verified**, **fulfilled but unverified**,
+Requirements report **fulfilled and verified**, **unverified**,
 **accepted residual**, **not applicable** or **not fulfilled**. A missing signature,
 missing restore/reboot evidence, unreadable owner state or incomplete conformance
 remains visible. A warm application cache is not proof of live discovery; player

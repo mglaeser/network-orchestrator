@@ -143,7 +143,7 @@ def assess_bounded_safety(
             value for value in durations if value is not None
         )
     reasons = []
-    status = "fulfilled-unverified"
+    status = "unverified"
     if signed_by is None or signature_at is None:
         reasons.append("residual-unsigned")
         status = "not-fulfilled"

@@ -274,7 +274,7 @@ def test_no_guessed_withdrawal_bound(data: dict[str, Any]) -> None:
     assert safety["withdrawal_bound_seconds"] is None
     assert safety["configured_unknown_limit"] == 3 and safety["effective_unknown_limit"] == 1
     assert not safety["zero_misdelivery_guaranteed"]
-    assert status(result, "BOUNDED-IDENTITY") == "fulfilled-unverified"
+    assert status(result, "BOUNDED-IDENTITY") == "unverified"
     data["decisions"]["bounded"][0]["signed_at"] = "1970-01-01T01:00:00Z"
     assert status(report(data), "BOUNDED-IDENTITY") == "not-fulfilled"
 
@@ -315,7 +315,7 @@ def test_transport_success_does_not_prove_discovery(data: dict[str, Any]) -> Non
     assert not result["current_ready"]
     assert result["discovery_profiles"][1]["observations"]["discovery"]["state"] == "unknown"
     assert result["discovery_profiles"][1]["dependencies"][0]["transport"]["state"] == "present"
-    assert status(result, "DISCOVERY-IMPORT") == "fulfilled-unverified"
+    assert status(result, "DISCOVERY-IMPORT") == "unverified"
 
 
 def test_receipt_never_proves_live_application(data: dict[str, Any]) -> None:
@@ -345,7 +345,7 @@ def test_missing_acceptance_stays_unverified(data: dict[str, Any]) -> None:
     assert not result["platform"]["host_accepted"]
     assert not result["fully_served"]
     for key in ("HEARD-AUDIO", "MULTI-RECEIVER", "RESTORE-REHEARSAL", "OWNER-CONFORMANCE"):
-        assert status(result, key) == "fulfilled-unverified"
+        assert status(result, key) == "unverified"
 
 
 def test_filevault_on_does_not_fulfil_unattended_recovery(data: dict[str, Any]) -> None:
@@ -480,7 +480,7 @@ def test_native_receipt_is_content_bound_but_not_mutation_authority(
     )
     result = report(data, platform_evidence(), evidence_directory=tmp_path)
     assert not result["platform"]["host_accepted"]
-    assert status(result, "PLATFORM-SUPPORT") == "fulfilled-unverified"
+    assert status(result, "PLATFORM-SUPPORT") == "unverified"
 
 
 @pytest.mark.parametrize(
@@ -536,10 +536,7 @@ def test_invalid_or_synthetic_receipts_never_become_native_verified(
         data["acceptance"][0]["observed_at"] = "1970-01-01T01:00:00Z"
     else:
         data["acceptance"][0]["method"] = "receiver-change"
-    assert (
-        status(report(data, evidence, evidence_directory=tmp_path), requirement)
-        == "fulfilled-unverified"
-    )
+    assert status(report(data, evidence, evidence_directory=tmp_path), requirement) == "unverified"
 
 
 def test_profile_acceptance_requires_every_applicable_selection(
@@ -550,7 +547,7 @@ def test_profile_acceptance_requires_every_applicable_selection(
     data["discovery"].append(duplicate)
     proof(data, tmp_path)
     result = report(data, platform_evidence(), evidence_directory=tmp_path)
-    assert status(result, "DISCOVERY-IMPORT") == "fulfilled-unverified"
+    assert status(result, "DISCOVERY-IMPORT") == "unverified"
     proof(data, tmp_path, profile="example-import-second")
     assert (
         status(report(data, platform_evidence(), evidence_directory=tmp_path), "DISCOVERY-IMPORT")
@@ -774,7 +771,7 @@ def test_authoring_changes_invalidate_retained_conformance(
         row.update(mode="authored", source_sha256=None)
     assert (
         status(report(data, platform_evidence(), evidence_directory=tmp_path), requirement)
-        == "fulfilled-unverified"
+        == "unverified"
     )
 
 

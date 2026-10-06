@@ -48,7 +48,7 @@ Setting T does not cause the kernel to expire a PF rule automatically.
 
 `assess_bounded_safety` returns `not-fulfilled` for an unsigned or future
 decision, a bound exceeding T, or an absolute no-misdelivery requirement.
-Configured limits without proving evidence are `fulfilled-unverified`. Even
+Configured limits without proving evidence are `unverified`. Even
 with finite evidence and a valid signature, the strongest bounded outcome is
 `accepted-residual`, with `zero_misdelivery_guaranteed=false`. No framework
 report can close an absolute *never* requirement for a shared guest-address

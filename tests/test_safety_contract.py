@@ -39,7 +39,7 @@ def assess(**changes: Any) -> Any:
 
 def test_configured_interval_and_signature_do_not_manufacture_a_bound() -> None:
     result = assess()
-    assert result.status == "fulfilled-unverified"
+    assert result.status == "unverified"
     assert result.withdrawal_bound_seconds is None
     assert not result.bounds_verified and not result.zero_misdelivery_guaranteed
     assert result.effective_unknown_limit == 1
@@ -61,7 +61,7 @@ def test_each_unestablished_aggregate_term_blocks_finite_bound(missing: str) -> 
     values[missing] = None
     result = assess(**values)
     assert result.withdrawal_bound_seconds is None
-    assert result.status == "fulfilled-unverified"
+    assert result.status == "unverified"
     assert not result.bounds_verified
 
 
@@ -84,7 +84,7 @@ def test_complete_native_evidence_can_only_accept_residual_never_zero_misdeliver
 def test_timeout_constants_alone_are_not_native_evidence() -> None:
     result = assess(read_timeout_seconds=8, apply_timeout_seconds=6, scheduler_slack_seconds=1)
     assert result.withdrawal_bound_seconds == 25
-    assert result.status == "fulfilled-unverified"
+    assert result.status == "unverified"
     assert not result.bounds_verified
 
 
@@ -127,7 +127,7 @@ def test_missing_current_time_does_not_silently_validate_signature() -> None:
         scheduler_slack_seconds=1,
         evidence_verified=True,
     )
-    assert result.status == "fulfilled-unverified"
+    assert result.status == "unverified"
     assert "signature-time-unverified" in result.reasons
 
 

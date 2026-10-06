@@ -559,14 +559,14 @@ def _base_assessment(
             ("fulfilled-verified", "Exact local release artifact matches its declared SHA-256.")
             if release_verified
             else (
-                "fulfilled-unverified",
+                "unverified",
                 "Release pin declared; exact local artifact has not been verified.",
             )
         )
     if identifier == "WORKLOAD-CONTRACTS":
         return (
             (
-                "fulfilled-unverified",
+                "unverified",
                 "Content references verified; installed definition parity still needs acceptance.",
             )
             if contracts and all(item["state"] == "present" for item in contracts)
@@ -595,7 +595,7 @@ def _base_assessment(
                 covered.add(section)
         return (
             (
-                "fulfilled-unverified",
+                "unverified",
                 "Authoring declared; generated source/conformance checks require evidence.",
             )
             if covered == required
@@ -668,7 +668,7 @@ def _base_assessment(
         ):
             return "not-fulfilled", "A bounded decision is invalid or has a future signature."
         return (
-            "fulfilled-unverified",
+            "unverified",
             "Configured T/K and residual do not establish the whole-pass withdrawal bound.",
         )
     if identifier == "BOOT-RECOVERY":
@@ -729,7 +729,7 @@ def _base_assessment(
         if negative is not None and (negative.state == "absent" or negative.value is False):
             return "not-fulfilled", "Host evidence reports this prerequisite as absent."
     return (
-        "fulfilled-unverified",
+        "unverified",
         "Declared capability requires its proving test at the recorded host tier.",
     )
 
@@ -1055,7 +1055,8 @@ def build_report(
         and current_ready
     )
     return {
-        "schema_version": 1,
+        # Version 1 prefixed the status `unverified` with `fulfilled-`.
+        "schema_version": 2,
         "instance": instance.instance,
         "instance_digest": instance_digest(instance),
         "contract_digest": instance_contract_digest(instance),

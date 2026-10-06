@@ -112,7 +112,6 @@ def main(
             result = {
                 key: report[key]
                 for key in (
-                    "schema_version",
                     "instance",
                     "read_only",
                     "mutation_available",
@@ -122,10 +121,13 @@ def main(
                     "evidence_source",
                 )
             }
+            # No status is printed here, so the report's later version does not apply.
+            result["schema_version"] = 1
             code = 0
         elif args.command == "plan":
             result = {
-                "schema_version": 1,
+                # A bounded profile's safety assessment has a status: same vocabulary.
+                "schema_version": report["schema_version"],
                 "instance": instance.instance,
                 "read_only": True,
                 "mutation_available": False,
@@ -141,7 +143,7 @@ def main(
             code = 0
         elif args.command == "check":
             result = {
-                "schema_version": 1,
+                "schema_version": report["schema_version"],
                 "instance": instance.instance,
                 "read_only": True,
                 "mutation_available": False,
