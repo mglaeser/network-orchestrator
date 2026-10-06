@@ -18,10 +18,47 @@ from typing import Any
 
 from .legacy_import import ImportError, read_static
 
-_KINDS = {"private-address", "interface", "home", "namespace", "name", "port"}
+_KINDS = {
+    "private-address",
+    "hardware-address",
+    "interface",
+    "home",
+    "namespace",
+    "name",
+    "port",
+}
 # A value may end a sentence. Only a dot that continues into another component
 # makes it part of a longer token.
 _IP = re.compile(r"(?<![\w.])(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?:/[0-9]{1,2})?(?!\w)(?!\.\w)")
+# Candidates only: two to seven groups that end in a colon, then a last group or
+# a dotted IPv4 tail. The address parser decides what is an IPv6 literal.
+_IP6 = re.compile(
+    r"(?<![\w:.])(?:[0-9A-Fa-f]{0,4}:){2,7}"
+    r"(?:(?:[0-9]{1,3}\.){3}[0-9]{1,3}|[0-9A-Fa-f]{1,4})?"
+    r"(?:/[0-9]{1,3})?(?![\w:])(?!\.\w)"
+)
+# Six or eight octets with one separator throughout, not part of a longer run.
+_MAC = re.compile(
+    r"(?<![\w:.-])[0-9A-Fa-f]{2}([:-])(?:[0-9A-Fa-f]{2}\1){4}"
+    r"(?:(?:[0-9A-Fa-f]{2}\1){2})?[0-9A-Fa-f]{2}(?![\w:-])(?!\.\w)"
+)
+# The shared address space of carrier-grade NAT (RFC 6598, 100.64/10) and the
+# IPv6 ranges are built from integers: as text they would be findings here.
+_SITE_IPV4 = (
+    *(
+        ipaddress.IPv4Network(cidr)
+        for cidr in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16")
+    ),
+    ipaddress.IPv4Network((100 << 24 | 64 << 16, 10)),
+)
+# Global unicast (2000/3), unique-local (RFC 4193, fc00/7) and the deprecated
+# site-local range (fec0/10). Every other IPv6 literal is loopback, unspecified,
+# link-local, multicast or lies in space that is not assigned for unicast use.
+_SITE_IPV6 = tuple(
+    ipaddress.IPv6Network((first << 112, prefix))
+    for first, prefix in ((0x2000, 3), (0xFC00, 7), (0xFEC0, 10))
+)
+_DOCUMENTATION_IPV6 = ipaddress.IPv6Network("2001:db8::/32")
 _IF = re.compile(r"(?<![\w])(?:en[0-9]+|bridge[0-9]+|utun[0-9]+|vmenet[0-9]+)(?![\w])")
 _HOME = re.compile(r"/(?:Users|home)/[A-Za-z0-9_.-]+(?:/[^\s\"'<>]*)?")
 _NAMESPACE = re.compile(
@@ -102,6 +139,31 @@ def _literal_pattern(literal: HostLiteral) -> re.Pattern[str]:
     return re.compile(rf"(?<!{edge}){re.escape(literal.value)}(?!{inner})(?!\.{inner})")
 
 
+def _site_ipv6(address: str) -> bool:
+    try:
+        ip = ipaddress.IPv6Address(address)
+    except ipaddress.AddressValueError:
+        return False
+    if ip.ipv4_mapped is not None:
+        return any(ip.ipv4_mapped in network for network in _SITE_IPV4)
+    return ip not in _DOCUMENTATION_IPV6 and any(ip in network for network in _SITE_IPV6)
+
+
+def _device_address(value: str) -> bool:
+    """Whether six or eight octets name one device rather than a group or a fixture."""
+    if "-" in value and not re.search("[A-Fa-f]", value):
+        # Decimal pairs joined by hyphens are a date and time.
+        return False
+    octets = [int(part, 16) for part in re.split("[:-]", value)]
+    # Group and locally administered addresses, the all-zero address and the
+    # RFC 7042 documentation range identify no manufactured device.
+    return not (
+        octets[0] & 0b11
+        or not any(octets)
+        or (len(octets) == 6 and octets[:5] == [0x00, 0x00, 0x5E, 0x00, 0x53])
+    )
+
+
 def _generic(text: str) -> Iterable[tuple[str, re.Match[str]]]:
     for match in _IP.finditer(text):
         address = match.group().split("/")[0]
@@ -110,11 +172,14 @@ def _generic(text: str) -> Iterable[tuple[str, re.Match[str]]]:
         except ipaddress.AddressValueError:
             continue
         # Documentation networks and loopback are not host-specific facts.
-        if any(
-            ip in ipaddress.IPv4Network(cidr)
-            for cidr in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16")
-        ):
+        if any(ip in network for network in _SITE_IPV4):
             yield "private-address", match
+    for match in _IP6.finditer(text):
+        if _site_ipv6(match.group().split("/")[0]):
+            yield "private-address", match
+    for match in _MAC.finditer(text):
+        if _device_address(match.group()):
+            yield "hardware-address", match
     for kind, pattern in (("interface", _IF), ("home", _HOME), ("namespace", _NAMESPACE)):
         for match in pattern.finditer(text):
             if kind == "namespace" and (

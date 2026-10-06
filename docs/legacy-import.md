@@ -128,11 +128,34 @@ separate requirements and evidence-ledger records.
 ## Privacy guards in both repositories
 
 `netorch.privacy.scan_framework` performs a generic framework check for private
-IPv4 literals, chosen interface names, home paths and site-like reverse-DNS
-namespaces. RFC5737 documentation networks, loopback and native Apple namespaces
-are distinguished from private instance values. A value that ends a sentence is
-reported like any other; a following dot joins it to a longer token only when
-another component follows the dot. An instance's CI additionally
+IPv4 literals, IPv6 literals, hardware addresses, chosen interface names, home
+paths and site-like reverse-DNS namespaces. RFC5737 documentation networks,
+loopback and native Apple namespaces are distinguished from private instance
+values. A value that ends a sentence is reported like any other; a following dot
+joins it to a longer token only when another component follows the dot.
+
+Private IPv4 includes the shared address space of carrier-grade NAT (RFC 6598),
+which overlay networks commonly use. An IPv6 literal is reported when it lies in
+global unicast, unique-local (RFC 4193) or site-local space, or is the
+IPv4-mapped form of a private IPv4 address. The RFC 3849 documentation prefix,
+loopback, the unspecified address, link-local and multicast addresses are not
+reported. Neither is a literal in space that is not assigned for unicast use: no
+host has such an address, and ordinary code reads the same way (the slice in
+`values[1::2]`, the scope in `ab::cd`). A hardware address is six or eight
+two-digit octets joined by colons, or by hyphens when a hexadecimal letter
+occurs (six decimal pairs joined by hyphens are a date and time). It is reported
+with kind `hardware-address` unless it is locally administered, a group address,
+all zero or in the six-octet RFC 7042 documentation range `00:00:5e:00:53:xx`.
+Fixtures use exactly these unreported forms.
+
+The generic check does not detect host names under `.local`, or reverse-DNS
+names whose first label is not one of `me`, `com`, `net`, `org`, `io`, `dev` and
+`app`. In code the same shapes are attribute access (`self.local`,
+`de.strip()`), so such patterns would report far more code than host data. The
+instance pass knows the chosen names and namespace and searches for exactly
+those.
+
+An instance's CI additionally
 uses `instance_literals(instance)` to scan its pinned framework for its own
 addresses, stable adapter identity, home path, network/name pins, namespace,
 workload names and range endpoints. Low-entropy chosen port literals require
