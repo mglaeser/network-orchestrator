@@ -424,11 +424,19 @@ def _independent_context(instance: Instance, selection: DiscoverySelection) -> d
     """
     if selection.return_path == "required":
         return {}
+    workload = instance.workload(selection.service)
     return {
         "context": {
-            "workload_name": instance.workload(selection.service).name,
+            "workload_name": workload.name,
+            # In the form the transport envelope uses: its own deadlines where a
+            # workload states them, and no member for a supervision value left out.
+            **(
+                {}
+                if workload.deadlines is None
+                else {"workload_deadlines": _stated(asdict(workload.deadlines), _DEADLINES)}
+            ),
             "framework": asdict(instance.framework),
-            "supervision": asdict(instance.supervision),
+            "supervision": _stated(asdict(instance.supervision), _OPTIONAL_SUPERVISION),
             "account": asdict(instance.host.account),
             "runtime": asdict(instance.host.runtime),
             "platform": asdict(instance.host.platform),

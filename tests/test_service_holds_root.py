@@ -79,6 +79,12 @@ def test_root_owner_retires_only_the_held_service_and_external_gate_only_adds(
     assert run_pass(environment)["phase"] == "committed"
     assert loaded(environment) == set(OWNED)
     resolver = environment[4][-1].services["resolver"].data["ipv4"]
+    # An invalidation is issued only while a state of the retired rule exists:
+    # one client state through each of the two rules of that guest.
+    environment[3].flow_states = (
+        f"all tcp 192.0.2.77:54321 -> {resolver}:53 ESTABLISHED:ESTABLISHED\n"
+        f"all udp 192.0.2.77:54322 -> {resolver}:53 NO_TRAFFIC:SINGLE"
+    )
     own(environment, holding(Intent(), "resolver", *ADMINISTRATOR))
     result = run_pass(environment)
     # Every withdrawal first, then the states of that one guest; nothing else moves.
@@ -90,7 +96,8 @@ def test_root_owner_retires_only_the_held_service_and_external_gate_only_adds(
     ]
     assert result["phase"] == "inhibited" and result["pending"] == list(RESOLVER)
     assert loaded(environment) == {"media-udp", "proxy-standard"}
-    assert drains(environment) == [resolver, resolver]
+    # The fake removes every row of an address at once: one invalidation.
+    assert drains(environment) == [resolver]
     assert environment[0].read("journal.json")["phase"] == "inhibited"
     again = run_pass(environment)
     assert again["changed"] == [] and again["pending"] == list(RESOLVER)
@@ -103,7 +110,7 @@ def test_root_owner_retires_only_the_held_service_and_external_gate_only_adds(
     assert run_pass(environment)["changed"] == ["proxy-standard:withdraw", "proxy-standard:drain"]
     assert loaded(environment) == {"media-udp"}
     # A structural host redirect has no guest states of its own to invalidate.
-    assert drains(environment) == [resolver, resolver]
+    assert drains(environment) == [resolver]
     # The same operation and holder in the user's file is a second record: when
     # the user takes it away again, root's own record still holds the service.
     user.write("intent.json", intent_to_dict(holding(Intent(5), "resolver", *ADMINISTRATOR)))

@@ -18,7 +18,7 @@ from netorch import apple_runtime
 from netorch.codec import canonical_bytes
 from netorch.config import to_dict
 from netorch.model import Scope
-from netorch.pf_owner import STRATEGY, Installation, PFError, ShellBackend, admit, reconcile
+from netorch.pf_owner import STRATEGY, Installation, ShellBackend, admit, reconcile
 from netorch.state import Intent, Snapshot, intent_to_dict, snapshot_to_dict
 from netorch.storage import Store
 from tests.test_apple_runtime import FakeRunner, enrolled
@@ -26,7 +26,7 @@ from tests.test_pf_owner import FakeBackend
 
 __all__ = ["enrolled"]
 
-UNVERIFIED = "kernel target or socket coexistence is unverified"
+DEFERRED = "endpoint-unverified"
 GUEST_BRIDGE = 100
 
 
@@ -233,11 +233,15 @@ def test_without_an_address_from_the_runtime_no_direct_target_is_accepted(
     config, _, items = enrolled
     backend = Kernel(config, {})
 
-    with pytest.raises(PFError, match=UNVERIFIED):
-        one_pass(enrolled, admitted_root(tmp_path, config), backend)
+    result, _ = one_pass(enrolled, admitted_root(tmp_path, config), backend)
 
+    # Each rule with a direct guest target is deferred on its own; the host
+    # redirect needs no guest address and is loaded.
+    assert result["phase"] == "inhibited"
+    assert result["deferred"] == dict.fromkeys(("dns-tcp", "dns-udp", "media-udp"), DEFERRED)
     assert backend.offered and set(backend.offered.values()) == {None}
-    assert backend.rules == ""
+    guests = {attachment(items, name)["ipv4Address"].split("/")[0] for name in items}
+    assert not any(guest in backend.rules for guest in guests)
     assert all("macAddress" not in attachment(items, name) for name in items)
 
 
@@ -249,9 +253,9 @@ def test_the_kernel_neighbour_must_carry_the_reported_address(
     media = attachment(items, "example-media-controller")["ipv4Address"].split("/")[0]
     backend = Kernel(config, {**addresses, media: "f2:00:00:00:00:ee"})
 
-    with pytest.raises(PFError, match=UNVERIFIED):
-        one_pass(enrolled, admitted_root(tmp_path, config), backend)
+    result, _ = one_pass(enrolled, admitted_root(tmp_path, config), backend)
 
+    assert result["deferred"] == {"media-udp": DEFERRED}
     assert backend.offered[media] == addresses[media]
     assert "static-port" not in backend.rules
 
@@ -266,9 +270,9 @@ def test_a_group_address_from_the_runtime_is_refused_by_the_endpoint_check(
     attachment(items, "example-media-controller")["macAddress"] = group
     backend = Kernel(config, {**addresses, media: group})
 
-    with pytest.raises(PFError, match=UNVERIFIED):
-        one_pass(enrolled, admitted_root(tmp_path, config), backend)
+    result, _ = one_pass(enrolled, admitted_root(tmp_path, config), backend)
 
     # The observer reports what the runtime says; the root owner decides.
+    assert result["deferred"] == {"media-udp": DEFERRED}
     assert backend.offered[media] == group
     assert "static-port" not in backend.rules
