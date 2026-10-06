@@ -155,7 +155,9 @@ deny-only ACL support; it cannot supply privileged authority.
 ## Partial failure, recovery and rollback
 
 Every operation keeps an installation journal separate from reconciliation
-journals. Failure records its phase and stops further work. No speculative
+journals. Failure, including an interrupt, records its phase and stops further
+work. A kill, a dropped session or lost power cannot record anything; the journal
+then keeps the in-progress phase it had reached. No speculative
 automatic rollback, container stop, global PF flush, lock deletion or runtime
 restart runs. The operator inspects current evidence before an explicit recovery:
 
@@ -171,6 +173,24 @@ journal, accepts only old or new owned job bytes, restores predecessor files/job
 and preserves current intent. A failed first installation removes only verified
 new job files and leaves its private staged release and gated root snapshot as
 evidence. No application or administrator admission data is deleted.
+
+Recovery accepts a journal in `failed`, a journal left in an in-progress
+installation phase, which it treats as the failed phase, and a journal left in
+`recovering` by a recovery that was itself stopped. It reads the journal under
+the lock the installer holds from its first read to its last write, so an
+in-progress phase read there was left by a process that is gone; while one
+runs, recovery reports busy. Three stops need no more than the same command
+with the bundle's digest:
+
+- before the first journal write, when only the user suspension exists:
+  recovery releases that suspension, reports `hold-released` and changes
+  nothing else. It does so only when no installation journal is open and the
+  suspension is held by exactly that digest;
+- while the release is being staged: no job has changed, the incomplete release
+  is not read as evidence and is retained;
+- after the user suspension was released but before the journal was closed:
+  recovery takes the suspension again for its own run. A suspension held by
+  another holder, or damaged intent, still inhibits recovery.
 
 Rollback is an explicit reversal of a **committed** release. It verifies all
 retained files, fences the exact current digest and restoration boundaries, and

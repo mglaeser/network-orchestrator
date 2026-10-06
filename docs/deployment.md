@@ -266,6 +266,8 @@ netorch deploy rollback --state-dir /operator/state/netorch --scope user \
 ```
 
 Use root-owned execution and the manifest's root state directory for root scope.
+An installation stopped by an interrupt, a kill or lost power is recovered with
+the same command; [provisioning](provisioning.md) lists what it accepts.
 Recovery fences an interrupted installation and its verified predecessor;
 rollback fences a committed current release and refuses while an installation or
 recovery is unfinished. A rollback that failed is repeated with the same command
