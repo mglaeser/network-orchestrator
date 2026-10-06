@@ -60,7 +60,9 @@ desired digest remains unready even when other observations are positive.
 The instance-to-framework privacy guard checks the instance name, workload and
 component IDs, profile/range/tool IDs and authoring owners as well as addresses,
 ports and pinned native names. Generic pattern checks alone cannot recognize
-these locally chosen names.
+these locally chosen names. Names and the namespace are matched in any letter
+case and as a label of a longer dotted name, so a host name with its domain and
+a label derived from the namespace are findings too.
 
 The static importer rejects known credential and environment keys in selectors,
 targets and nested projections, including camelCase and acronym spellings such

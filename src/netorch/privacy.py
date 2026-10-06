@@ -98,8 +98,37 @@ def _validate_literals(literals: Iterable[HostLiteral]) -> tuple[HostLiteral, ..
 def _literal_pattern(literal: HostLiteral) -> re.Pattern[str]:
     edge = r"[A-Za-z0-9_.-]"
     inner = r"[A-Za-z0-9_-]"
+    value = re.escape(literal.value)
+    if literal.kind in {"name", "namespace"}:
+        # A chosen name is also written in capitals and as one label of a longer
+        # dotted name: a host name in its domain, a label under the namespace.
+        # Further letters, digits, hyphens or underscores make it another name.
+        return re.compile(rf"(?<!{inner}){value}(?!{inner})", re.IGNORECASE)
     # As above, a final dot that starts no further component does not hide the value.
-    return re.compile(rf"(?<!{edge}){re.escape(literal.value)}(?!{inner})(?!\.{inner})")
+    return re.compile(rf"(?<!{edge}){value}(?!{inner})(?!\.{inner})")
+
+
+def _outermost(chosen: list[tuple[str, re.Match[str]]]) -> list[tuple[str, re.Match[str]]]:
+    """Report a name that lies inside a longer chosen name once, as the longer one.
+
+    An instance name is often a label of its own namespace. That occurrence is
+    one finding, the namespace, not two.
+    """
+    named = {"name", "namespace"}
+    spans = sorted(
+        {match.span() for kind, match in chosen if kind in named},
+        key=lambda span: (span[0], -span[1]),
+    )
+    inside: set[tuple[int, int]] = set()
+    reach = -1
+    for span in spans:
+        if span[1] <= reach:
+            inside.add(span)
+        else:
+            reach = span[1]
+    return [
+        (kind, match) for kind, match in chosen if kind not in named or match.span() not in inside
+    ]
 
 
 def _generic(text: str) -> Iterable[tuple[str, re.Match[str]]]:
@@ -133,10 +162,12 @@ def scan_text(
     matches = list(_generic(text)) if generic else []
     if len(matches) > 10000:
         raise PrivacyError("Privacy findings exceed the scan bound")
+    chosen: list[tuple[str, re.Match[str]]] = []
     for literal in _validate_literals(literals):
-        matches.extend((literal.kind, match) for match in _literal_pattern(literal).finditer(text))
-    if len(matches) > 10000:
-        raise PrivacyError("Privacy findings exceed the scan bound")
+        chosen.extend((literal.kind, match) for match in _literal_pattern(literal).finditer(text))
+        if len(matches) + len(chosen) > 10000:
+            raise PrivacyError("Privacy findings exceed the scan bound")
+    matches.extend(_outermost(chosen))
     findings: set[Finding] = set()
     for kind, match in matches:
         start = match.start()
