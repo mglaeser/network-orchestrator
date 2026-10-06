@@ -32,7 +32,7 @@ from .deployment_model import Deployment, Job
 from .model import Config
 from .pf_owner import Installation as ForwardingSettings
 from .pf_owner import reject_acl
-from .process import Result, run
+from .process import ProcessError, Result, run
 from .state import Intent, intent_from_dict, intent_to_dict
 from .storage import Store
 
@@ -535,6 +535,12 @@ def run_tool(argv: tuple[str, ...]) -> Result:
     return run(list(argv), timeout=30, max_output=65_536)
 
 
+# launchctl's two statuses for a label that is not loaded in the named domain.
+# The label preflight, every `bootout` and the wait after a `bootout` read
+# "absent" this one way.
+_JOB_ABSENT = frozenset({3, 113})
+
+
 def _require_platform(scope: str, deployment: Deployment) -> int:
     if sys.platform != "darwin":
         raise DeploymentError("live installation requires macOS; bundle rendering is portable")
@@ -596,8 +602,53 @@ def _owner_busy_retry(
 
 def _tool(runner: ToolRunner, argv: tuple[str, ...], *, absent_ok: bool = False) -> None:
     result = runner(argv)
-    if result.returncode != 0 and not (absent_ok and result.returncode in {3, 113}):
+    if result.returncode != 0 and not (absent_ok and result.returncode in _JOB_ABSENT):
         raise DeploymentError("managed tool operation failed; inspect installation journal")
+
+
+# `launchctl bootout` can return before launchd has removed the job, and a
+# `bootstrap` of the same label can fail until it has. A job that is about to be
+# loaded again is therefore read after its `bootout` until launchd reports it
+# absent: at most this long for one job, at this interval.
+BOOTOUT_WAIT_SECONDS = 20.0
+BOOTOUT_POLL_SECONDS = 0.25
+
+
+def _bootout(
+    runner: ToolRunner,
+    launchctl: str,
+    target: str,
+    *,
+    reloaded: bool,
+    clock: Callable[[], float],
+    sleep: Callable[[float], None],
+) -> None:
+    """Unload one managed job; if its label is loaded again, let launchd finish first.
+
+    The wait can only help. It ends with the first read that reports the job
+    absent. When its time is used up the caller goes on exactly as it did before
+    the wait existed, and the following `bootstrap` succeeds or fails by itself.
+    """
+    result = runner((launchctl, "bootout", target))
+    if result.returncode in _JOB_ABSENT:
+        return  # Nothing was loaded, so there is no removal to wait for.
+    if result.returncode != 0:
+        raise DeploymentError("managed tool operation failed; inspect installation journal")
+    if not reloaded:
+        return
+    deadline = clock() + BOOTOUT_WAIT_SECONDS
+    while not _removed(runner, (launchctl, "print", target)):
+        if clock() >= deadline:
+            return
+        sleep(BOOTOUT_POLL_SECONDS)
+
+
+def _removed(runner: ToolRunner, argv: tuple[str, ...]) -> bool:
+    try:
+        return runner(argv).returncode in _JOB_ABSENT
+    except (OSError, ProcessError):
+        # A read that could not complete proves nothing and fails nothing.
+        return False
 
 
 def plan_install(bundle: Path, scope: str) -> dict[str, Any]:
@@ -888,7 +939,7 @@ def install_bundle(
                     result = runner(
                         (deployment.launchctl, "print", f"{installation.domain}/{label}")
                     )
-                    if result.returncode not in {3, 113}:
+                    if result.returncode not in _JOB_ABSENT:
                         raise DeploymentError(
                             "launchd label is present or unknown "
                             "without owned installation evidence"
@@ -940,10 +991,13 @@ def install_bundle(
             journal["phase"] = "stopping-jobs"
             store.write("installation-journal.json", journal)
             for label in labels:
-                _tool(
+                _bootout(
                     runner,
-                    (deployment.launchctl, "bootout", f"{installation.domain}/{label}"),
-                    absent_ok=True,
+                    deployment.launchctl,
+                    f"{installation.domain}/{label}",
+                    reloaded=any(job.label == label for job in jobs),
+                    clock=clock,
+                    sleep=sleep,
                 )
             journal["phase"] = "installing-jobs"
             store.write("installation-journal.json", journal)
@@ -1136,10 +1190,13 @@ def rollback_install(
                     and _sha(_read_file(installed, privileged=privileged)) not in accepted
                 ):
                     raise DeploymentError("current managed file changed; inspect before rollback")
-                _tool(
+                _bootout(
                     runner,
-                    (deployment.launchctl, "bootout", f"{installation.domain}/{record['label']}"),
-                    absent_ok=True,
+                    deployment.launchctl,
+                    f"{installation.domain}/{record['label']}",
+                    reloaded=any(item["label"] == record["label"] for item in previous["jobs"]),
+                    clock=clock,
+                    sleep=sleep,
                 )
             if resumed:
                 # A job only the predecessor has may have been loaded again already.
@@ -1391,10 +1448,13 @@ def recover_install(
             if scope == "root":
                 root_held = _root_hold(deployment, expected_failed_digest, runner)
             for label in labels:
-                _tool(
+                _bootout(
                     runner,
-                    (deployment.launchctl, "bootout", f"{installation.domain}/{label}"),
-                    absent_ok=True,
+                    deployment.launchctl,
+                    f"{installation.domain}/{label}",
+                    reloaded=label in old_labels,
+                    clock=clock,
+                    sleep=sleep,
                 )
             if scope == "root":
                 settings = next(
