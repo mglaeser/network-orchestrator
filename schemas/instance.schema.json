@@ -977,6 +977,9 @@
               }
             ]
           },
+          "starts_fleet": {
+            "const": true
+          },
           "version": {
             "anyOf": [
               {

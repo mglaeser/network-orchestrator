@@ -136,6 +136,17 @@ def deviation(
 
 def accept_unattended_recovery(data: dict[str, Any]) -> None:
     data["decisions"]["unattended_recovery"] = {"accepted": True, "max_dns_ready_seconds": 60}
+    # An accepted recovery names who starts the workloads and the runtime after a boot.
+    data["lifecycle_tools"].append(
+        {
+            "id": "example-supervisor",
+            "kind": "supervisor",
+            "container_api_access": True,
+            "starts_runtime": True,
+            "starts_fleet": True,
+            "version": None,
+        }
+    )
 
 
 @pytest.mark.parametrize("observed_at", [NOW, STALE, FUTURE])

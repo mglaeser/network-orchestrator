@@ -254,6 +254,10 @@ def instance_to_dict(instance: Instance) -> dict[str, Any]:
                 )
     for item in data["discovery"]:
         _selection_data(item)
+    for item in data["lifecycle_tools"]:
+        # An absent member is left out: earlier documents keep their bytes and digests.
+        if not item["starts_fleet"]:
+            del item["starts_fleet"]
     return data
 
 
@@ -570,6 +574,13 @@ def validate_instance(instance: Instance) -> None:
         identifiers = [item.id for item in items]
         if len(set(identifiers)) != len(identifiers):
             raise InstanceError("duplicate instance identifier")
+    if sum(item.kind == "supervisor" for item in instance.lifecycle_tools) > 1:
+        raise InstanceError("an instance declares at most one supervisor tool")
+    if any(
+        item.starts_fleet and (item.kind != "supervisor" or not item.container_api_access)
+        for item in instance.lifecycle_tools
+    ):
+        raise InstanceError("only a supervisor tool with container API access starts the fleet")
     container_names = [item.name for item in instance.workloads]
     if len(set(container_names)) != len(container_names):
         raise InstanceError("duplicate workload container name")
