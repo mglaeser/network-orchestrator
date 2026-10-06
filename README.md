@@ -30,6 +30,8 @@ second writer. Explicit scoped withdrawal remains a safety operation.
 See [the instance guide](docs/instances.md), [review traceability](docs/review-traceability.md)
 and [migration rules](docs/site-migration.md). No production qualification,
 application acceptance or unattended recovery is implied by installing a wheel.
+The [latest adversarial review](docs/reviews/2026-10-06-adversarial-review-round2.md)
+records the 0.3.2 corrections, all PR dispositions and unresolved native gates.
 
 ## Goals and hard gates
 
