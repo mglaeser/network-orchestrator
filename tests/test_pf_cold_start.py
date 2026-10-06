@@ -39,7 +39,7 @@ from netorch.state import Intent, Observation, Snapshot, intent_to_dict
 from netorch.storage import Store
 from tests.test_pf_noop_pass_interruption import Photo, acknowledge, die_at, photographed_pass
 from tests.test_pf_owner import ROOT, STAMP, FakeBackend, approve_all, environment, run_pass
-from tests.test_pf_withdraw_order import REMAIN, LiveKernel, owned
+from tests.test_pf_withdraw_order import LiveKernel, owned
 
 __all__ = ["environment"]
 
@@ -145,6 +145,33 @@ def records(root: Store) -> dict[str, Any]:
         return dict(root.read("live.json")["records"])
     except FileNotFoundError:
         return {}
+
+
+def client_states(remembered: dict[str, Any], *keys: str) -> str:
+    """One state that a LAN client made through each named guest rule (all three by default).
+
+    An invalidation is issued only while a state of the retired rule exists, so a
+    test that expects one gives the kernel such a state. The fake removes every
+    row of an address at once: one invalidation for each distinct guest address.
+    """
+    rules = {"dns-tcp": ("tcp", 53), "dns-udp": ("udp", 53), "media-udp": ("udp", 45001)}
+    rows = []
+    for index, key in enumerate(keys or sorted(rules)):
+        protocol, port = rules[key]
+        status = "ESTABLISHED:ESTABLISHED" if protocol == "tcp" else "NO_TRAFFIC:SINGLE"
+        target = remembered[key]["target_ipv4"]
+        rows.append(f"all {protocol} {CLIENT}:{54321 + index} -> {target}:{port} {status}")
+    return "\n".join(rows)
+
+
+def guest_addresses(remembered: dict[str, Any]) -> list[str]:
+    return sorted(
+        {
+            record["target_ipv4"]
+            for record in remembered.values()
+            if record["kind"] != "host-redirect"
+        }
+    )
 
 
 def stored(root: Store) -> dict[str, bytes]:
@@ -819,20 +846,21 @@ def test_a_drain_left_over_from_the_previous_boot_is_dropped_in_either_mode(
     environment: Any, heal: bool
 ) -> None:
     resolver = str(environment[4][-1].services["resolver"].data["ipv4"])
-    kernel = LiveKernel({resolver})  # the resolver guest keeps one connection of its own
+    # The resolver guest keeps one connection of its own, and one client's state
+    # of the DNS rule survives its invalidation.
+    kernel = LiveKernel({resolver}, held={resolver: 53})
     environment = converged(environment, heal=heal, kernel=kernel)
     root = environment[0]
     root.write("operator-intent.json", intent_to_dict(Intent().pause()))
-    with pytest.raises(PFError, match=REMAIN):
-        run_pass(environment)
-    assert owned(kernel) == [] and len(records(root)) == 4
-    assert root.read("journal.json")["phase"] == "failed"
-    # The failure is acknowledged and the pause lifted, but the retired records
-    # are still waiting for their states to go when the host restarts. Another
-    # guest then holds the resolver's former address, with a connection too.
-    acknowledge(root)
+    assert run_pass(environment)["deferred"] == {"dns-udp": "states-retained"}
+    assert owned(kernel) == [] and list(records(root)) == ["dns-udp"]
+    assert root.read("journal.json")["phase"] == "inhibited"
+    # The pause is lifted, but the retired record is still waiting for its
+    # state to go when the host restarts. Another guest then holds the
+    # resolver's former address, with a connection too.
     root.write("operator-intent.json", intent_to_dict(Intent()))
     new_boot(environment)
+    kernel.held = {}
     kernel.kills.clear()
 
     result = run_pass(environment)
@@ -847,14 +875,20 @@ def test_a_failed_drain_of_the_previous_boot_is_not_repeated_but_stays_owed(
     environment: Any, heal: bool
 ) -> None:
     resolver = str(environment[4][-1].services["resolver"].data["ipv4"])
-    kernel = LiveKernel({resolver})
+    kernel = LiveKernel({resolver}, held={resolver: 53})
     environment = converged(environment, heal=heal, kernel=kernel)
     root = environment[0]
     root.write("operator-intent.json", intent_to_dict(Intent().pause()))
-    with pytest.raises(PFError, match=REMAIN):
+    # An open drain is not a failure. The acknowledgement is owed for a write in
+    # doubt, and the drain that a client's state keeps open is left over as well.
+    kernel.fail_after_replace = True
+    with pytest.raises(PFError, match="interrupted write"):
         run_pass(environment)
+    result = run_pass(environment)
+    assert result["phase"] == "failed" and result["deferred"] == {"dns-udp": "states-retained"}
     root.write("operator-intent.json", intent_to_dict(Intent()))
     new_boot(environment)
+    kernel.held = {}
     kernel.kills.clear()
 
     result, photos = photographed_pass(environment)
@@ -896,8 +930,9 @@ def test_a_candidate_of_another_boot_is_not_adopted_in_the_default_mode(environm
 
     # Within one boot the candidate is what the kernel may hold, as before.
     kernel.rules = ""
+    kernel.flow_states = client_states(remembered)
     assert run_pass(environment)["phase"] == "failed"
-    assert [command[0] for command in issued(kernel, "drain")] == ["drain"] * 3
+    assert sorted(command[1] for command in issued(kernel, "drain")) == guest_addresses(remembered)
 
     root.write("live.json", {"schema_version": 1, "records": remembered})
     root.write("journal.json", journal)
@@ -952,9 +987,7 @@ def test_withdrawal_succeeds_on_an_anchor_that_was_emptied_in_the_same_boot(
     environment = converged(environment)
     root, _, _, kernel, _ = environment
     remembered = records(root)
-    kernel.flow_states = (
-        f"all udp {CLIENT}:54321 -> {remembered['dns-udp']['target_ipv4']}:53 NO_TRAFFIC:SINGLE"
-    )
+    kernel.flow_states = client_states(remembered)
     kernel.rules = ""  # somebody flushed the anchor; states of the old rules can remain
     kernel.commands.clear()
     with pytest.raises(PFError, match="drifted"):
@@ -965,10 +998,9 @@ def test_withdrawal_succeeds_on_an_anchor_that_was_emptied_in_the_same_boot(
     assert result["withdrawn"] and result["guest_states_drained"] is True
     assert "cold_start" not in result
     assert issued(kernel, "replace") == []
-    # Same boot: every remembered guest address is invalidated, the host's is not.
-    assert sorted(command[1] for command in issued(kernel, "drain")) == sorted(
-        record["target_ipv4"] for record in remembered.values() if record["kind"] != "host-redirect"
-    )
+    # Same boot: every remembered guest address that still has a state of its
+    # rule is invalidated, the host's is not.
+    assert sorted(command[1] for command in issued(kernel, "drain")) == guest_addresses(remembered)
     assert kernel.flow_states == "" and records(root) == {}
     assert root.read("journal.json") == {
         "schema_version": 1,
@@ -982,6 +1014,7 @@ def test_withdrawal_in_the_same_boot_still_fails_while_a_state_remains(environme
     environment = converged(environment)
     root, _, _, kernel, _ = environment
     kernel.rules = ""
+    kernel.flow_states = client_states(records(root))
     kernel.undrainable = True
 
     with pytest.raises(PFError, match="remaining states"):
@@ -1031,10 +1064,12 @@ def test_a_loaded_anchor_is_never_a_cold_start_whatever_the_journal_says(
     assert root.read("journal.json")["boot_session"] == FIRST
 
     root.write("journal.json", {**journal, "boot_session": SECOND})
+    kernel.flow_states = client_states(remembered)
     result = withdraw(root, lambda root, settings: kernel)
 
     assert result["guest_states_drained"] is True and "cold_start" not in result
-    assert len(issued(kernel, "replace")) == 1 and len(issued(kernel, "drain")) == 3
+    assert len(issued(kernel, "replace")) == 1
+    assert sorted(command[1] for command in issued(kernel, "drain")) == guest_addresses(remembered)
     assert kernel.rules == "" and records(root) == {}
 
 
@@ -1084,13 +1119,13 @@ def test_withdrawal_without_proof_of_a_boot_invalidates_as_before(environment: A
     del journal["boot_session"]
     root.write("journal.json", journal)
     new_boot(environment)
+    # Without proof of a boot a state of a remembered rule is invalidated as in one boot.
+    kernel.flow_states = client_states(remembered)
 
     result = withdraw(root, lambda root, settings: kernel)
 
     assert result["guest_states_drained"] is True and "cold_start" not in result
-    assert sorted(command[1] for command in issued(kernel, "drain")) == sorted(
-        record["target_ipv4"] for record in remembered.values() if record["kind"] != "host-redirect"
-    )
+    assert sorted(command[1] for command in issued(kernel, "drain")) == guest_addresses(remembered)
     assert issued(kernel, "replace") == [] and records(root) == {}
 
 
@@ -1105,6 +1140,7 @@ def test_withdrawal_still_prefers_a_matching_candidate_of_the_journal(environmen
         {"schema_version": 1, "phase": "applying", "candidate_records": kept, "started_at": STAMP},
     )
     kernel.rules = ""
+    kernel.flow_states = client_states(remembered, "dns-udp")
     kernel.commands.clear()
 
     assert withdraw(root, lambda root, settings: kernel)["guest_states_drained"] is True
@@ -1135,11 +1171,13 @@ def test_a_candidate_that_was_never_loaded_does_not_stop_a_withdrawal_on_an_empt
     assert kernel.rules == foreign_rule(config) and records(root) == remembered
 
     kernel.rules = ""
+    kernel.flow_states = client_states(remembered)
     kernel.commands.clear()
     result = withdraw(root, lambda root, settings: kernel)
 
     assert result["guest_states_drained"] is True and "cold_start" not in result
-    assert issued(kernel, "replace") == [] and len(issued(kernel, "drain")) == 3
+    assert issued(kernel, "replace") == []
+    assert sorted(command[1] for command in issued(kernel, "drain")) == guest_addresses(remembered)
     assert records(root) == {}
 
 

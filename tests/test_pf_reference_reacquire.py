@@ -491,6 +491,9 @@ def test_pf_is_not_enabled_for_a_rule_that_the_final_evidence_no_longer_verifies
     assert acquisitions(kernel) == 4 and kernel.rules == loaded
     # The next pass retires what is no longer verified, and only then, with
     # every rule it leaves loaded verified, takes the reference for the rest.
+    # A client's state of the retired DNS rule is there to be invalidated.
+    resolver = environment[0].read("live.json")["records"]["dns-udp"]["target_ipv4"]
+    kernel.flow_states = f"all udp 192.0.2.77:54321 -> {resolver}:53 NO_TRAFFIC:SINGLE"
     snapshots.append(changed)
     result, report = one_pass(environment, kernel)
     assert ready(report) == kept
