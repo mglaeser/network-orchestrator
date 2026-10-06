@@ -224,3 +224,76 @@ def test_drains_and_activations_keep_their_planned_order(environment: Any) -> No
     ]
     rest = [item for item in planned if item[1] != "withdraw"]
     assert rest == sorted(rest, key=lambda item: item[0])
+
+
+@pytest.mark.parametrize("withdrawal", range(1, 5))
+@pytest.mark.parametrize("boundary", ["before-replace", "after-replace", "after-live-write"])
+def test_interrupted_withdrawal_retries_retirement_before_a_failing_drain(
+    environment: Any, monkeypatch: Any, withdrawal: int, boundary: str
+) -> None:
+    backend = LiveKernel({address(environment, "resolver")})
+    environment = active(environment, backend)
+    root = environment[0]
+    admissions = root.read("admissions.json")
+    root.write("operator-intent.json", intent_to_dict(Intent().pause()))
+    original_replace = backend.replace
+    original_write = root.write
+    replacements = 0
+    fired = False
+
+    def inject(point: str) -> None:
+        nonlocal fired
+        if not fired and replacements == withdrawal and boundary == point:
+            fired = True
+            raise PFError("interrupted withdrawal")
+
+    def replace_rules(expected: str, candidate: str) -> str:
+        nonlocal replacements
+        replacements += 1
+        inject("before-replace")
+        result = original_replace(expected, candidate)
+        inject("after-replace")
+        return result
+
+    def write(name: str, value: Any) -> None:
+        original_write(name, value)
+        if name == "live.json":
+            inject("after-live-write")
+
+    monkeypatch.setattr(backend, "replace", replace_rules)
+    monkeypatch.setattr(root, "write", write)
+    backend.commands.clear()
+    with pytest.raises(PFError, match="interrupted withdrawal"):
+        run_pass(environment)
+    assert fired
+    # Retrying is still inhibited by the failed journal. It must identify either
+    # the old or candidate kernel state, retire every remaining rule and only
+    # then reach the still-live guest's independently failing drain.
+    with pytest.raises(PFError, match=REMAIN):
+        run_pass(environment)
+    assert owned(backend) == []
+    assert all(not item["active"] for item in root.read("live.json")["records"].values())
+    assert root.read("journal.json")["phase"] == "failed"
+    assert root.read("operator-intent.json")["operator_paused"] is True
+    assert root.read("admissions.json") == admissions
+    first_drain = next(i for i, command in enumerate(backend.commands) if command[0] == "drain")
+    assert not any(command[0] == "replace" for command in backend.commands[first_drain:])
+
+
+def test_cleared_drain_does_not_acknowledge_a_failed_generation_change(environment: Any) -> None:
+    backend = LiveKernel({address(environment, "resolver")})
+    environment = active(environment, backend)
+    root, _, _, _, snapshots = environment
+    # No operator pause: a generation change alone requires retirement.
+    snapshots.append(replace(snapshots[-1], network_generation="network-2"))
+    with pytest.raises(PFError, match=REMAIN):
+        run_pass(environment)
+    assert not owned(backend)
+    backend.live_guests.clear()
+    backend.commands.clear()
+    for _ in range(2):
+        assert run_pass(environment)["phase"] == "failed"
+        assert not owned(backend)
+    assert root.read("journal.json")["phase"] == "failed"
+    assert not root.read("operator-intent.json")["operator_paused"]
+    assert not any(command[0] == "reference" for command in backend.commands)
