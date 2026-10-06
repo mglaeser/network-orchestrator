@@ -120,9 +120,11 @@ unhealthy. Native packet and application acceptance remain separate gates.
 Malformed, oversized, duplicate, unavailable, timed-out, stale or disagreeing
 evidence becomes unknown. Missing named configurations are not proven stopped
 containers. An API inventory reporting all guests stopped is unknown, since an
-API service restart can produce that apparent state. The supported decoders
-cover explicitly versioned nested CLI and resource-shaped envelopes; unfamiliar
-output never falls back to a permissive interpretation.
+API service restart can produce that apparent state. The decoder accepts the one
+envelope the accepted versions print: `id`, `configuration` and a nested
+`status`. A flat row, a publication row with another shape or a repeated one,
+and an attachment row that is not an object are unknown; unfamiliar output
+never falls back to a permissive interpretation.
 
 ## User endpoint and Monit
 

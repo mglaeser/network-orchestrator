@@ -352,15 +352,15 @@ def test_versioned_snapshot_envelope_parser(version):
         "status": {"state": "running", "startedDate": "started", "networks": []},
     }
     assert runtime.decode_snapshot(nested, version)["state"] == "running"
-    if version != "1.2.0":
-        flat = {
-            "id": "example",
-            "configuration": {},
-            "status": "running",
-            "startedDate": "started",
-            "networks": [],
-        }
-        assert runtime.decode_snapshot(flat, version)["started"] == "started"
+    flat = {
+        "id": "example",
+        "configuration": {},
+        "status": "running",
+        "startedDate": "started",
+        "networks": [],
+    }
+    with pytest.raises(runtime.RuntimeReadError):
+        runtime.decode_snapshot(flat, version)
 
 
 @pytest.mark.parametrize(

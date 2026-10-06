@@ -62,7 +62,7 @@ _BOOL_OPTIONS = {"--init", "--read-only", "--rosetta", "--ssh", "--virtualizatio
 # line 287 at 1.4.1 and 1.5.0). The same file defines no sysctl option.
 _KERNEL_ARG_VERSIONS = {"1.2.0", "1.4.1", "1.5.0"}
 _ID = re.compile(r"[a-z][a-z0-9-]{0,62}\Z")
-_IMAGE = re.compile(r"[A-Za-z0-9._:/-]+@sha256:[0-9a-f]{64}\Z")
+_IMAGE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]*@sha256:[0-9a-f]{64}\Z")
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
 
 
