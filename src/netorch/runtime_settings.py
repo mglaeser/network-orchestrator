@@ -72,7 +72,10 @@ class RuntimeSettings:
         return parse_settings(value)
 
     def contract(self, service: str) -> RuntimeContract:
-        return next(contract for contract in self.contracts if contract.service == service)
+        for contract in self.contracts:
+            if contract.service == service:
+                return contract
+        raise ValueError("service has no runtime contract")
 
 
 def contract_digest(contract: RuntimeContract) -> str:

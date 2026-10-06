@@ -185,20 +185,16 @@ def decode_snapshot(raw: Any, version: str) -> dict[str, Any]:
     if not isinstance(raw.get("id"), str) or not isinstance(raw.get("configuration"), dict):
         raise RuntimeReadError()
     status = raw.get("status")
-    # 1.2 compatibility output nests runtime status; newer resource-shaped output
-    # is also explicitly handled. Neither reader infers absence from missing fields.
-    if isinstance(status, dict):
-        if set(status) - {"state", "networks", "startedDate"}:
-            raise RuntimeReadError()
-        state, networks, started = (
-            status.get("state"),
-            status.get("networks", []),
-            status.get("startedDate"),
-        )
-    elif version in {"1.4.1", "1.5.0"}:
-        state, networks, started = status, raw.get("networks", []), raw.get("startedDate")
-    else:
+    # Every accepted version prints the vendor's `ManagedContainer`: `id`,
+    # `configuration` and a nested `status`. A flat row is not this CLI's output,
+    # and absence is never inferred from missing fields.
+    if not isinstance(status, dict) or set(status) - {"state", "networks", "startedDate"}:
         raise RuntimeReadError()
+    state, networks, started = (
+        status.get("state"),
+        status.get("networks", []),
+        status.get("startedDate"),
+    )
     if (
         not isinstance(state, str)
         or state not in {"running", "stopped", "stopping", "unknown"}
@@ -506,11 +502,9 @@ def _service(
         )
     if current["state"] != "running":
         raise RuntimeReadError("incomplete")
-    attachments = [
-        item
-        for item in current["networks"]
-        if isinstance(item, dict) and item.get("network") == network.name
-    ]
+    if any(not isinstance(item, dict) for item in current["networks"]):
+        raise RuntimeReadError()
+    attachments = [item for item in current["networks"] if item.get("network") == network.name]
     if len(attachments) != 1:
         raise RuntimeReadError("identity-mismatch")
     attachment = attachments[0]
@@ -565,6 +559,17 @@ def _service(
     )
 
 
+def _publication_row(item: Any) -> bool:
+    """The vendor's `PublishPort` has exactly these five fields at every accepted tag."""
+    return (
+        isinstance(item, dict)
+        and set(item) == {"hostAddress", "hostPort", "containerPort", "count", "proto"}
+        and isinstance(item["hostAddress"], str)
+        and isinstance(item["proto"], str)
+        and all(type(item[key]) is int for key in ("hostPort", "containerPort", "count"))
+    )
+
+
 def _publication(
     config: Config,
     profile: Profile,
@@ -576,7 +581,11 @@ def _publication(
     if service.state != "present":
         return Observation(service.state, service.reason, now, None, {"states": []})
     pubs = current["configuration"].get("publishedPorts")
-    if not isinstance(pubs, list) or profile.target_ports is None:
+    if (
+        not isinstance(pubs, list)
+        or profile.target_ports is None
+        or not all(_publication_row(item) for item in pubs)
+    ):
         return Observation("unknown", "malformed", now, None)
     expected = {
         "hostAddress": config.scope(profile.scope).host_ipv4,
@@ -585,7 +594,12 @@ def _publication(
         "count": profile.ports.width,
         "proto": profile.protocol,
     }
-    if sum(item == expected for item in pubs) != 1:
+    matches = sum(item == expected for item in pubs)
+    if matches > 1:
+        # The vendor refuses overlapping publications, so a repeated row is not
+        # its output; it proves neither presence nor absence.
+        return Observation("unknown", "malformed", now, None)
+    if not matches:
         # Complete configuration proves no matching native publication. A caller
         # cannot cure this by adding an unrelated host listener or PF rule.
         return Observation("absent", "confirmed-absent", now, None, {"states": []})
@@ -833,9 +847,10 @@ def handle_request(
         }
         if set(request) != expected_fields or request["policy_digest"] != config_digest(config):
             raise ValueError("invalid runtime reconciliation")
-        profile = config.profile(request["profile"])
+        profile = next((item for item in config.profiles if item.id == request["profile"]), None)
         if (
-            profile.kind != "publication"
+            profile is None
+            or profile.kind != "publication"
             or config.profile_owner(profile).id != settings.owner
             or request["profile_digest"] != profile_digest(config, profile)
         ):

@@ -55,7 +55,7 @@ _OPTIONS = {
 }
 _BOOL_OPTIONS = {"--init", "--read-only", "--rosetta", "--ssh", "--virtualization"}
 _ID = re.compile(r"[a-z][a-z0-9-]{0,62}\Z")
-_IMAGE = re.compile(r"[A-Za-z0-9._:/-]+@sha256:[0-9a-f]{64}\Z")
+_IMAGE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]*@sha256:[0-9a-f]{64}\Z")
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
 
 

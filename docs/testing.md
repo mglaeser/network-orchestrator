@@ -104,15 +104,16 @@ native network effects.
 
 ### Apple runtime and lifecycle
 
-Fake readers cover declared nested/flat Apple CLI formats, version identity,
+Fake readers cover the nested Apple CLI format, version identity,
 container definition/enrollment, persistent file inodes, helper process/launchd
 identity, interface addresses, network and started-instance generations, live
 automatic socket ranges and inspection races. Tests reject wrong mounts/contracts,
 unknown resource shapes, duplicate attachments/publications, other guest writers,
 all-stopped outage ambiguity, timeout and successful incomplete output.
 
-Recovery rechecks independently proven stopped state, pause and admission before
-starting. It never recreates running/unknown definitions. Only the workload probe
+Recovery rechecks independently proven stopped state, pause and the network
+generation before starting; it reads no admission. It never recreates
+running/unknown definitions. Only the workload probe
 can return reserved status 42, and only for a proven stopped enrolled workload
 with gates permitting start. Unknown, timeout, denial, signal and networking
 health failures cannot initiate a start.
