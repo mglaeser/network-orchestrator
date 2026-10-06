@@ -686,6 +686,14 @@ def _base_assessment(
             )
         if decision.accepted is not True or decision.max_dns_ready_seconds is None:
             return "not-fulfilled", "Unattended recovery and its DNS-ready limit are undecided."
+        if sum(item.starts_fleet for item in instance.lifecycle_tools) != 1 or not any(
+            item.starts_runtime is True for item in instance.lifecycle_tools
+        ):
+            return (
+                "not-fulfilled",
+                "Unattended recovery is accepted but no declared tool starts the workloads "
+                "(or the runtime) after a boot.",
+            )
         if not off and baseline is not False:
             return (
                 "not-fulfilled",
@@ -1086,7 +1094,7 @@ def build_report(
         "workloads": workload_rows,
         "requirements": rows,
         "deviations": [asdict(item) for item in instance.deviations],
-        "lifecycle_tools": [asdict(item) for item in instance.lifecycle_tools],
+        "lifecycle_tools": instance_to_dict(instance)["lifecycle_tools"],
         "retirement": [
             asdict(item)
             for item in STRATEGIES

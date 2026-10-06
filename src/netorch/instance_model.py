@@ -155,6 +155,9 @@ class LifecycleTool:
     container_api_access: bool
     starts_runtime: bool | None
     version: str | None
+    # Written only as true, on the one supervisor tool that starts the workloads
+    # after a boot; left out of the canonical form otherwise.
+    starts_fleet: bool = False
 
 
 @dataclass(frozen=True, slots=True)

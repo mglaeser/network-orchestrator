@@ -89,6 +89,21 @@ Bounded direct guest and UDP return profiles require an explicit current T/K/res
 
 Unattended recovery requires a separately accepted DNS-ready limit and boot/restore evidence. FileVault requiring a person does not fulfil that goal through automatic login: a reported `on` blocks at any age, only a current observation counts as `off`, and without one the declared baseline decides. A FileVault state that is neither currently observed off nor declared off is `not-fulfilled`. Lifecycle/API writers and residual authority are explicit; a signature is an owner decision, not authentication against a hostile writer. The read-only stage never changes power, login, startup chains or recovery behavior.
 
+An instance that accepts unattended recovery also names who starts what after
+a boot. `lifecycle_tools[].kind` has the value `supervisor` for the site's
+supervisor, and at most one tool has that kind. That tool may carry
+`starts_fleet: true`: it is the one starter of the workloads. The member is
+written only as `true`, only on the supervisor tool and only together with
+`container_api_access: true`; it is left out otherwise, so an instance without
+it keeps its bytes and both digests. `BOOT-RECOVERY` is `not-fulfilled` for an
+accepted unattended recovery unless exactly one tool carries `starts_fleet: true`
+and at least one tool carries `starts_runtime: true`, because without a declared
+starter of the workloads and of the runtime nothing restores them after a boot.
+Both declarations describe the site; they start nothing. An instance that
+accepted unattended recovery before this rule names the tool that starts its
+workloads and the tool that starts the runtime. That changes its contract
+digest, so a retained instance-wide acceptance record is renewed.
+
 ## Proof before activation
 
 Run schema/property/fault/fixture/conformance tests in CI. Keep native parser/packet/consent/startup/application/heard-audio acceptance separate and bind it to the exact version/host/profile. Before any owner is activated: inspect the generated private view, fill only genuinely known missing values, pin existing names, prove byte parity for that owner, review its exact resolved parameters and rollback, and complete the separately approved native acceptance. No report command performs those actions.
