@@ -38,7 +38,7 @@ REQUIREMENTS = (
         "all",
         ("schema-tests",),
         1,
-        ("test_instance_has_one_lan_and_no_live_guest_addresses",),
+        ("test_generic_guard_catches_private_site_literals_without_echoing_them",),
     ),
     _requirement(
         "DATA-ONLY",
@@ -101,7 +101,10 @@ REQUIREMENTS = (
         "all",
         ("darwin-cli",),
         2,
-        ("test_instance_has_one_lan_and_no_live_guest_addresses",),
+        (
+            "test_instance_has_one_lan_and_no_live_guest_addresses",
+            "test_lan_identity_needs_the_declared_current_address_and_adapter",
+        ),
     ),
     _requirement(
         "IPV4-SCOPE",
@@ -128,7 +131,7 @@ REQUIREMENTS = (
         "components",
         ("schema-tests",),
         1,
-        ("test_components_have_no_workload_restart_mapping",),
+        ("test_failed_component_is_reported_separately_and_authorizes_no_restart",),
     ),
     _requirement(
         "PORT-RANGES",
@@ -200,7 +203,10 @@ REQUIREMENTS = (
         "all",
         ("fixture-parity",),
         1,
-        ("test_host_commands_do_not_change_state",),
+        (
+            "test_user_install_preserves_pause_and_definitions",
+            "test_upgrade_and_explicit_rollback_preserves_current_pause",
+        ),
     ),
     _requirement(
         "UNKNOWN-NO-RECOVERY",
@@ -257,7 +263,10 @@ REQUIREMENTS = (
         "discovery",
         ("local-network-consent",),
         3,
-        ("test_missing_host_facts_remain_unknown",),
+        (
+            "test_consent_identity_needs_a_current_launch_agent_identity_fact",
+            "test_consent_acceptance_needs_the_launch_agent_context",
+        ),
     ),
     _requirement(
         "UDP-FIRST-PACKET",
@@ -266,7 +275,10 @@ REQUIREMENTS = (
         "bounded-udp",
         ("first-packet",),
         3,
-        ("test_no_guessed_withdrawal_bound",),
+        (
+            "test_admitted_preview_splits_udp_static_nat_from_targetless_rdr",
+            "test_rule_renderer_static_port_and_targetless_rdr",
+        ),
     ),
     _requirement(
         "DNS-CLIENT-IDENTITY",
@@ -275,7 +287,10 @@ REQUIREMENTS = (
         "resolver",
         ("dns-client-identity",),
         5,
-        ("test_receipt_never_proves_live_application",),
+        (
+            "test_resolver_requirements_apply_only_to_a_resolver_workload",
+            "test_native_dns_fallback_supports_tcp_and_udp_and_reports_degradation",
+        ),
     ),
     _requirement(
         "HEARD-AUDIO",
@@ -347,7 +362,10 @@ REQUIREMENTS = (
         "all",
         ("fixture-parity",),
         1,
-        ("test_profile_digest_binds_resolved_parameters",),
+        (
+            "test_even_headers_whitespace_and_final_newline_break_parity",
+            "test_exact_owner_flip_changes_only_provenance_and_not_inputs",
+        ),
     ),
     _requirement(
         "OWNER-ROLLBACK",
@@ -356,7 +374,7 @@ REQUIREMENTS = (
         "all",
         ("restore-rehearsal",),
         4,
-        ("test_host_commands_do_not_change_state",),
+        ("test_upgrade_and_explicit_rollback_preserves_current_pause",),
     ),
     _requirement(
         "EXIT-STRATEGIES",
@@ -383,7 +401,7 @@ REQUIREMENTS = (
         "bounded-udp",
         ("port-budget",),
         3,
-        ("test_missing_host_facts_remain_unknown",),
+        ("test_port_budget_counts_are_typed_and_observed_independently",),
     ),
     _requirement(
         "RUNTIME-DNS",
@@ -392,7 +410,10 @@ REQUIREMENTS = (
         "resolver",
         ("darwin-cli",),
         2,
-        ("test_missing_host_facts_remain_unknown",),
+        (
+            "test_runtime_dns_settings_are_unknown_until_observed",
+            "test_host_entrypoint_never_contacts_network",
+        ),
     ),
     _requirement(
         "CURRENT-OBSERVATIONS",
@@ -410,7 +431,7 @@ REQUIREMENTS = (
         "all",
         ("fixture-parity",),
         1,
-        ("test_names_are_pinned_or_namespace_derived",),
+        ("test_synthetic_variants_validate_without_native_support",),
     ),
 )
 
