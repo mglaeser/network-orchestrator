@@ -37,6 +37,20 @@ from .storage import Store
 
 ToolRunner = Callable[[tuple[str, ...]], Result]
 MAX_ARTIFACT_BYTES = 1_048_576
+# Phases install_bundle journals before the effects they name. A journal still
+# in one of them was not closed by its installer: no handler ran (kill, lost
+# power) or the handler could not write.
+_OPEN_INSTALL_PHASES = frozenset(
+    {
+        "staging",
+        "preflight-jobs",
+        "quiescing-forwarding-owner",
+        "installing-forwarding-owner",
+        "stopping-jobs",
+        "installing-jobs",
+        "starting-jobs",
+    }
+)
 
 
 def _sha(payload: bytes) -> str:
@@ -926,7 +940,8 @@ def install_bundle(
                 "jobs_loaded": [job.label for job in jobs],
                 "runtime_acceptance": "not established by installation",
             }
-        except Exception:
+        except BaseException:
+            # An interrupt is a failure too: record the phase it stopped in.
             journal["failed_phase"] = journal["phase"]
             journal["phase"] = "failed"
             store.write("installation-journal.json", journal)
@@ -1109,17 +1124,32 @@ def recover_install(
     A failed first install retains its gated root snapshot and private release as
     evidence, removes only verified generated user jobs, and never deletes data.
     The next install must use a new bundle/release or explicit evidence cleanup.
+
+    "Failed" includes an installation or recovery that was stopped: its journal
+    is then still in an in-progress phase, or was never written.
     """
     store = _deployment_store(directory, scope)
     with store.lock():
-        journal = store.read("installation-journal.json")
+        try:
+            journal = store.read("installation-journal.json")
+        except FileNotFoundError:
+            journal = None
+        if journal is None or (
+            isinstance(journal, dict) and journal.get("phase") in {"committed", "rolled-back"}
+        ):
+            return _release_unjournalled_hold(store, scope, expected_failed_digest)
         if (
             not isinstance(journal, dict)
-            or journal.get("phase") != "failed"
+            or journal.get("phase") not in {"failed", "recovering", *_OPEN_INSTALL_PHASES}
             or journal.get("bundle_digest") != expected_failed_digest
             or journal.get("scope") != scope
         ):
             raise DeploymentError("recovery does not match a failed installation journal")
+        if journal["phase"] in _OPEN_INSTALL_PHASES:
+            # The installer holds this same lock from its first read to its last
+            # write, so an open phase read under it was left by an installer that
+            # is gone. The phase it stopped in is the failed phase.
+            journal["failed_phase"] = journal["phase"]
         release_id = journal.get("release_id")
         if not isinstance(release_id, str) or re.fullmatch(r"[0-9a-f]{64}", release_id) is None:
             raise DeploymentError("failed journal lacks a valid release identity")
@@ -1135,17 +1165,26 @@ def recover_install(
         _check_tree(Path(installation.launchd_directory), uid, privileged=privileged)
         release, old_files = _verified_release(previous, scope)
         failed_release = Path(installation.directory) / "releases" / release_id
-        failed_manifest = strict_loads(
-            _read_file(failed_release / "bundle-manifest.json", private=True, privileged=privileged)
-        )
-        if (
-            failed_manifest.get("bundle_digest") != expected_failed_digest
-            or digest(
-                {key: value for key, value in failed_manifest.items() if key != "bundle_digest"}
+        failed_manifest: Any
+        if journal.get("failed_phase") == "staging":
+            # Staging writes only the new release, which may be incomplete: it is
+            # no evidence yet and none of its jobs can be installed. The journal's
+            # own deployment record gives the boundaries to compare.
+            failed_manifest = {"deployment": journal.get("deployment"), "files": []}
+        else:
+            failed_manifest = strict_loads(
+                _read_file(
+                    failed_release / "bundle-manifest.json", private=True, privileged=privileged
+                )
             )
-            != expected_failed_digest
-        ):
-            raise DeploymentError("failed release manifest changed; no speculative recovery")
+            if (
+                failed_manifest.get("bundle_digest") != expected_failed_digest
+                or digest(
+                    {key: value for key, value in failed_manifest.items() if key != "bundle_digest"}
+                )
+                != expected_failed_digest
+            ):
+                raise DeploymentError("failed release manifest changed; no speculative recovery")
         failed_deployment = parse_deployment(canonical_bytes(failed_manifest["deployment"]))
         if failed_deployment.installation(scope) != installation:
             raise DeploymentError("recovery cannot change installation boundaries")
@@ -1173,8 +1212,11 @@ def recover_install(
                 raise DeploymentError("failed-install job has foreign content; recovery inhibited")
         if scope == "user":
             intent = intent_from_dict(store.read("intent.json"))
-            if intent.damaged or intent.suspensions.get("installation") != expected_failed_digest:
+            held = intent.suspensions.get("installation")
+            if intent.damaged or held not in {None, expected_failed_digest}:
                 raise DeploymentError("recovery requires the original installation suspension")
+            if held is None:
+                _retake_hold(store, intent, expected_failed_digest)
         journal["phase"] = "recovering"
         store.write("installation-journal.json", journal)
         root_held = False
@@ -1245,10 +1287,41 @@ def recover_install(
                 "retained_failed_release": release_id,
                 "preserved_intent": True,
             }
-        except Exception:
+        except BaseException:
             journal["phase"] = "failed"
             store.write("installation-journal.json", journal)
             raise
+
+
+def _release_unjournalled_hold(store: Store, scope: str, holder: str) -> dict[str, Any]:
+    """Release a user hold whose installer stopped before its first journal write.
+
+    The user installer writes its suspension, then its journal, then everything
+    else, and closes the journal only after releasing the suspension. With no
+    journal, or only a closed one, a hold by exactly this digest therefore
+    proves that nothing else of that installation exists.
+    """
+    intent = Intent(damaged=True)
+    if scope == "user":
+        with contextlib.suppress(FileNotFoundError):
+            intent = intent_from_dict(store.read("intent.json"))
+    if intent.damaged or intent.suspensions.get("installation") != holder:
+        raise DeploymentError("recovery does not match a failed installation journal")
+    store.write("intent.json", intent_to_dict(intent.release("installation", holder)))
+    return {
+        "phase": "hold-released",
+        "installation_changes": "none; the installer stopped before its first journal write",
+        "preserved_intent": True,
+    }
+
+
+def _retake_hold(store: Store, intent: Intent, holder: str) -> None:
+    """Recovery works under the failed installation's own hold, as root does via its owner.
+
+    The installer releases that hold one write before it closes its journal. A
+    kill between the two leaves an open journal and no holder at all.
+    """
+    store.write("intent.json", intent_to_dict(intent.suspend("installation", holder)))
 
 
 def _recover_first(
@@ -1290,8 +1363,11 @@ def _recover_first(
                     raise DeploymentError("failed first-install job has foreign content")
     if scope == "user":
         intent = intent_from_dict(store.read("intent.json"))
-        if intent.damaged or intent.suspensions.get("installation") != failed_digest:
+        held = intent.suspensions.get("installation")
+        if intent.damaged or held not in {None, failed_digest}:
             raise DeploymentError("first-install recovery requires its original suspension")
+        if held is None:
+            _retake_hold(store, intent, failed_digest)
     journal["phase"] = "recovering"
     store.write("installation-journal.json", journal)
     root_held = False
@@ -1342,7 +1418,7 @@ def _recover_first(
             "root_gate_retained": root_gate_retained,
             "root_owner": "retained with existing admission and operator intent unchanged",
         }
-    except Exception:
+    except BaseException:
         journal["phase"] = "failed"
         store.write("installation-journal.json", journal)
         raise
