@@ -192,6 +192,13 @@ pass accepts only the old or known candidate kernel view, withdraws it and drain
 its states. An explicit administrator journal acknowledgement is required before
 activation resumes. Unknown foreign drift is never overwritten as recovery.
 
+Every pass first records phase `applying` with its planned actions, also when it
+will change nothing. A pass that stops while its journal still has exactly that
+first record, with no candidate, wrote no rule: the next pass needs no
+acknowledgement and plans from fresh evidence. A failure that awaits its
+acknowledgement is recorded as `failed` again by each later pass from its first
+record on, so stopping one of them cannot cancel the acknowledgement.
+
 Within one pass the owner applies every planned withdrawal before it invalidates
 any state, as the administrator withdrawal does. A state readback that fails
 then fails the pass with all planned rules already retired; it cannot leave the
