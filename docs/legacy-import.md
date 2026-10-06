@@ -93,7 +93,9 @@ separate requirements and evidence-ledger records.
 `netorch.privacy.scan_framework` performs a generic framework check for private
 IPv4 literals, chosen interface names, home paths and site-like reverse-DNS
 namespaces. RFC5737 documentation networks, loopback and native Apple namespaces
-are distinguished from private instance values. An instance's CI additionally
+are distinguished from private instance values. A value that ends a sentence is
+reported like any other; a following dot joins it to a longer token only when
+another component follows the dot. An instance's CI additionally
 uses `instance_literals(instance)` to scan its pinned framework for its own
 addresses, stable adapter identity, home path, network/name pins, namespace,
 workload names and range endpoints. Low-entropy chosen port literals require
@@ -129,8 +131,9 @@ core.fsmonitor=false -c core.hooksPath=/dev/null ls-files --cached --others
 tracked files even if their names are now ignored, and checks nonignored candidate
 files before commit. It does not inspect ignored host state or execute a Git hook,
 filter, shell or network command. The checked-in exception data names finite
-file/kind/value-SHA256 pairs for synthetic fixtures, classifier CIDRs and the
-product's default namespace. An unhashed exception is refused by the CI entry point. No
+file/kind/value-SHA256 pairs for synthetic fixtures, classifier CIDRs, the
+product's default namespace and exact native or tooling tokens that only look
+like a namespace. An unhashed exception is refused by the CI entry point. No
 wildcard/path-prefix/whole-test-tree exception is implemented.
 
 For the private instance's CI, add its canonical instance file:
