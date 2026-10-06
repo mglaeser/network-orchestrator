@@ -49,8 +49,8 @@ by that same service, generation, scope and protocol maps its guest port to the
 LAN endpoint. A coincident numeric listener or another container's publication
 does not qualify. The published instance name and TXT bytes are preserved;
 only the hostname, address and mapped port change. Each record has its own
-stable synthetic `netorch-container-…` hostname to prevent sibling A-record
-ownership conflicts.
+stable synthetic hostname under the policy's export prefix (`netorch-container-…`
+unless the policy names another) to prevent sibling A-record ownership conflicts.
 
 For `_home-assistant._tcp` only, `internal_url` and `base_url` values that point
 exactly to the resolved guest hostname/address are projected to the reachable
@@ -72,10 +72,24 @@ spelling; Unicode case folding is not used. An unrelated service sharing an IP
 does not qualify. All eligible
 devices in the configured LAN are supported; no per-device IP list is needed.
 DHCP changes replace registrations. The port, instance and TXT remain genuine.
-Each projected record uses a separate stable `netorch-lan-…` hostname and the
+Each projected record uses a separate stable hostname under the policy's import
+prefix (`netorch-lan-…` unless the policy names another) and the
 real LAN device address on the guest interface. Projected records are excluded
 from the reverse path to prevent loops, including case variations of both reserved
 projection prefixes in names and hostnames.
+
+The two prefixes are one pair for the whole policy: its optional
+`discovery_names` object, described under
+[discovery strategies](configuration.md#discovery-strategies). The owner reads
+the pair from the policy alone; its settings file cannot change it. A pair
+other than the default is a member of every discovery digest, so the
+coordinator and the owner compute the same value and a request, candidate or
+readback made under another pair is refused. A policy without the object
+keeps its digests, so this needs no new digest version. Records that an
+earlier run registered under other prefixes are ordinary records to this
+one, not its own. Change the pair only while the owner is stopped and its
+registrations have ended; after a kill the clients end on their own timer
+within 120 seconds.
 
 Discovery digest version 3 retains the version 2 selection semantics above and
 binds the corrected native `...STARTING...` banner and browse-label grammar

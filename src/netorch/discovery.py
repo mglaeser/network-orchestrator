@@ -8,7 +8,7 @@ import math
 import re
 from dataclasses import dataclass, replace
 
-from .model import Config, Discovery
+from .model import Config, Discovery, DiscoveryNames
 from .state import Observation
 
 _DNS_ASCII_LOWER = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
@@ -22,12 +22,10 @@ def dns_name_key(value: str) -> str:
     return value.translate(_DNS_ASCII_LOWER)
 
 
-def is_own_projection(record: Record) -> bool:
+def is_own_projection(record: Record, names: DiscoveryNames) -> bool:
     """Reserved projection prefixes cannot be reflected in either direction."""
-    return any(
-        dns_name_key(value).startswith(("netorch-container-", "netorch-lan-"))
-        for value in (record.name, record.hostname)
-    )
+    prefixes = (dns_name_key(names.export_prefix), dns_name_key(names.import_prefix))
+    return any(dns_name_key(value).startswith(prefixes) for value in (record.name, record.hostname))
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,7 +118,7 @@ def project_export(
         raise ValueError("an export policy is required")
     if not interface_confirmed or record.interface == scope.interface:
         return Projection("unknown", "interface-unverified")
-    if is_own_projection(record):
+    if is_own_projection(record, config.discovery_names):
         return Projection("absent", "loop-excluded")
     if not set(policy.dependencies) <= verified_dependencies:
         return Projection("absent", "dependency-unverified")
@@ -150,7 +148,7 @@ def project_export(
     item = matches[0]
     projected = replace(
         record,
-        hostname=f"netorch-container-{policy.service}.local.",
+        hostname=f"{config.discovery_names.export_prefix}{policy.service}.local.",
         port=item.host_port,
         ipv4=item.host_ipv4,
         interface=scope.interface,
@@ -192,7 +190,7 @@ def select_imports(
         and item.service_type in policy.types
         and item.seen_at <= now <= item.seen_at + policy.max_age_seconds
         and ipaddress.IPv4Address(item.ipv4) in ipaddress.IPv4Network(scope.lan_cidr)
-        and not is_own_projection(item)
+        and not is_own_projection(item, config.discovery_names)
     ]
     eligible = {
         (dns_name_key(item.hostname), item.ipv4)
