@@ -45,6 +45,10 @@ from .workflow_gate import NOT_QUALIFIED, StageNotQualified, require_mutation_qu
 STRATEGY = "darwin-pf-v1"
 _ID = re.compile(r"[a-z][a-z0-9-]{0,62}\Z")
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
+# One component directly below the platform namespace: the product's own form, as
+# before, or a site's pinned name. The kernel refuses a component of 64 characters
+# or more, so a pinned name has at most 63. The backend script checks the same.
+_ANCHOR = re.compile(r"com\.apple/(?:netorch\.[a-z][a-z0-9-]{0,62}|[a-z][a-z0-9.-]{0,62})\Z")
 _REASON = "unobserved"
 
 
@@ -68,7 +72,13 @@ class Installation:
             not isinstance(self.owner, str)
             or not isinstance(self.anchor, str)
             or not _ID.fullmatch(self.owner)
-            or self.anchor != f"com.apple/netorch.{self.owner}"
+            or not _ANCHOR.fullmatch(self.anchor)
+            # The product form still names this installation's own owner, so a
+            # pin cannot claim another owner's anchor of that form.
+            or (
+                self.anchor.startswith("com.apple/netorch.")
+                and self.anchor != f"com.apple/netorch.{self.owner}"
+            )
         ):
             raise PFError("invalid independent PF owner identity")
         if not isinstance(self.backend_sha256, str) or not _HASH.fullmatch(self.backend_sha256):

@@ -869,7 +869,7 @@ def test_protected_ancestors_rejects_user_parent(tmp_path: Path) -> None:
     [
         {"schema_version": True},
         {"interval_seconds": 0},
-        {"anchor": "com.apple/foreign"},
+        {"anchor": "com.apple/netorch.foreign"},
         {"owner": "foreign"},
         {"backend_sha256": "invalid"},
         {"report_path": "relative"},

@@ -144,6 +144,28 @@ remain unchanged. New installations start paused and unadmitted. The installer
 neither starts containers nor loads PF rules nor silently adopts an occupied
 anchor.
 
+The owned anchor is one name directly below `com.apple/`. It is either the
+product form `com.apple/netorch.<owner>`, which must name this installation's
+own owner, or one pinned component that begins with a lower-case letter and
+has at most 63 characters of `a-z`, `0-9`, `.` and `-`. An existing site can
+therefore keep the one anchor its previous manager used, instead of having two
+managers' rules loaded side by side during a move. The installation record
+and the argument check of the backend script apply the same grammar; the
+script does not know the owner and cannot check whose product form it is
+given. Nested anchors and longer components are refused: the kernel does not
+create an anchor component of 64 characters or more
+([xnu `pf_find_or_create_ruleset`](https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.121.6/bsd/net/pf_ruleset.c#L353-L358)).
+
+A pinned name never lets the owner take over rules it did not write. Every
+pass stops with a drift error, before any write, while the anchor holds rules
+that are not the owner's own records, and the backend refuses a replacement
+when the loaded rules are not the ones it was told to expect. The hand-over
+is: the previous manager empties the anchor, and the owner's next pass finds
+it empty. A later installation cannot change an installed anchor, and root
+admission binds the name, so an approval given under one anchor does not hold
+under another. How the platform tools list a component with dots, and the
+order of a real hand-over, are not verified on a host.
+
 ## Reconciliation and failure semantics
 
 1. Read protected policy/admission/intent under the persistent kernel lock.
