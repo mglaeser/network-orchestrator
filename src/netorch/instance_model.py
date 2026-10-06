@@ -136,6 +136,7 @@ class DiscoverySelection:
     direction: str
     dependencies: tuple[str, ...]
     misses: int | None = None
+    service_types: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)

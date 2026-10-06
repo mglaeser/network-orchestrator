@@ -45,7 +45,7 @@ from .instance_model import (
     VisibilityDecision,
     Workload,
 )
-from .profile_library import discovery_profile, strategy
+from .profile_library import AUTOMATIC_TYPES, discovery_profile, strategy
 from .requirements import REQUIREMENTS
 from .safety_contract import assess_bounded_safety
 
@@ -181,7 +181,16 @@ def _construct(data: dict[str, Any]) -> Instance:
             for item in data["transport"]
         ),
         tuple(
-            DiscoverySelection(**{**item, "dependencies": tuple(item["dependencies"])})
+            DiscoverySelection(
+                **{
+                    **item,
+                    **{
+                        key: tuple(item[key])
+                        for key in ("dependencies", "service_types")
+                        if key in item
+                    },
+                }
+            )
             for item in data["discovery"]
         ),
         Supervision(**data["supervision"]),
@@ -267,6 +276,20 @@ def resolve_ports(instance: Instance, ports: Ports | None) -> tuple[int, int] | 
     if ports.first is None or ports.last is None:
         raise InstanceError("port selector is incomplete")
     return ports.first, ports.last
+
+
+def selection_types(selection: DiscoverySelection) -> tuple[str, ...] | None:
+    """The DNS-SD service types a selection names, or ``None`` for the automatic form.
+
+    The generic export names none unless the selection lists them. Its automatic
+    form, whatever TCP services the workload announces, is implemented by no
+    retained owner. Whatever turns an instance into retained discovery policy
+    refuses ``None``; it never guesses a list.
+    """
+    if selection.service_types is not None:
+        return selection.service_types
+    library = discovery_profile(selection.profile, selection.version).service_types
+    return None if library == AUTOMATIC_TYPES else library
 
 
 def resolved_profile(instance: Instance, profile: Transport) -> dict[str, Any]:
@@ -581,6 +604,31 @@ def validate_instance(instance: Instance) -> None:
             selected = discovery_profile(selection.profile, selection.version)
             if selected.direction != selection.direction:
                 raise InstanceError("discovery profile direction mismatch")
+            chosen = selection.service_types
+            if chosen is not None:
+                listed = selected.service_types
+                if listed == AUTOMATIC_TYPES:
+                    # The generic export has no list of its own: one order, one spelling.
+                    # DNS compares a service type without regard to ASCII case.
+                    if list(chosen) != sorted(chosen) or len(
+                        {kind.lower() for kind in chosen}
+                    ) != len(chosen):
+                        raise InstanceError(
+                            "explicit export service types are distinct and in ascending order"
+                        )
+                elif (
+                    # The whole list is said by leaving the member out.
+                    chosen != tuple(kind for kind in listed if kind in chosen)
+                    or len(chosen) == len(listed)
+                    or (
+                        selected.eligibility_type is not None
+                        and selected.eligibility_type not in chosen
+                    )
+                ):
+                    raise InstanceError(
+                        "service types are a proper subset of the profile's, in its order, "
+                        "and keep the type eligibility is decided from"
+                    )
             dependencies = [instance.transport_profile(value) for value in selection.dependencies]
             matching = [value for value in dependencies if value.service == selection.service]
             required = (
