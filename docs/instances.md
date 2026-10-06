@@ -64,7 +64,8 @@ these locally chosen names.
 
 The static importer rejects known credential and environment keys in selectors,
 targets and nested projections, including camelCase and acronym spellings such
-as `apiToken`, `clientSecret` and `APIKey`. This is a key-name guard, not a detector
+as `apiToken`, `clientSecret` and `APIKey`, `passphrase`, and compound password
+names such as `PGPASSWORD`. This is a key-name guard, not a detector
 for arbitrary secret values; mappings still require review before committing.
 
 Discovery selections have their own rows and resolved digests, with dependency states. Warm-cache reload does not establish inward Apple-media discovery. The pinned Home Assistant shared-scanner cold-start/receiver-change proof remains a named **unverified** acceptance requirement; offline synthetic coverage does not claim it happened.

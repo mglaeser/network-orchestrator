@@ -25,8 +25,11 @@ from .derive import DeriveError, literal_assignments, literal_lines
 
 _ID = re.compile(r"[a-z][a-z0-9-]{0,63}")
 _SHA = re.compile(r"[0-9a-f]{64}")
+# A password word also ends a compound name such as PGPASSWORD; "pass" alone is
+# no listed word, so "compass" and "bypass_cache" stay ordinary data.
 _SECRET_KEY = re.compile(
-    r"(?:^|[_-])(env|environment|password|passwd|token|secret|credential|credentials|authorization|private_?key|api_?key)(?:$|[_-])",
+    r"(?:^|[_-])(env|environment|token|secret|credential|credentials|authorization"
+    r"|private_?key|api_?key|pass_phrase|[a-z0-9]*(?:password|passwd|passphrase))(?:$|[_-])",
     re.I,
 )
 _FORMATS = {"json", "plist", "toml", "literal-env", "text-list", "source-inventory"}
