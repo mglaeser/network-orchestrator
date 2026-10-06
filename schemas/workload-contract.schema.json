@@ -37,30 +37,60 @@
       "type": "array",
       "maxItems": 64,
       "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "source",
-          "destination",
-          "read_only"
-        ],
-        "properties": {
-          "source": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 4096,
-            "pattern": "^/[^\\x00\\n\\r]+$"
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "source",
+              "destination",
+              "read_only"
+            ],
+            "properties": {
+              "source": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096,
+                "pattern": "^/[^\\x00\\n\\r]+$"
+              },
+              "destination": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096,
+                "pattern": "^/[^\\x00\\n\\r]+$"
+              },
+              "read_only": {
+                "type": "boolean"
+              }
+            }
           },
-          "destination": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 4096,
-            "pattern": "^/[^\\x00\\n\\r]+$"
-          },
-          "read_only": {
-            "type": "boolean"
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "volume",
+              "destination",
+              "read_only"
+            ],
+            "properties": {
+              "volume": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 255,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,254}$"
+              },
+              "destination": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096,
+                "pattern": "^/[^\\x00\\n\\r]+$"
+              },
+              "read_only": {
+                "type": "boolean"
+              }
+            }
           }
-        }
+        ]
       }
     },
     "kernel_arguments_sha256": {
@@ -84,9 +114,16 @@
           "pattern": "^[a-z][a-z0-9-]{0,63}$"
         },
         "mtu": {
-          "type": "integer",
-          "minimum": 576,
-          "maximum": 9000
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 576,
+              "maximum": 9000
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       }
     },
@@ -99,6 +136,61 @@
         "named-volume",
         "stateless"
       ]
+    },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "add": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 34,
+            "pattern": "^(?:ALL|CAP_[A-Z][A-Z0-9_]{1,29})$"
+          }
+        },
+        "drop": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 34,
+            "pattern": "^(?:ALL|CAP_[A-Z][A-Z0-9_]{1,29})$"
+          }
+        }
+      }
+    },
+    "kernel_sha256": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "init_process_sha256": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "image_alternates": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 3,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 512,
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*@sha256:[0-9a-f]{64}$"
+      }
     }
   }
 }
