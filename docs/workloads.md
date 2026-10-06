@@ -23,10 +23,13 @@ Environment inheritance is forbidden; literal `KEY=value` input is required.
 No shell, `eval`, command substitution or executable configuration is used.
 
 Resources, entrypoint, process arguments, DNS, bind mounts,
-kernel and sysctls can be preserved in the private recipe. Mount sources must
+kernel and kernel arguments can be preserved in the private recipe. Mount sources must
 match the enrolled persistent identities exactly. Kernel and environment-file
 inputs need hashed receipts. Custom init images also need immutable digest pins.
-The 1.5.0 kernel-argument flag is rejected on older reader contracts.
+`--kernel-arg` is accepted on each reader version: the vendor's `create` defines
+it at 1.2.0, 1.4.1 and 1.5.0. The vendor CLI has no sysctl option, so `--sysctl`
+is refused; a guest sysctl that must hold from boot can be written as the Linux
+boot parameter `sysctl.<name>=<value>` in a kernel argument.
 
 A recipe cannot publish a host socket: `--publish-socket` is refused. While the
 vendor's `create` builds its configuration it removes an existing file or
