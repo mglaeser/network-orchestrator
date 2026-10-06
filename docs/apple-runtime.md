@@ -23,7 +23,7 @@ loader. Operator data supplies:
 | Account | UID, GID, HOME of the genuine vendor runtime user |
 | Runtime | Absolute CLI path, exact accepted version, legacy-risk acknowledgement |
 | Networks | Scope, native network name/gateway, launchd helper domain/label, expected program and UID |
-| Service contracts | Service/name/scope, full native configuration fingerprint, persistent mount identities, hashed file receipts |
+| Service contracts | Service/name/scope, full native configuration fingerprint, persistent mount identities, hashed file receipts, optional tolerated stopped peer names |
 | Paths | Private generated policy, user admissions, durable intent and state directory |
 
 No receiver IP is enrolled. Media receivers come from genuine current LAN
@@ -67,6 +67,15 @@ contents. Socket leaves can change inode when their existing owner restarts;
 their protected path, parent, owner and type still have to agree. Symlink and
 shared-writer ambiguity produces unknown. Writable nested/aliased mounts belonging
 to another inventoried container are rejected; read-only sharing is allowed.
+
+A site that keeps a second definition over the same writable path without ever
+running it, for example a retained test definition, can enroll that definition's
+name in the contract's `tolerated_stopped_peers`. The peer is then accepted only
+while the inventory reports it exactly `stopped`; running, stopping or unknown it
+is rejected as before, and so is every name that is not listed. The list is
+closed: at most 16 distinct vendor container names in sorted order, none of them
+an enrolled workload. It is part of the contract and settings digests only when
+it is not empty, so an enrollment without it keeps its digests and admissions.
 
 ## Capture once, derive identity fields
 
