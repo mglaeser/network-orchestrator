@@ -426,9 +426,10 @@ def main(argv: list[str] | None = None) -> int:
     except Busy:
         _emit({"error": "busy", "message": "owner lock is held; no lock was replaced"})
         return 75
-    except (ValueError, OSError, RuntimeError):
+    except (ValueError, OSError, RuntimeError, LookupError):
         # Provider/config errors may contain private paths or payloads. Export a
-        # closed diagnostic; inspect the private owner evidence separately.
+        # closed diagnostic; inspect the private owner evidence separately. An
+        # unknown profile, owner, service or scope identifier is a LookupError.
         _emit(
             {
                 "error": "invalid-or-unverified",
