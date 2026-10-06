@@ -9,6 +9,8 @@ Install the reviewed wheel and hash-locked dependencies in managed Python
 3.12–3.14. Keep the public framework, private instance repository and local host
 state in separate locations. Pin release version, artifact SHA-256, source
 revision, dependency-lock hash and schema version in the private instance.
+[The release pin](instances.md#the-release-pin) says where each of these values
+comes from and how to rebuild the wheel from the tagged commit.
 The synthetic example deliberately has placeholder release hashes and no native
 acceptance; it is not a deployment default.
 
@@ -33,6 +35,8 @@ is not accepted there. `--framework-artifact` plus
 `--dependency-lock` verify release material, and `--evidence-dir` resolves retained
 acceptance evidence. Hashes alone do not prove administrator approval or native
 behavior. See [instances](instances.md) for exact formats and command examples.
+The two release options compare the pinned files on disk with the pin; they do
+not establish that the running package was installed from them.
 
 For an existing host, import literal owner inputs statically; never source a
 legacy script. The generated view must re-import byte-identically. Executable

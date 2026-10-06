@@ -8,7 +8,7 @@ The public repository contains the schemas, named strategy and application profi
 
 `schemas/instance.schema.json` closes every object. `instance.json` must use sorted keys, compact UTF-8 JSON, and exactly one final newline. Duplicate keys, non-finite values and extra fields are rejected. So is a string value that carries an expression or template marker (`$(`, `${`, a backquote, `{{` or `}}`), that is an absolute path through a `bin` or `sbin` directory or ending in `.sh`, `.py`, `.rb`, `.pl` or `.command`, or that begins with a packet-filter rule opening (`nat on`, `rdr on`, `pass in`, `pass out`, `block in`, `block out`, `load anchor`). Live guest and receiver addresses are rejected in every string value, also when a full stop ends the sentence after them: any IPv4 address or prefix other than the declared LAN address and LAN prefix, and any IPv6 unique-local or global unicast address outside the documentation range `2001:db8::/32`. A dotted number that continues into a longer token, such as a five-part version or a file name, is not read as an address. These checks keep code and live addresses out of instance values; they do not judge prose that merely describes a command or a rule, because nothing in an instance is executed. Every number must be written as a JSON integer (`1.0` is refused), and no string may contain a control character or a line or paragraph separator, so a trailing newline is refused too. The same two rules apply to workload contract files, evidence documents and retained acceptance files; only evidence times may be fractional. Acceptance and deviation entries must name a registered requirement. A bounded decision must be one the safety assessment can evaluate: a blank residual statement or one longer than 2000 characters, a blank signer, or a signature dated before 1970 is refused when the instance is parsed. All arrays and reads are bounded. Exactly one chosen IPv4 LAN is allowed. IPv6 is outside this custom policy; it is not declared blocked.
 
-An instance pins the framework version, exact release-artifact SHA-256, source revision, dependency-lock SHA-256 and schema version. Content verification is not publisher authentication: acquire the release and reviewed digests through your trusted release process. Synthetic example pins are deliberately zero placeholders and cannot verify a real release.
+An instance pins the framework version, exact release-artifact SHA-256, source revision, dependency-lock SHA-256 and schema version. Content verification is not publisher authentication: acquire the release and reviewed digests through your trusted release process. Synthetic example pins are deliberately zero placeholders and cannot verify a real release. [The release pin](#the-release-pin) says where each value comes from and what checking it establishes.
 
 Workloads reference canonical private contract files by relative data path and SHA-256. A contract contains an immutable image reference, resources, mount data, kernel-argument hash, network name/MTU and data-recovery class. It cannot contain credentials, environment values, executable commands or raw runtime inspection output. Checking a contract file proves its content matches the reference; installed definition parity requires separate evidence. Component health/recovery is separate from workload recovery: a failed component never grants workload restart authority.
 
@@ -77,6 +77,35 @@ invalidates earlier whole-instance attestations even if rendered behavior has
 not changed. Only the acceptance ledger itself and informational deviations are
 excluded from that digest; version 1 receipts require renewed evidence.
 
+## The release pin
+
+`framework` names one release. Its values are copied in by the author of the instance; no command fetches or derives them. `schema_version` is the version of the instance schema. The other four come from the release:
+
+- `version` is the release's version: the tag without its `v`, `0.3.2` for the tag `v0.3.2`.
+- `artifact_sha256` is the SHA-256 of that release's wheel, `netorch-0.3.2-py3-none-any.whl`. The release page of the tag in the public repository lists the wheel, the source archive and a file `SHA256SUMS`; the wheel's line in that file is the published digest.
+- `revision` is the full commit the tag names, which `git rev-parse 'v0.3.2^{commit}'` prints in a clone of the public repository.
+- `dependency_lock_sha256` is the SHA-256 of `requirements-lock.txt` as that commit has it. That file is the runtime lock: the wheel's dependencies are installed from it with `pip install --require-hashes -r requirements-lock.txt`. It is not `requirements-dev-lock.txt`, which locks the development and build tools, and it is not inside the wheel. Take it from the source archive or from an export of the tag and hash it yourself.
+
+A published digest says what was uploaded, not what the commit builds. To check the wheel against the commit, export the tag into a new directory and build it with the hash-locked build tools, the way CI builds it:
+
+```sh
+# In a clone of the public repository. /private/build/source must be new and empty.
+version=0.3.2
+git rev-parse "v$version^{commit}"
+mkdir -p /private/build/source
+git archive --format=tar "v$version" | tar -x -C /private/build/source
+python3 -m venv /private/build/venv
+/private/build/venv/bin/python -m pip install --require-hashes -r /private/build/source/requirements-dev-lock.txt
+(cd /private/build/source && /private/build/venv/bin/python -m build --no-isolation)
+shasum -a 256 "/private/build/source/dist/netorch-$version-py3-none-any.whl" /private/build/source/requirements-lock.txt
+```
+
+The first output is the `revision`; the last command prints the artifact digest and the lock digest. The artifact digest must equal the wheel's line in `SHA256SUMS`. When this section was written, release 0.3.2 was rebuilt this way on Linux with Python 3.12 and with Python 3.13: the wheel and the source archive had the published digests, also when the exported files had other permissions and timestamps. A rebuild on macOS has not been compared. If your wheel differs, pin neither digest until you know why.
+
+`--framework-artifact` and `--dependency-lock` compare two files on disk with the pin. `release_verified` in the output of `validate` is true exactly when the artifact file has the pinned `artifact_sha256`, the lock file has the pinned `dependency_lock_sha256`, and the pinned `version` equals the version of the package that runs the command. Both options are needed; with one of them alone the result is false. Both must name ordinary single-link files of at most 1 MiB, as every other local input must; a symbolic link or a larger file ends the command with status 65. With that result the `FRAMEWORK-PIN` requirement is `fulfilled-verified`, unless host evidence reports another installed artifact or a deviation is recorded for it; without that result `check` cannot pass.
+
+That result means "the pinned files on disk match the pin". It does not mean "this is the code that is running". The command does not look inside the wheel, does not compare the installed package with it, and does not check that the dependencies were installed from the lock; a source checkout or any other installation with the same version string gets the same result. `revision` is recorded, and it is part of the whole-instance contract digest and of every resolved transport digest, so changing it invalidates earlier evidence bound to those; but no command compares it with anything, and the wheel does not carry its commit. Installing exactly the pinned wheel from exactly the pinned lock, and keeping the installation that way, remains the operator's procedure.
+
 ## Six commands
 
 Install the reviewed wheel in a normal unprivileged Python environment. Commands read local files and print JSON to stdout. They do not create state; redirect reports into an existing private host-state directory if desired.
@@ -92,7 +121,7 @@ netorch-host report --instance /private/instance/instance.json
 
 `validate` checks schema, canonical bytes, references, collisions and referenced contract contents. `preflight` reports the observed prerequisites (each fact with its state, reason, age and value), the resolved names and the platform flags; it does not compare them with the declared `host.baseline`. `status` and `report` print the same complete report: profiles, requirements, facts, workloads and the rest. `plan` compares desired and owner-reported digests and emits **no actions**. `check` exits 1 until all applicable requirements, current evidence and qualified support are established. Root execution is refused (77); invalid/unavailable local data returns 65, with redacted errors.
 
-Optional `--framework-artifact /private/release/package.whl --dependency-lock /private/release/dependency-lock.json` checks exact artifact/lock bytes and the installed package version. `--data-dir` selects the existing private directory containing contract references. `--evidence-dir` selects retained content-addressed acceptance files. No path in these data files is executed.
+Optional `--framework-artifact /private/release/package.whl --dependency-lock /private/release/requirements-lock.txt` checks exact artifact/lock bytes and the version of the package that runs the command; [the release pin](#the-release-pin) says what that result does and does not establish. `--data-dir` selects the existing private directory containing contract references. `--evidence-dir` selects retained content-addressed acceptance files. No path in these data files is executed.
 
 Only `preflight`, `status` and `report` permit explicit `--collect-local`. This invokes a fixed, bounded local macOS collector, never a LAN/Bonjour probe, owner endpoint, privilege escalation or service action. It checks OS/vendor state readable without administrator rights. Unavailable, malformed, denied or unexamined facts remain unknown. Terminal consent is not LaunchAgent consent; read-only collection cannot establish the latter.
 
