@@ -588,7 +588,7 @@ def test_kernel_arguments_require_reviewed_vendor_version(tmp_path):
         workloads[0], options=(Option("--kernel-arg", "net.ipv4.ip_local_port_range=45000 45127"),)
     )
     with pytest.raises(ValueError):
-        create_arguments(config, replace(settings, accepted_version="1.4.1"), workload)
+        create_arguments(config, replace(settings, accepted_version="9.9.9"), workload)
     assert "--kernel-arg" in create_arguments(config, settings, workload)
 
 

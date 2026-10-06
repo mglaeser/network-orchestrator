@@ -50,10 +50,13 @@ _OPTIONS = {
     "--label",
     "--mount",
     "--publish-socket",
-    "--sysctl",
     "--volume",
 }
 _BOOL_OPTIONS = {"--init", "--read-only", "--rosetta", "--ssh", "--virtualization"}
+# Vendor tags whose `create` defines `--kernel-arg` (apple/container
+# `Sources/Services/ContainerAPIService/Client/Flags.swift`: line 283 at 1.2.0,
+# line 287 at 1.4.1 and 1.5.0). The same file defines no sysctl option.
+_KERNEL_ARG_VERSIONS = {"1.2.0", "1.4.1", "1.5.0"}
 _ID = re.compile(r"[a-z][a-z0-9-]{0,62}\Z")
 _IMAGE = re.compile(r"[A-Za-z0-9._:/-]+@sha256:[0-9a-f]{64}\Z")
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
@@ -190,8 +193,8 @@ def create_arguments(config: Config, settings: RuntimeSettings, workload: Worklo
             ):
                 raise ValueError("mount requires an unambiguous absolute bind source")
             mount_sources.add(values["source"])
-        if option.flag == "--kernel-arg" and settings.accepted_version != "1.5.0":
-            raise ValueError("kernel-arg requires its reviewed 1.5.0 CLI contract")
+        if option.flag == "--kernel-arg" and settings.accepted_version not in _KERNEL_ARG_VERSIONS:
+            raise ValueError("kernel-arg requires a vendor version whose source defines it")
         if option.flag in {"--kernel", "--env-file"} and not any(
             item.path == option.value and item.kind == "file" and item.sha256 is not None
             for item in contract.receipts

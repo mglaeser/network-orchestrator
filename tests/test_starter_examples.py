@@ -160,8 +160,8 @@ def test_workload_starter_builds_exact_native_policy_publications_and_bounded_ud
         ]
         assert publications == expected
         if recipe.service == "media-controller":
-            assert arguments[arguments.index("--sysctl") + 1] == (
-                "net.ipv4.ip_local_port_range=45000 45127"
+            assert arguments[arguments.index("--kernel-arg") + 1] == (
+                'sysctl.net.ipv4.ip_local_port_range="45000 45127"'
             )
     first = provision_digest(config, settings, recipes)
     assert len(first) == 64
