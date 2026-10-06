@@ -1055,10 +1055,16 @@ def _snapshot(
         data: dict[str, Any] = {"states": ()}
         if record is not None:
             target = record["target_ipv4"]
+            # Only the fact that states remain is evidence for planning. Raw
+            # kernel rows name a guest's remote peers and the clients on the
+            # LAN: they stay out of the snapshot that is hashed for the plan
+            # and out of the world-readable report, and they cannot grow
+            # either one beyond its serialization bound.
             matching = (
                 ()
                 if record["kind"] == "host-redirect"
-                else tuple(line for line, addresses in states if target in addresses)
+                or not any(target in addresses for _, addresses in states)
+                else ("retained",)
             )
             data = {
                 key: record[key]
