@@ -21,9 +21,11 @@ wheel from outside the checkout.
 
 The macOS job also compiles synthetic PF previews with `pfctl -n -f`; it never
 loads or enables rules. This checks hosted Darwin grammar, not production hook
-order, retained states or packet behavior. The fixed backend has a Bash syntax
-check, and installed-wheel smoke tests include all executable owner modules and
-packaged schema/backend resources.
+order, retained states or packet behavior. One test marked `darwin` runs the
+same dry run without privilege on the rendered host redirect, with the LAN
+prefix and with the unrestricted source; it is skipped on other systems. The
+fixed backend has a Bash syntax check, and installed-wheel smoke tests include
+all executable owner modules and packaged schema/backend resources.
 
 A separate job enforces the tracked-file public host-data guard, Ruff lint/format, strict mypy and dependency advisory
 checks. A scheduled advisory lookup does not update or deploy anything.
@@ -206,6 +208,9 @@ fixture provenance. Required evidence can include:
   just above the admitted range; no out-of-range translation.
 - Native PF hook precedence, owned NAT/RDR grammar/readback and retained-state
   invalidation after a generation change.
+- For a host redirect with an unrestricted source: the first packet from a
+  source outside the LAN prefix, through the forwarding router, and its reply.
+  A LAN client proves nothing about that setting.
 - Original client identity for the direct DNS path and explicit degraded identity
   for a configured native-publication fallback.
 - Direct guest address reuse with a non-target workload, when shared pools are

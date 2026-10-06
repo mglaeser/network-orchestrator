@@ -929,6 +929,8 @@ def build_report(
                 "id": item.id,
                 "strategy": item.strategy,
                 "strategy_version": item.version,
+                # Shown only where declared; a row without it is LAN-scoped.
+                **({} if item.source_scope == "lan" else {"source_scope": item.source_scope}),
                 "gate": strategy(item.strategy, item.version).gate,
                 "desired_digest": expected,
                 "owner_desired_digest": None if current is None else current.desired_digest,

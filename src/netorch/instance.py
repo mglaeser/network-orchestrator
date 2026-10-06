@@ -196,6 +196,7 @@ def _construct(data: dict[str, Any]) -> Instance:
                 _ports(item["target_ports"]),
                 tuple(item["dependencies"]),
                 item["fallback_publication"],
+                item.get("source_scope", "lan"),
             )
             for item in data["transport"]
         ),
@@ -244,6 +245,9 @@ def instance_to_dict(instance: Instance) -> dict[str, Any]:
         else:
             item["deadlines"] = _stated(item["deadlines"], _DEADLINES)
     for item in data["transport"]:
+        if item["source_scope"] == "lan":
+            # The default has no spelling: one byte form per row, earlier digests unchanged.
+            del item["source_scope"]
         for key in ("ports", "target_ports"):
             value = item[key]
             if value is not None:
@@ -339,6 +343,8 @@ def resolved_profile(instance: Instance, profile: Transport) -> dict[str, Any]:
         "target_ports": resolve_ports(instance, profile.target_ports),
         "dependencies": list(profile.dependencies),
         "fallback_publication": profile.fallback_publication,
+        # Bound only where declared, so every resolved digest without it is unchanged.
+        **({} if profile.source_scope == "lan" else {"source_scope": profile.source_scope}),
         "lan": asdict(instance.host.lan),
         "workload": {
             "id": workload.id,
@@ -639,6 +645,10 @@ def validate_instance(instance: Instance) -> None:
                 or profile.ports.range != workload.automatic_port_range
             ):
                 raise InstanceError("UDP return must reference the one workload automatic range")
+            if profile.source_scope != "lan" and profile.strategy != "host-port-redirect":
+                raise InstanceError(
+                    "an unrestricted source is declared only for a host-port redirect"
+                )
             if profile.strategy == "host-port-redirect":
                 publications = [
                     item

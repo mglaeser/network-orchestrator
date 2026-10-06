@@ -127,7 +127,10 @@ An approval binds all resolved parameters included by `profile_digest`, plus:
 The administrator first runs `review-admission`. It returns the resolved
 profile, scope, service, prior approval and proposed digest. The subsequent
 `admit` requires that exact digest and, for a shared guest address, explicit
-`--acknowledge-bounded-risk`. A file swap, wider range, changed interface,
+`--acknowledge-bounded-risk`. A profile declared with `source_scope: "any"`
+requires `--acknowledge-any-source`; the bounded-risk flag does not satisfy it,
+and `review-admission` prints `any_source_acknowledgement_required: true` for
+such a profile only. A file swap, wider range, changed interface,
 changed observer contract, changed backend, or changed strategy does not inherit
 approval merely because a profile ID is unchanged.
 
@@ -292,6 +295,37 @@ readback. Its target is the fixed host socket, not a recyclable guest address.
 It never kills all states to the host address, because that would interrupt
 unrelated services. Structural safety relies on the admitted native publication
 contract; changes to that contract require review.
+
+Every rule is bounded by the admitted LAN prefix of its scope, as the source of
+a redirect and as the destination of the return translation, with one declared
+exception. A structural `host-redirect` whose policy says `source_scope: "any"`
+is rendered `from any`, and differs from the LAN-scoped rule in that one token.
+Its translation target is the host's own address, and the native publication
+behind it carries no source restriction (Apple Container 1.2.0 and 1.5.0,
+[`PublishPort`](https://github.com/apple/container/blob/1.5.0/Sources/ContainerResource/Container/PublishPort.swift#L41-L55):
+host address, host port, container port, protocol, count). The setting
+therefore changes which destination port leads to that publication for a
+source outside the LAN prefix, not who can reach the publication. The renderer
+refuses the token by itself for anything else: another value, another kind, a
+bounded declaration, a fallback in effect, or a target other than the scope's
+host address. `guest-direct` and `udp-return` rules always keep the LAN prefix.
+
+Such a profile uses resolved digest version 3, which also binds the digest of
+its backing publication: root approves the redirect together with the socket
+it exposes, and a change of that publication reopens the redirect's admission.
+The planner inhibits it on every pass (`risk-unacknowledged`) unless the
+matching admission carries the acknowledgement, and the published `admitted`
+flag requires the same. Changing an admitted LAN-scoped redirect to `any`, or
+back, changes its digest: the loaded rule is withdrawn and nothing is loaded
+until root admits the new digest. As for every host redirect, withdrawal does
+not kill states that already exist.
+
+First-packet evidence for a profile with an unrestricted source is valid only
+when it was captured from a source outside the LAN prefix, through the
+forwarding router; a LAN client proves nothing about this setting. Nothing of
+this has been observed on a host. That the loaded listing of a `from any` rule
+equals its normalized dry-run listing, on which every pass depends, is an open
+native check.
 
 `guest-direct` and `udp-return` target current dynamic guest addresses. Their
 reviewed bounded safety model explicitly accepts the observation race between

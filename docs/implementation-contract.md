@@ -21,8 +21,9 @@ The retained owner policy model is in `netorch.model`. These frozen dataclasses 
   or `bounded`. `statement` is a nonempty risk declaration for bounded policies.
 - `Profile(id, service, scope, kind, protocol, ports: PortRange,
   target_ports: PortRange | None, safety: Safety, owner: str | None = None,
-  fallback_publication: str | None = None)`; kind is `publication`,
-  `host-redirect`, `guest-direct` or `udp-return`; protocol `tcp` or `udp`.
+  fallback_publication: str | None = None, source_scope: str = "lan")`; kind is
+  `publication`, `host-redirect`, `guest-direct` or `udp-return`; protocol `tcp`
+  or `udp`; source scope `lan` or `any`.
 - `Discovery(id, owner, service, scope, direction, types: tuple[str, ...],
   dependencies: tuple[str, ...], max_age_seconds, max_records)`.
 - `Config(schema_version, site, scopes, owners, services, profiles, discovery)`;
@@ -33,6 +34,9 @@ Configuration syntax is the dataclass field names. Optional `automatic_ports` an
 `target_ports` and `fallback_publication` may be omitted; `statement` may be null
 for structural policies. Fallback is allowed only for guest-direct and must bind
 an exact same-service native publication; see [configuration](configuration.md).
+`source_scope` may be omitted and `to_dict` leaves the default `lan` out; `any`
+is allowed only for a structural host redirect, uses profile digest version 3
+and binds `netorch.config.backing_publication(config, profile)`.
 `netorch.config.load_config(path)` and `parse_config(text)` return a `Config`.
 `netorch.config.to_dict(config)` returns JSON data.
 `netorch.config.profile_digest(config, profile)` binds the resolved profile, scope,

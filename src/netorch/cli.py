@@ -13,7 +13,14 @@ from typing import Any
 
 from . import __version__
 from .codec import canonical_json, read_bounded_file, strict_load
-from .config import config_digest, load_config, parse_config, profile_digest, to_dict
+from .config import (
+    config_digest,
+    load_config,
+    parse_config,
+    profile_digest,
+    profile_view,
+    to_dict,
+)
 from .deployment import (
     install_bundle,
     plan_install,
@@ -264,7 +271,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.command == "review-admission":
                 _emit(
                     {
-                        "profile": asdict(profile),
+                        "profile": profile_view(profile),
                         "scope": asdict(config.scope(profile.scope)),
                         "service": asdict(config.service(profile.service)),
                         "owner": asdict(owner),

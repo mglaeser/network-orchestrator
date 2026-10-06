@@ -46,6 +46,8 @@ refuses a selection in the automatic form (`instance.selection_types` returns
 policy's `types` exactly. A report's discovery row carries `service_types`
 only where the selection declares them.
 
+A transport row may declare `"source_scope": "any"`. It is the only value: a row without the member is LAN-scoped, and an explicit `"lan"` or `null` is refused, so each row has exactly one byte form and an instance written before the member existed keeps its bytes and digests. `any` is accepted only for a `host-port-redirect`, whose translation target is the host's own address behind its exact publication dependency; every other strategy is LAN-scoped. The resolved profile digest binds the member where it is declared, inside the unchanged version 2 envelope, and the report shows `source_scope` on that profile row only. First-packet evidence for such a profile is valid only when captured from a source outside the LAN prefix; a LAN client proves nothing about this setting.
+
 Resolved transport and discovery digest envelopes are version 2. They now bind the target workload's container name, owning account, runtime/platform context and supervision settings, including observation/read bounds and discovery timing, through each required transport dependency. Version 1 profile acceptance and owner-state digests require renewed evidence; renaming a target or changing its account, runtime, platform or supervision cannot reuse a previous profile's receipt or readiness.
 
 `supervision.discovery_seconds` and `supervision.discovery_misses` record how

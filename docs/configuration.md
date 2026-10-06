@@ -22,7 +22,7 @@ public checkout. This release models IPv4; it does not silently derive IPv6 rule
 | `scopes` | `id`, `interface`, `host_ipv4`, `lan_cidr`, `guest_cidr` | Explicit host interface/address and disjoint LAN/guest boundaries |
 | `owners` | `id`, `privilege`, `capabilities` | Runtime/transport/discovery responsibilities; `user` or `external-root` |
 | `services` | `id`, `owner`, `contract_sha256`, optional `automatic_ports` | Service observation owner and independently verified runtime contract |
-| `profiles` | `id`, `service`, `scope`, `kind`, `protocol`, `ports`, optional `target_ports`, `safety`, optional `owner` | An independently admitted transport behavior |
+| `profiles` | `id`, `service`, `scope`, `kind`, `protocol`, `ports`, optional `target_ports`, `safety`, optional `owner`, optional `source_scope` | An independently admitted transport behavior |
 | `discovery` | `id`, `owner`, `service`, `scope`, `direction`, `types`, `dependencies`, `max_age_seconds`, `max_records`, optional `return_path` | Bounded genuine-record import/export tied to verified transport |
 
 Top-level fields are `schema_version` (currently `1`), `site` (an operator label)
@@ -80,6 +80,22 @@ and reports mark `effective_strategy: degraded-fallback`, since client identity
 changes. Retire/drain the old guest path before switching, and withdraw fallback
 before later restoring direct access. See [the fallback example](../examples/network-dns-fallback.json)
 and [PF owner](pf-owner.md) for admission and readback requirements.
+
+An optional `source_scope` says which sources a profile's rule matches. The
+default `lan` is the scope's `lan_cidr`. It may be written or left out, and the
+canonical policy leaves it out, so a policy that does not use the setting keeps
+its bytes, digests and admissions. `any` matches every source. It is accepted
+only for a `host-redirect` with `safety.kind: "structural"`, whose translation
+target is the host's own address and whose one backing publication must be
+verified first, as for every host redirect. `guest-direct` (with or without a
+fallback), `udp-return` and `publication` profiles are always LAN-scoped, and an
+explicit `null` or any other value is refused. A wider `lan_cidr` is not a
+substitute: that prefix also bounds the UDP return pair and the receivers that
+may be imported. The native publication has no source restriction of its own,
+so `any` changes which destination port leads to it for a source outside the
+LAN prefix, not who can reach the published port. Such a profile uses resolved
+digest version 3, which also binds the digest of its backing publication, and
+root admits it only with its own acknowledgement; see [PF owner](pf-owner.md).
 
 ## Discovery strategies
 
@@ -139,7 +155,10 @@ pipeline when migration mode is used.
 ## Admission is separate authority
 
 An admission record contains a profile ID, its exact resolved SHA-256, approving
-owner label, approval time and bounded-risk acknowledgment. The public
+owner label, approval time and bounded-risk acknowledgment. For a profile with
+`source_scope: "any"` the same stored member records the acknowledgement of the
+unrestricted source instead. A profile is never both bounded and unrestricted,
+and the digest binds the scope, so the one member is unambiguous. The public
 [admissions.json](../examples/admissions.json) is a **simulation fixture**.
 Do not reuse it for real approval.
 
