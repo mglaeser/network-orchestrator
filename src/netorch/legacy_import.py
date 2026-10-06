@@ -33,6 +33,10 @@ _FORMATS = {"json", "plist", "toml", "literal-env", "text-list", "source-invento
 # Decisions, acceptance records, deviations, provenance and the release pin are
 # written by a person; a static import never fills them.
 _AUTHORED_SECTIONS = frozenset({"decisions", "acceptance", "deviations", "authoring", "framework"})
+# Entry keys that only ``netorch.render`` reads; an import neither copies nor evaluates them.
+_RENDER_KEYS = frozenset({"composed", "translated", "constants", "unexamined", "independent"})
+# A program is recorded by hash and supplies no value; it is not an unread data input.
+INVENTORY_ONLY = "executable-source-not-evaluated"
 
 
 class ImportError(ValueError):
@@ -180,6 +184,14 @@ def _lookup(data: Any, pointer: str) -> Any:
     return value
 
 
+def _member(node: list[Any], part: str) -> Any:
+    """The one list member whose ``id`` is the pointer segment, if every member carries one."""
+    if not node or any(not isinstance(item, dict) or "id" not in item for item in node):
+        return None
+    matches = [item for item in node if item["id"] == part]
+    return matches[0] if len(matches) == 1 else None
+
+
 def _fill(data: dict[str, Any], pointer: str, value: Any) -> None:
     parts = _pointer(pointer)
     node: Any = data
@@ -188,6 +200,9 @@ def _fill(data: dict[str, Any], pointer: str, value: Any) -> None:
             node = node.setdefault(part, {})
         elif isinstance(node, list) and part.isdecimal() and int(part) < len(node):
             node = node[int(part)]
+        elif isinstance(node, list) and (member := _member(node, part)) is not None:
+            # The member a renderer addresses; a position names another one after an insertion.
+            node = member
         else:
             raise ImportError("Mapping container is unavailable")
     last = parts[-1]
@@ -322,7 +337,7 @@ def import_sources(manifest: str | Path) -> ImportResult:
     issues: list[Issue] = []
     seen: set[str] = set()
     for entry in entries:
-        if not isinstance(entry, dict) or set(entry) != {
+        if not isinstance(entry, dict) or set(entry) - _RENDER_KEYS != {
             "id",
             "owner",
             "path",
@@ -353,7 +368,7 @@ def import_sources(manifest: str | Path) -> ImportResult:
         for selector, pointer in mapping.items():
             if any(_secret_key(part) for part in _pointer(selector) + _pointer(pointer)):
                 raise ImportError("Credential and environment values are not instance data")
-        if fmt == "source-inventory" and mapping:
+        if fmt == "source-inventory" and (mapping or _RENDER_KEYS & set(entry)):
             raise ImportError("Executable owner sources cannot provide desired settings")
         capture = Path(source_path)
         if not capture.is_absolute():
@@ -364,7 +379,7 @@ def import_sources(manifest: str | Path) -> ImportResult:
             raise ImportError("Static source digest changed; capture requires explicit review")
         receipts.append(SourceReceipt(sid, owner, sha, fmt))
         if fmt == "source-inventory":
-            issues.append(Issue(sid, "executable-source-not-evaluated"))
+            issues.append(Issue(sid, INVENTORY_ONLY))
             continue
         try:
             source = _decode(raw, fmt)
@@ -404,7 +419,11 @@ def check_generated_view(manifest: str | Path, generated: str | Path) -> bool:
 
 
 def project_instance(result: ImportResult, template: dict[str, Any]) -> bytes:
-    """Fill explicit null slots and validate the independently closed instance model."""
+    """Fill explicit null slots and validate the independently closed instance model.
+
+    A program receipt does not block: the program is recorded by hash and
+    supplies no value. Data that could not be read still does.
+    """
     from .instance import canonical_instance_bytes, parse_instance
 
     if not _AUTHORED_SECTIONS.isdisjoint(result.values):
@@ -423,6 +442,10 @@ def project_instance(result: ImportResult, template: dict[str, Any]) -> bytes:
             raise ImportError("Generated projection must be an object")
 
     apply(result.values, "")
-    if result.underivable:
+    programs = {receipt.id for receipt in result.receipts if receipt.format == "source-inventory"}
+    if any(
+        issue.reason != INVENTORY_ONLY or issue.source not in programs
+        for issue in result.underivable
+    ):
         raise ImportError("Unresolved owner inputs cannot become a complete instance")
     return canonical_instance_bytes(parse_instance(canonical_bytes(data) + b"\n"))
