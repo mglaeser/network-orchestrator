@@ -222,8 +222,6 @@ def _decode(raw: bytes, fmt: str) -> Any:
                         "real",
                         "true",
                         "false",
-                        "date",
-                        "data",
                     } or (
                         element.attrib
                         and not (element.tag == "plist" and element.attrib == {"version": "1.0"})
@@ -242,15 +240,28 @@ def _decode(raw: bytes, fmt: str) -> Any:
                         raise ImportError("Property list exceeds structural bounds")
                 else:
                     depth -= 1
+                    children = list(element)
+                    if element.tag in {"plist", "dict", "array", "true", "false"} and (
+                        (element.text or "").strip(" \t\r\n")
+                        or any((child.tail or "").strip(" \t\r\n") for child in children)
+                    ):
+                        raise ImportError("Unexpected property-list text")
+                    if element.tag == "plist" and len(children) != 1:
+                        raise ImportError("Property list must contain one root object")
                     if element.tag == "dict":
-                        children = list(element)
                         keys = [item.text or "" for item in children[::2]]
                         if (
                             len(children) % 2
                             or any(item.tag != "key" for item in children[::2])
+                            or any(item.tag == "key" for item in children[1::2])
                             or len(keys) != len(set(keys))
                         ):
                             raise ImportError("Duplicate or malformed property-list keys")
+                    elif element.tag == "array":
+                        if any(item.tag == "key" for item in children):
+                            raise ImportError("Property-list keys require a dictionary")
+                    elif element.tag != "plist" and children:
+                        raise ImportError("Property-list scalar cannot contain child elements")
         parser.close()
         return plistlib.loads(raw, fmt=plistlib.FMT_XML)
     text = raw.decode("utf-8", "strict")

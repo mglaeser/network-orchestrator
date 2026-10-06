@@ -23,6 +23,11 @@ unsupported types, oversized/deep input, malformed text and unavailable mappings
 are refused or represented as underivable. The pointer subset deliberately
 excludes escaping, empty segments and ambiguous array indices.
 
+Property lists require complete dictionary/array/scalar structure. Text outside
+scalar values cannot be silently discarded; scalar elements cannot contain child
+elements. Date and binary-data objects are outside the JSON projection contract
+and are refused before the standard-library decoder runs.
+
 Assignment files and data lists are read the way a line-feed-delimited reader
 reads them: only a line feed ends a line and only spaces and tabs are trimmed.
 A carriage return, form feed, NEL or any other control or line-separator
