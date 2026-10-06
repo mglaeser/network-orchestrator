@@ -131,6 +131,18 @@ and closed inventory. Validation rerenders managed job bytes and rejects extra
 files or changed content. Settings artifacts are copied byte-exact; only command
 arguments and working directories support fixed `{release}`/`{state}` placeholders.
 
+A job may carry the optional member `process_type`. It has two values:
+`"background"` renders the launchd key `ProcessType` as `Background`, and
+`"standard"` renders it as `Standard`. Any other value, including `null`, is
+refused. A job without the member is rendered as `Background`, which is what
+every job was rendered as before the member existed. Writing `"background"` out
+is the same manifest as leaving the member out: it has the same canonical form,
+release identifier and bundle digest. A manifest that does not use `"standard"`
+therefore keeps its digests and its plist bytes, while one that uses it is a
+different release, which earlier versions refuse as a violation of the closed
+schema. Which class a job needs on a given host is the site's decision; the
+manifest only selects what is rendered.
+
 Review plans, exact hashes and existing ownership before installation. Artifact
 hashes in examples are deliberately all zero; they cannot approve actual files.
 The source package and executable paths require their own reviewed installation.

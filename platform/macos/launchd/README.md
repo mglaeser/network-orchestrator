@@ -14,6 +14,11 @@ and Monit processes use `KeepAlive` without a competing interval. Jobs get a
 minimal environment, private umask and separate logs. Launchd creates a process;
 it does not supply Bonjour privacy consent or prove application readiness.
 
+Every job is rendered with the launchd key `ProcessType`. Its value is
+`Background` unless the job's manifest entry sets the optional member
+`process_type` to `"standard"`, which renders `Standard`. No other class can be
+rendered.
+
 The installer checks ownership of existing files and whether a new label is
 already loaded before any stop operation. It uses `bootout`, `bootstrap` and
 `print` only for its declared jobs. It never changes Apple runtime launch jobs,

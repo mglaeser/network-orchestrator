@@ -257,13 +257,18 @@ def _resolve(value: str, release: Path, state: str) -> str:
     return value.replace("{release}", str(release)).replace("{state}", state)
 
 
+# The manifest's closed `process_type` values and the launchd `ProcessType`
+# each one renders. No other class can be rendered.
+_PROCESS_TYPES = {"background": "Background", "standard": "Standard"}
+
+
 def _launchd(job: Job, release: Path, state: str) -> bytes:
     value: dict[str, Any] = {
         "Label": job.label,
         "ProgramArguments": [_resolve(argument, release, state) for argument in job.argv],
         "WorkingDirectory": _resolve(job.working_directory, release, state),
         "RunAtLoad": True,
-        "ProcessType": "Background",
+        "ProcessType": _PROCESS_TYPES[job.process_type],
         "Umask": 0o077,
         "ThrottleInterval": 10,
         "StandardOutPath": f"{job.log_directory}/{job.label}.out.log",

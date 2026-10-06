@@ -106,7 +106,14 @@ def load_deployment(path: Path) -> Deployment:
 
 
 def deployment_to_dict(deployment: Deployment) -> dict[str, Any]:
-    return asdict(deployment)
+    value = asdict(deployment)
+    for job in value["jobs"]:
+        # An optional setting at its default is not part of the canonical form:
+        # a manifest written before the setting existed keeps its digests, and
+        # writing the default out does not make a second release.
+        if job["process_type"] == "background":
+            del job["process_type"]
+    return value
 
 
 def validate_deployment(deployment: Deployment) -> None:
