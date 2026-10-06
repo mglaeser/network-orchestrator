@@ -1107,6 +1107,24 @@ def _snapshot(
     return Snapshot(runtime.observed_at, runtime.network_generation, runtime.services, profiles)
 
 
+def _stopped_before_any_write(journal: Mapping[str, Any]) -> bool:
+    """Whether an unfinished journal is exactly the record made before any write.
+
+    Every pass records phase ``applying`` with its planned actions before it
+    knows whether it will change anything, and journals the exact candidate
+    immediately before each change. A journal that still has only that first
+    shape means the process stopped before a candidate existed: no rule was
+    being written, so there is nothing to retire and nothing to acknowledge.
+    Every other unfinished shape remains an interrupted write.
+    """
+    return journal["phase"] == "applying" and set(journal) == {
+        "schema_version",
+        "phase",
+        "actions",
+        "started_at",
+    }
+
+
 def _write_report(installation: Installation, snapshot: Snapshot) -> None:
     destination = Path(installation.report_path)
     protected_ancestors(destination.parent)
@@ -1184,7 +1202,9 @@ def reconcile(
                 "acknowledged",
             }:
                 raise PFError("PF journal is damaged")
-            if journal["phase"] in {"failed", "applying"}:
+            if journal["phase"] in {"failed", "applying"} and not _stopped_before_any_write(
+                journal
+            ):
                 needs_ack = True
                 candidate_records = journal.get("candidate_records")
                 if candidate_records is not None:
@@ -1193,7 +1213,7 @@ def reconcile(
                         records = possible
                         root.write("live.json", {"schema_version": 1, "records": records})
                 # Safely retire known exposure; explicit administrator ack is
-                # required before any activation after an interrupted pass.
+                # required before any activation after an interrupted write.
                 intent = Intent(intent.revision, intent.operator_paused, intent.suspensions, True)
         if observed_rules != backend.normalize(compose_rules(records)):
             raise PFError("owned PF rules drifted; no overwrite or activation")
@@ -1315,7 +1335,11 @@ def reconcile(
             "journal.json",
             {
                 "schema_version": 1,
-                "phase": "applying",
+                # This record replaces the journal. A failure that still awaits
+                # its acknowledgement stays recorded as failed, so that a process
+                # death right after this write cannot pass for a pass that had
+                # nothing to answer for.
+                "phase": "failed" if needs_ack else "applying",
                 "actions": [asdict(action) for action in actions],
                 "started_at": stamp,
             },
