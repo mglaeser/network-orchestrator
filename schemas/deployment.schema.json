@@ -240,6 +240,12 @@
         },
         "log_directory": {
           "$ref": "#/$defs/path"
+        },
+        "process_type": {
+          "enum": [
+            "background",
+            "standard"
+          ]
         }
       }
     },

@@ -112,6 +112,12 @@ def deployment_to_dict(deployment: Deployment) -> dict[str, Any]:
         # a manifest written before the setting existed keeps its digests.
         if monitor["recovery_repeat_cycles"] is None:
             del monitor["recovery_repeat_cycles"]
+    for job in value["jobs"]:
+        # An optional setting at its default is not part of the canonical form:
+        # a manifest written before the setting existed keeps its digests, and
+        # writing the default out does not make a second release.
+        if job["process_type"] == "background":
+            del job["process_type"]
     return value
 
 

@@ -24,6 +24,8 @@ class Job:
     keep_alive: bool
     working_directory: str
     log_directory: str
+    # Optional. Absent means "background", the class every job had before.
+    process_type: str = "background"
 
 
 @dataclass(frozen=True, slots=True)
