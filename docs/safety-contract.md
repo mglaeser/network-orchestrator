@@ -101,7 +101,11 @@ The reserved recovery failure code remains **42**, above the signal range.
 initial PF/Bonjour readiness gate. Unknown, stale, future, timeout and cold-start
 observations return uncertainty code1. A supervisor must match **42 exactly**,
 never every nonzero exit status. This pure helper does not modify live Monit
-rules or start a recovery loop.
+rules or start a recovery loop. An instance may describe a site whose own
+supervisor starts on another status (`supervision.failure_exit_code`, 1 to 125);
+that changes neither this helper nor the retained supervisor, and the report
+shows `UNKNOWN-NO-RECOVERY` as `not-fulfilled` for a declared status in 1 to 31
+or 64 to 78, as [instances.md](instances.md) describes.
 
 Reader compatibility is separate from mutation qualification. Existing readers
 recognize several CLI envelope versions; that does not prove support on a

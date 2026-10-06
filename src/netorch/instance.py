@@ -26,6 +26,7 @@ from .instance_model import (
     BoundedDecision,
     Component,
     ContractRef,
+    Deadlines,
     Decisions,
     Deviation,
     DiscoverySelection,
@@ -39,6 +40,7 @@ from .instance_model import (
     Platform,
     Ports,
     RecoveryDecision,
+    RestartBudget,
     Runtime,
     Supervision,
     Transport,
@@ -47,7 +49,7 @@ from .instance_model import (
 )
 from .profile_library import discovery_profile, strategy
 from .requirements import REQUIREMENTS
-from .safety_contract import assess_bounded_safety
+from .safety_contract import RECOVERY_FAILURE_EXIT_CODE, assess_bounded_safety
 
 SECTIONS = (
     "host",
@@ -65,6 +67,15 @@ SECTIONS = (
 _ADDRESS = re.compile(r"(?<![0-9.])(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?:/[0-9]{1,2})?(?![0-9.])")
 # C0, DEL and C1 controls plus the Unicode line and paragraph separators.
 _CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
+# Optional supervision vocabulary has one spelling for "not stated": absent. Leaving
+# these members out keeps the bytes and every digest of a document that states none.
+_OPTIONAL_SUPERVISION = ("component_exit_code", "restart_budget", "action_timeout_seconds")
+_DEADLINES = ("probe_seconds", "action_seconds")
+# What the retained supervisor can be told. Its Monit rule matches the reserved start
+# status only, a monitor's check timeout is at most 120 seconds, and no setting bounds
+# a start action: the vendor start call is cut off after a fixed four seconds.
+RETAINED_PROBE_DEADLINE_MAXIMUM = 120
+RETAINED_ACTION_DEADLINE_MAXIMUM: int | None = None
 
 
 class InstanceError(ValueError):
@@ -120,6 +131,13 @@ def _ports(data: dict[str, Any] | None) -> Ports | None:
     return None if data is None else Ports(**data)
 
 
+def _supervision(data: dict[str, Any]) -> Supervision:
+    budget = data.get("restart_budget")
+    return Supervision(
+        **{**data, "restart_budget": None if budget is None else RestartBudget(**budget)}
+    )
+
+
 def _construct(data: dict[str, Any]) -> Instance:
     host = data["host"]
     baseline = host["baseline"]
@@ -154,6 +172,7 @@ def _construct(data: dict[str, Any]) -> Instance:
                 item["automatic_port_range"],
                 item["recovery"],
                 tuple(Component(**value) for value in item["components"]),
+                Deadlines(**item["deadlines"]) if "deadlines" in item else None,
             )
             for item in data["workloads"]
         ),
@@ -176,7 +195,7 @@ def _construct(data: dict[str, Any]) -> Instance:
             DiscoverySelection(**{**item, "dependencies": tuple(item["dependencies"])})
             for item in data["discovery"]
         ),
-        Supervision(**data["supervision"]),
+        _supervision(data["supervision"]),
         tuple(LifecycleTool(**item) for item in data["lifecycle_tools"]),
         Decisions(
             tuple(BoundedDecision(**item) for item in decision["bounded"]),
@@ -195,8 +214,18 @@ def _construct(data: dict[str, Any]) -> Instance:
     )
 
 
+def _stated(data: dict[str, Any], optional: tuple[str, ...]) -> dict[str, Any]:
+    return {key: value for key, value in data.items() if value is not None or key not in optional}
+
+
 def instance_to_dict(instance: Instance) -> dict[str, Any]:
     data = cast(dict[str, Any], strict_loads(canonical_bytes(asdict(instance))))
+    data["supervision"] = _stated(data["supervision"], _OPTIONAL_SUPERVISION)
+    for item in data["workloads"]:
+        if item["deadlines"] is None:
+            del item["deadlines"]
+        else:
+            item["deadlines"] = _stated(item["deadlines"], _DEADLINES)
     for item in data["transport"]:
         for key in ("ports", "target_ports"):
             value = item[key]
@@ -261,6 +290,12 @@ def resolved_profile(instance: Instance, profile: Transport) -> dict[str, Any]:
             "id": workload.id,
             "name": workload.name,
             "contract_sha256": workload.contract.sha256,
+            # Its own deadlines replace site defaults the envelope binds as ``supervision``.
+            **(
+                {}
+                if workload.deadlines is None
+                else {"deadlines": _stated(asdict(workload.deadlines), _DEADLINES)}
+            ),
         },
         "bounded_policy": None
         if decision is None
@@ -291,7 +326,7 @@ def resolved_profile_digest(instance: Instance, profile: Transport) -> str:
             "references": references,
             "names": resolved_names(instance),
             "framework": asdict(instance.framework),
-            "supervision": asdict(instance.supervision),
+            "supervision": _stated(asdict(instance.supervision), _OPTIONAL_SUPERVISION),
             "account": asdict(instance.host.account),
             "runtime": asdict(instance.host.runtime),
             "platform": asdict(instance.host.platform),
@@ -655,6 +690,59 @@ def validate_instance(instance: Instance) -> None:
         _timestamp(owner_decision.signed_at)
         if (owner_decision.signed_by is None) != (owner_decision.signed_at is None):
             raise InstanceError("decision signature and timestamp must occur together")
+    supervision = instance.supervision
+    ensured = any(
+        component.recovery == "supervisor-ensure"
+        for item in instance.workloads
+        for component in item.components
+    )
+    if ensured != (supervision.component_exit_code is not None):
+        raise InstanceError(
+            "a supervisor-ensure component and the component exit code require each other"
+        )
+    if supervision.component_exit_code == supervision.failure_exit_code:
+        raise InstanceError("the component exit code must differ from the failure exit code")
+
+
+def _beyond(value: int | None, maximum: int | None) -> bool:
+    """Whether a stated deadline is more than the retained supervisor can be given."""
+    return value is not None and (maximum is None or value > maximum)
+
+
+def retained_supervision_gaps(instance: Instance) -> tuple[str, ...]:
+    """Name each stated member that the retained supervisor cannot honour.
+
+    An instance describes the supervisor of its site. The retained supervisor
+    implements part of that vocabulary: the reserved start status, no second
+    status, no in-guest ensure, no restart budget, a probe deadline up to its
+    monitor timeout, and no deadline for a start action. Each result is a JSON
+    pointer into the canonical instance, in document order. A renderer for the
+    retained supervisor must refuse an instance for which the result is not
+    empty. Nothing is read, rendered or run here.
+    """
+    supervision = instance.supervision
+    gaps: list[str] = []
+    if _beyond(supervision.action_timeout_seconds, RETAINED_ACTION_DEADLINE_MAXIMUM):
+        gaps.append("/supervision/action_timeout_seconds")
+    if supervision.component_exit_code is not None:
+        gaps.append("/supervision/component_exit_code")
+    if supervision.failure_exit_code != RECOVERY_FAILURE_EXIT_CODE:
+        gaps.append("/supervision/failure_exit_code")
+    if supervision.restart_budget is not None:
+        gaps.append("/supervision/restart_budget")
+    for index, workload in enumerate(instance.workloads):
+        gaps.extend(
+            f"/workloads/{index}/components/{position}/recovery"
+            for position, component in enumerate(workload.components)
+            if component.recovery == "supervisor-ensure"
+        )
+        deadlines = workload.deadlines
+        if deadlines is not None:
+            if _beyond(deadlines.action_seconds, RETAINED_ACTION_DEADLINE_MAXIMUM):
+                gaps.append(f"/workloads/{index}/deadlines/action_seconds")
+            if _beyond(deadlines.probe_seconds, RETAINED_PROBE_DEADLINE_MAXIMUM):
+                gaps.append(f"/workloads/{index}/deadlines/probe_seconds")
+    return tuple(gaps)
 
 
 def parse_instance(raw: bytes | str, *, require_canonical: bool = True) -> Instance:
