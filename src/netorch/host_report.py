@@ -30,6 +30,7 @@ from .platform_contract import ACCEPTED_PLATFORMS, FACTS, candidate_matches
 from .profile_library import STRATEGIES, discovery_profile, strategy
 from .requirements import REQUIREMENTS, Requirement
 from .safety_contract import assess_bounded_safety, assessment_to_dict
+from .workload_contract import check_contract_facts
 
 REASONS = (
     "complete",
@@ -344,8 +345,10 @@ def verify_contracts(instance: Instance, data_directory: Path) -> list[dict[str,
             if any(
                 ".." in Path(mount["source"]).parts or not Path(mount["source"]).is_absolute()
                 for mount in data["mounts"]
+                if "source" in mount
             ):
                 raise InstanceError("workload mount path is not absolute data")
+            check_contract_facts(data)
             results.append(
                 {
                     "service": item.id,

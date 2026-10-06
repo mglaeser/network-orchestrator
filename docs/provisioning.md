@@ -93,6 +93,9 @@ Existing root jobs, application state, image pins, mounts, kernel arguments,
 container resources and Apple runtime configuration are untouched. A caller
 must use the separately documented explicit workload operation for a genuinely
 new container; networking installation never implies container recreation.
+That operation creates only what its recipe grammar covers; a definition that
+a workload contract describes, such as one with a named-volume mount, is not
+thereby creatable.
 
 ## Prepare and explicitly install root scope
 

@@ -119,6 +119,11 @@ then reenroll it. The network installer preserves mounts, image, resources,
 kernel arguments and app data. This distinction is what prevents a port-policy
 edit from becoming an unreviewed application replacement.
 
+A workload contract of the read-only instance model can describe a definition
+that this path cannot create, such as one with a named-volume mount, because a
+recipe takes absolute bind sources only; describing a definition does not make
+it creatable.
+
 The seven-workload end-to-end tests exercise the actual initial-create/start,
 enrollment and observation path with a fake native command transport. They also
 cover retained workloads, partial creation failure, pause preservation,
