@@ -172,17 +172,58 @@ IPv4 netmask. The admitted LAN scope must be equal to or narrower than that
 live prefix. A matching host address alone cannot authorize a wider source
 network; missing, duplicate or malformed mask observations inhibit activation.
 
-The state reader checks both numerical endpoints, optional translated endpoints,
-IPv4 `:port` and IPv6 `[port]` suffixes, one direction arrow and a complete
+The state reader checks every numerical endpoint of a row, IPv4 `:port` and
+IPv6 `[port]` suffixes, the direction of its arrows and a complete
 protocol-specific status tail. A colon by itself is not evidence of IPv6. An
 unrecognized row makes the whole inventory unknown. It never supplies an empty
 owned-state result or permits a successful drain report.
 
-These parser regressions use synthetic rows derived from the upstream
-[PF state printer](https://github.com/openbsd/src/blob/b1a43ff550949e2a4899e600bb41c53aef12ecfd/sbin/pfctl/pf_print_state.c#L151-L296).
-They are not Darwin captures or hardware acceptance. Any changed native format
-must remain unknown until its complete grammar is established by reviewed
-captured output; the native qualification gate remains closed.
+macOS exports a state as `struct pfsync_state` with the hosts `lan`, `gwy`,
+`ext_lan` and `ext_gwy`
+([xnu `bsd/net/pfvar.h`, tag `xnu-12377.121.6`, lines 1119-1125](https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.121.6/bsd/net/pfvar.h#L1119-L1125)).
+The printer of that lan/gwy/ext state model writes `gwy ARROW ext`, and
+`lan ARROW gwy ARROW ext` when a translation changed the address or the port
+([FreeBSD 8.4 `contrib/pf/pfctl/pf_print_state.c`, `print_state`, lines 215-228](https://github.com/freebsd/freebsd-src/blob/release/8.4.0/contrib/pf/pfctl/pf_print_state.c#L215-L228);
+`print_host` is lines 157-184 and the status tail lines 230-271). It does not
+put a translated endpoint in parentheses. The reader accepts these forms:
+
+- an interface label, which is `all`, `ALL` or an interface name, followed by
+  a protocol: a name of the protocol database (lower-case letters, digits and
+  `+`, `-`, `.`, `/`, as in
+  [`private/etc/protocols`, tag `files-968`](https://github.com/apple-oss-distributions/files/blob/files-968/private/etc/protocols))
+  or a number;
+- two endpoints joined by one arrow, or three endpoints joined by two arrows
+  of the same direction;
+- an endpoint written `a.b.c.d:port` or `address[port]`. A port of zero is
+  read only as `[0]`, and only a protocol other than tcp and udp may leave the
+  port out;
+- a leading `~` on at most one endpoint. The reader gives this marker no
+  meaning and drops it before it reads the address;
+- a status tail of two TCP state names or `PROXY:SRC`/`PROXY:DST` for tcp, two
+  of `NO_TRAFFIC`, `SINGLE` and `MULTIPLE` for udp, and two numbers for
+  `icmp`. Any other protocol has two of those three names, or two numbers
+  when a level has no name; `gre` and `esp` may also carry the levels the
+  kernel header names for them, `INITIATING` and `ESTABLISHED`
+  ([`pfvar.h` lines 1612-1632](https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.121.6/bsd/net/pfvar.h#L1612-L1632)),
+  and `icmp6`/`ipv6-icmp` are read with numbers as well;
+- the display of the
+  [OpenBSD printer](https://github.com/openbsd/src/blob/b1a43ff550949e2a4899e600bb41c53aef12ecfd/sbin/pfctl/pf_print_state.c#L151-L296)
+  with one arrow and a translated endpoint in parentheses on either side, as
+  before. It never combines with a second arrow or with the `~` marker.
+
+Every IPv4 address that a row names counts when the states of a target are
+looked for, whichever endpoint carries it. Arrows of mixed direction, a missing
+endpoint, a third arrow, two endpoints without an arrow between them, a port
+above 65535, a tcp or udp endpoint without a port and a control character
+inside a row are refused. Only a line feed ends a row.
+
+The forms without parentheses are macOS display forms as an existing site's
+own state reader is tested with them: sanitized rows, not a raw capture that
+was reviewed in this repository. The parser regressions keep those shapes;
+every address and port in them is a documentation value. They are not hardware
+acceptance. Any other native format must remain unknown until its complete
+grammar is established by reviewed captured output; the native qualification
+gate remains closed.
 
 A runtime inspection exception is unknown and withdraws existing guest exposure.
 A corrupt root admission record also inhibits activation and retires known

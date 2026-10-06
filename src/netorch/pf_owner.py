@@ -449,11 +449,13 @@ def compose_rules(records: Mapping[str, Mapping[str, Any]]) -> str:
     ) + ("\n" if lines else "")
 
 
-def _state_endpoint(token: str) -> str | None:
+def _state_endpoint(token: str, *, port_required: bool) -> str | None:
     """Validate one numerical endpoint; return its IPv4 address, if any.
 
-    The nonverbose PF printer uses IPv4:port and IPv6[port], with no suffix
-    for port zero. Translation endpoints are unwrapped by the row parser.
+    The nonverbose PF printer uses IPv4:port and IPv6[port]. Only a protocol
+    other than tcp and udp may leave the suffix out, and a zero port is read
+    only as the `[0]` that a macOS state table shows. Translation parentheses
+    and the `~` marker are unwrapped by the row parser.
     No DNS names, diagnostics or partially parsed address can prove absence.
     """
     address = token
@@ -469,8 +471,11 @@ def _state_endpoint(token: str) -> str | None:
         family = 4
     else:
         family = None
-    if port is not None and (
-        re.fullmatch(r"[0-9]{1,5}", port) is None or not 1 <= int(port) <= 65535
+    if port is None:
+        if port_required:
+            raise PFError("missing PF endpoint port")
+    elif re.fullmatch(r"[0-9]{1,5}", port) is None or not (
+        1 <= int(port) <= 65535 or (family == 6 and port == "0")
     ):
         raise PFError("malformed PF endpoint port")
     try:
@@ -486,11 +491,26 @@ def _state_endpoint(token: str) -> str | None:
 
 
 def _state_status(token: str, protocol: str) -> bool:
-    if protocol in {"icmp", "icmp6", "ipv6-icmp"}:
-        values = token.split(":")
-        return len(values) == 2 and all(
-            re.fullmatch(r"[0-9]{1,3}", value) is not None and int(value) <= 255 for value in values
-        )
+    """Whether the token is a complete status tail for the row's protocol.
+
+    The printer names two TCP states or a proxy phase for tcp, two flow levels
+    for udp and two numbers for icmp. Every other protocol has two flow levels,
+    or two numbers when a level lies outside the three named ones. The kernel
+    header names the levels of GRE and ESP differently (NO_TRAFFIC, INITIATING,
+    ESTABLISHED), so both sets are read for those two. The IPv6 form of icmp
+    is read with numbers, as before, and with flow levels, which the printer
+    of this state model writes for every protocol other than IPv4 icmp.
+    """
+    values = token.split(":")
+    if len(values) != 2:
+        return False
+    numeric = all(
+        re.fullmatch(r"[0-9]{1,3}", value) is not None and int(value) <= 255 for value in values
+    )
+    if protocol == "icmp":
+        return numeric
+    if protocol in {"icmp6", "ipv6-icmp"} and numeric:
+        return True
     if protocol == "tcp":
         if token in {"PROXY:SRC", "PROXY:DST"}:
             return True
@@ -509,49 +529,86 @@ def _state_status(token: str, protocol: str) -> bool:
         }
     else:
         states = {"NO_TRAFFIC", "SINGLE", "MULTIPLE"}
-    values = token.split(":")
-    return len(values) == 2 and all(value in states for value in values)
+        if protocol in {"gre", "esp"}:
+            states |= {"INITIATING", "ESTABLISHED"}
+    if all(value in states for value in values):
+        return True
+    # The printer falls back to numbers only for a level beyond the three
+    # named ones. The tcp and udp tails are read as before, by name only.
+    return protocol not in {"tcp", "udp"} and numeric and max(map(int, values)) >= 3
 
 
 def state_addresses(raw: str) -> tuple[tuple[str, tuple[str, ...]], ...]:
     """Validate complete numerical nonverbose PF rows, never empty-on-error.
 
-    Every original and translated endpoint on both sides is checked before any
-    IPv4 target is extracted. IPv6-only rows require valid IPv6 addresses, not
-    merely a colon somewhere in the output. New printer formats remain unknown
-    until reviewed fixtures establish their complete grammar.
+    A row is `interface protocol endpoints status`. The kernel's state has a
+    lan, a gwy and an ext host, and the printer of that model writes
+    `gwy ARROW ext`, or `lan ARROW gwy ARROW ext` for a translated state: one
+    or two arrows of one direction. One endpoint may carry the `~` marker that
+    a macOS state table shows. The display with a single arrow and a translated
+    endpoint in parentheses on either side is still read; it never mixes with a
+    second arrow or with the marker.
+
+    Every endpoint of a row is checked before any IPv4 target is extracted,
+    and every IPv4 address the row names is returned, whatever its position.
+    IPv6-only rows require valid IPv6 addresses, not merely a colon somewhere
+    in the output. New printer formats remain unknown until reviewed fixtures
+    establish their complete grammar.
     """
     result: list[tuple[str, tuple[str, ...]]] = []
-    for line in raw.splitlines():
+    # Only a line feed ends a row. A form feed, a vertical tab or a Unicode
+    # line separator inside the output is refused below, not read as a break.
+    for line in raw.split("\n"):
         if not line.strip():
             continue
-        if len(line) > 4096 or any(ord(c) < 32 and c != "\t" for c in line):
+        if len(line) > 4096 or any(
+            (ord(c) < 32 and c != "\t") or c in "\x7f\x85\u2028\u2029" for c in line
+        ):
             raise PFError("unsupported PF state observation")
         pieces = line.split()
         if (
             not 6 <= len(pieces) <= 8
             or re.fullmatch(r"[A-Za-z][A-Za-z0-9_.:-]{0,15}", pieces[0]) is None
-            or pieces[1] not in {"tcp", "udp", "icmp", "icmp6", "ipv6-icmp"}
+            # A name of the protocol database or a number: the row stays
+            # opaque, but its endpoints and status tail are still complete.
+            or re.fullmatch(r"[a-z0-9][a-z0-9+./-]{0,31}", pieces[1]) is None
             or not _state_status(pieces[-1], pieces[1])
         ):
             raise PFError("unsupported PF state observation")
         body = pieces[2:-1]
-        arrows = [index for index, token in enumerate(body) if token in {"->", "<-"}]
-        if len(arrows) != 1:
+        arrows = [token for token in body if token in {"->", "<-"}]
+        if len(arrows) not in {1, 2} or len(set(arrows)) != 1:
             raise PFError("unsupported PF state direction")
-        arrow = arrows[0]
-        addresses: list[str] = []
-        for side in (body[:arrow], body[arrow + 1 :]):
-            if not 1 <= len(side) <= 2:
+        sides: list[list[str]] = [[]]
+        for token in body:
+            if token in arrows:
+                sides.append([])
+            else:
+                sides[-1].append(token)
+        # A second arrow already separates the translated endpoint, so only a
+        # one-arrow row may add a parenthesised endpoint to a side.
+        limit = 2 if len(arrows) == 1 else 1
+        endpoints: list[str] = []
+        for side in sides:
+            if not 1 <= len(side) <= limit:
                 raise PFError("incomplete PF state endpoints")
-            for index, token in enumerate(side):
-                if index == 1:
-                    if not token.startswith("(") or not token.endswith(")"):
-                        raise PFError("malformed PF translated endpoint")
-                    token = token[1:-1]
-                address = _state_endpoint(token)
-                if address is not None:
-                    addresses.append(address)
+            endpoints.append(side[0])
+            if len(side) == 2:
+                if not side[1].startswith("(") or not side[1].endswith(")"):
+                    raise PFError("malformed PF translated endpoint")
+                endpoints.append(side[1][1:-1])
+        # One endpoint may carry the marker, and none beside parentheses. It
+        # belongs to the display and is never part of an address.
+        marked = sum(token.startswith("~") for token in endpoints)
+        if marked > 1 or (marked and len(endpoints) != len(sides)):
+            raise PFError("malformed PF endpoint marker")
+        addresses: list[str] = []
+        for token in endpoints:
+            address = _state_endpoint(
+                token.removeprefix("~"), port_required=pieces[1] in {"tcp", "udp"}
+            )
+            if address is not None:
+                addresses.append(address)
         result.append((line, tuple(addresses)))
     return tuple(result)
 
