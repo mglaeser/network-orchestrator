@@ -87,6 +87,9 @@ class FakeBackend:
     def ports_clear(self, scope: Scope, profile: Profile, *, apple_dns: bool) -> bool:
         return self.clear
 
+    def reference_held(self) -> bool:
+        return True
+
 
 @pytest.fixture
 def environment(tmp_path: Path) -> tuple[Store, Config, Installation, FakeBackend, list[Snapshot]]:

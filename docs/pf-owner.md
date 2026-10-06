@@ -44,8 +44,9 @@ not raw inspection output, account credentials, or user environment variables.
 A profile's `states` entry says only whether states for its target remain; the
 kernel's state rows, which name peers and LAN clients, are not copied into it.
 `admitted` records exact protected approval. The separate `root_ready` flag
-requires that approval, unblocked final root intent and an exact verified final
-plan/readback. Downstream planning requires both flags; a truthful observation
+requires that approval, unblocked final root intent, an exact verified final
+plan/readback and, on the same pass, a readback of the owner's PF enable
+reference. Downstream planning requires both flags; a truthful observation
 of rules awaiting withdrawal cannot grant discovery readiness during a pause.
 
 The scheduled Python interpreter, package and its dependency environment must
@@ -200,6 +201,16 @@ The owner holds only its own PF enable reference and keeps it while paused or
 empty. It never globally disables PF or releases a token owned by another
 service. A reference is operational runtime coexistence, not evidence of packet
 reachability.
+
+Every pass that leaves a rule loaded reads that reference back through the
+backend's `references` and `enabled` reads: the kernel must list the saved token
+and report PF enabled. The readback acquires nothing. If it fails, or the token
+is not listed, the pass reports no profile as `root_ready`, ends `inhibited` and
+records the reason `enable-reference-unverified` in the journal. The rules stay
+loaded and no state is invalidated for this reason; the first pass that verifies
+again reports readiness again. A reference is acquired only as part of an
+activation, so a reference that another tool removed stays missing, and the
+profiles not ready, until a profile is next activated.
 
 ## Structural versus bounded profiles
 

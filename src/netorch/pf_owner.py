@@ -563,6 +563,7 @@ class Backend(Protocol):
     def states(self) -> str: ...
     def drain(self, ipv4: str) -> None: ...
     def ensure_reference(self) -> None: ...
+    def reference_held(self) -> bool: ...
     def endpoint(self, scope: Scope, ipv4: str, mac: str | None, *, direct: bool) -> bool: ...
     def ports_clear(self, scope: Scope, profile: Profile, *, apple_dns: bool) -> bool: ...
 
@@ -666,6 +667,35 @@ class ShellBackend:
         self._call("enabled")
         # Keep this owned reference through pause/empty rules; container runtime
         # availability must not be changed by releasing another service's PF.
+
+    def reference_held(self) -> bool:
+        """Read only: the kernel lists this owner's saved token and PF is enabled.
+
+        Uses the backend's two existing reads, `references` and `enabled`. It
+        never acquires or releases a reference; `ensure_reference` alone
+        acquires one, at an activation. It raises when a read fails or does
+        not show PF enabled.
+        """
+        try:
+            saved = self.root.read("reference.json")
+        except FileNotFoundError:
+            return False
+        if (
+            not isinstance(saved, dict)
+            or set(saved) != {"token"}
+            or not isinstance(saved["token"], str)
+            or not re.fullmatch(r"[0-9]{1,20}", saved["token"])
+        ):
+            raise PFError("owned PF reference record is damaged")
+        listed = False
+        for line in self._call("references").splitlines():
+            fields = line.split()
+            if len(fields) >= 6 and fields[-2] == "days" and fields[-4] == saved["token"]:
+                listed = True
+        if not listed:
+            return False
+        self._call("enabled")
+        return True
 
     @staticmethod
     def _native(argv: list[str]) -> str:
@@ -1137,6 +1167,22 @@ def _write_report(installation: Installation, snapshot: Snapshot) -> None:
             temporary.unlink()
 
 
+def _reference_verified(backend: Backend, records: Mapping[str, Mapping[str, Any]]) -> bool:
+    """Whether loaded rules can count on PF being enabled under this owner's reference.
+
+    A loaded rule carries nothing while PF is disabled, and only the owner's own
+    reference keeps PF enabled when another service releases its own. Without an
+    active record there is no rule to carry anything and nothing to verify. A
+    read that fails, or that does not list the reference, is not a verification.
+    """
+    if not any(record["active"] for record in records.values()):
+        return True
+    try:
+        return backend.reference_held() is True
+    except (OSError, RuntimeError, ValueError):
+        return False
+
+
 def reconcile(
     root: Store,
     observer: Callable[[Config, Mapping[str, Any]], Snapshot],
@@ -1439,12 +1485,17 @@ def reconcile(
                 for action in status.actions
                 if action.operation == "noop" and action.reason == "verified"
             }
+            # Read on every pass that leaves a rule loaded, not only at an
+            # activation: another tool can disable PF at any time, which also
+            # drops every enable reference.
+            reference_verified = _reference_verified(backend, records)
             phase = (
                 "failed"
                 if needs_ack
                 else (
                     "committed"
-                    if all(
+                    if reference_verified
+                    and all(
                         action.operation == "noop"
                         for action in status.actions
                         if action.profile in owned
@@ -1459,6 +1510,7 @@ def reconcile(
                     "phase": phase,
                     "actions": [asdict(action) for action in actions],
                     "finished_at": now(),
+                    **({} if reference_verified else {"reason": "enable-reference-unverified"}),
                 },
             )
             try:
@@ -1485,7 +1537,10 @@ def reconcile(
                 # changed target or incomplete verification must not authorize
                 # discovery until the next independent pass retires exposure.
                 data["root_ready"] = (
-                    valid_approval and not final_intent.blocked and key in verified_profiles
+                    valid_approval
+                    and not final_intent.blocked
+                    and key in verified_profiles
+                    and reference_verified
                 )
                 data["admission_digest"] = (
                     admitted_digest(config, profile, installation) if valid_approval else None
