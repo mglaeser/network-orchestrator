@@ -87,6 +87,14 @@ FACT_KEYS = (
     "dns_secondary_resolver",
 )
 MAX_FACT_AGE_SECONDS = 300
+# A supplied absent or false observation keeps its requirement not fulfilled until a
+# positive one replaces it. Growing stale never clears it.
+BLOCKING_FACTS = {
+    "HOST-DATA": "instance_literal_check",
+    "NAMES-PRESERVED": "names_preserved",
+    "OWNER-CONFORMANCE": "owner_conformance",
+    "RESTORE-REHEARSAL": "recovery_material",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -266,6 +274,11 @@ def fact_view(evidence: HostEvidence, key: str, now: float) -> dict[str, Any]:
     }
 
 
+def _reported(evidence: HostEvidence, key: str) -> Fact | None:
+    """The supplied record whatever its age; only ``fact_view`` says what is current."""
+    return next((item for item in evidence.facts if item.key == key), None)
+
+
 def observation_view(observation: Observation | None, now: float, maximum: float) -> dict[str, Any]:
     if observation is None:
         return {
@@ -388,6 +401,8 @@ def _acceptance(
             or entry.method not in requirement.acceptance_methods
             or entry.tier < requirement.minimum_tier
             or (entry.profile is not None and entry.profile not in relevant)
+            # One instance-wide record is never proof for each applicable profile.
+            or (entry.profile is None and bool(relevant))
         ):
             continue
         expected = instance_contract_digest(instance)
@@ -502,6 +517,15 @@ def _base_assessment(
             "Implemented read-only model/command contract; native behavior is separate.",
         )
     if identifier == "FRAMEWORK-PIN":
+        installed = _reported(evidence, "installed_framework_sha256")
+        if installed is not None and installed.value not in (
+            None,
+            instance.framework.artifact_sha256,
+        ):
+            return (
+                "not-fulfilled",
+                "Host evidence reports an installed framework other than the pinned artifact.",
+            )
         return (
             ("fulfilled-verified", "Exact local release artifact matches its declared SHA-256.")
             if release_verified
@@ -618,14 +642,24 @@ def _base_assessment(
         )
     if identifier == "BOOT-RECOVERY":
         filevault = fact_view(evidence, "filevault", now)
+        reported = _reported(evidence, "filevault")
+        baseline = instance.host.baseline.filevault
         decision = instance.decisions.unattended_recovery
-        if filevault["state"] == "present" and filevault["value"] == "on":
+        # Only a current observation says off. A reported on blocks at any age, and
+        # the declared baseline speaks when nothing current is observed.
+        off = filevault["state"] == "present" and filevault["value"] == "off"
+        if (reported is not None and reported.value == "on") or (not off and baseline is True):
             return (
                 "not-fulfilled",
                 "FileVault needs a person; automatic login cannot establish unattended recovery.",
             )
         if decision.accepted is not True or decision.max_dns_ready_seconds is None:
             return "not-fulfilled", "Unattended recovery and its DNS-ready limit are undecided."
+        if not off and baseline is not False:
+            return (
+                "not-fulfilled",
+                "FileVault is neither currently observed off nor declared off.",
+            )
     if identifier == "PLATFORM-SUPPORT":
         values = [
             fact_view(evidence, key, now)
@@ -659,10 +693,36 @@ def _base_assessment(
                     "not-fulfilled",
                     "LAN stable identity or current address is unknown or differs.",
                 )
+    blocking = BLOCKING_FACTS.get(identifier)
+    negative = None if blocking is None else _reported(evidence, blocking)
+    if negative is not None and (negative.state == "absent" or negative.value is False):
+        return "not-fulfilled", "Host evidence reports this prerequisite as absent."
     return (
         "fulfilled-unverified",
         "Declared capability requires its proving test at the recorded host tier.",
     )
+
+
+def _deviation(instance: Instance, identifier: str, now: float) -> tuple[str, str] | None:
+    """A recorded deviation means the requirement is not met, accepted or not."""
+    named = [item for item in instance.deviations if item.requirement == identifier]
+    if not named:
+        return None
+    for item in named:
+        if (
+            item.accepted_by is None
+            or not item.accepted_by.strip()
+            or item.accepted_at is None
+            or datetime.strptime(item.accepted_at, "%Y-%m-%dT%H:%M:%SZ")
+            .replace(tzinfo=UTC)
+            .timestamp()
+            > now
+        ):
+            return (
+                "not-fulfilled",
+                "A recorded deviation from this requirement has no current owner acceptance.",
+            )
+    return "accepted-residual", "Owner-accepted deviation; the requirement itself is not met."
 
 
 def _state_layers(
@@ -719,6 +779,13 @@ def build_report(
                     "fulfilled-verified",
                     "Current content-bound owner acceptance and retained evidence hash verified.",
                 )
+            deviation = _deviation(instance, requirement.id, now)
+            # Never better than an accepted residual, and never a lift for a row that is
+            # not fulfilled for another reason.
+            if deviation is not None and (
+                deviation[0] == "not-fulfilled" or status != "not-fulfilled"
+            ):
+                status, reason = deviation
         rows.append(
             {
                 "id": requirement.id,
