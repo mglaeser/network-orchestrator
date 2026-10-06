@@ -51,7 +51,8 @@ ownership conflicts.
 
 For `_home-assistant._tcp` only, `internal_url` and `base_url` values that point
 exactly to the resolved guest hostname/address are projected to the reachable
-LAN address and mapped port. Scheme, path, query and fragment are preserved.
+LAN address and mapped port. The host name compares by ASCII DNS case
+equivalence, like every other name here. Scheme, path, query and fragment are preserved.
 External URLs, credentials-bearing URLs and opaque/binary TXT data are untouched.
 
 ## Import: genuine Apple media endpoints into the guest network

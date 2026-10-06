@@ -476,10 +476,14 @@ def rewrite_endpoint_urls(source: Record, target: Record) -> tuple[bytes, ...]:
         if key in {b"internal_url", b"base_url"}:
             try:
                 address = urlsplit(value.decode("utf-8"))
+                # The host as the URL spells it: urlsplit's own hostname is
+                # lower-cased with Unicode rules, DNS names compare by ASCII case.
+                host = address.netloc.rpartition("@")[2].partition(":")[0]
                 if (
                     address.scheme in {"http", "https"}
                     and address.hostname is not None
-                    and address.hostname.rstrip(".") in {source.ipv4, source.hostname.rstrip(".")}
+                    and dns_name_key(host.rstrip("."))
+                    in {source.ipv4, dns_name_key(source.hostname.rstrip("."))}
                     and address.username is None
                     and address.password is None
                 ):
