@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from .codec import MAX_JSON_BYTES, CodecError, canonical_bytes, strict_loads
-from .derive import DeriveError, literal_assignments
+from .derive import DeriveError, literal_assignments, literal_lines
 
 _ID = re.compile(r"[a-z][a-z0-9-]{0,63}")
 _SHA = re.compile(r"[0-9a-f]{64}")
@@ -204,7 +204,7 @@ def _decode(raw: bytes, fmt: str) -> Any:
         ):
             raise ImportError("Only standard XML property-list data is supported")
         parser: ET.XMLPullParser[ET.Element] = ET.XMLPullParser(events=("start", "end"))
-        depth = nodes = 0
+        depth = nodes = roots = 0
         for offset in range(0, len(raw), 65536):
             parser.feed(raw[offset : offset + 65536])
             for event, element in cast(Iterable[tuple[str, ET.Element]], parser.read_events()):
@@ -226,8 +226,13 @@ def _decode(raw: bytes, fmt: str) -> Any:
                         and not (element.tag == "plist" and element.attrib == {"version": "1.0"})
                     ):
                         raise ImportError("Unknown property-list structure")
-                    if depth == 0 and element.tag != "plist":
+                    if (depth == 0) != (element.tag == "plist"):
                         raise ImportError("Property list must have a plist root")
+                    if depth == 1:
+                        # The standard parser silently keeps the last root object.
+                        roots += 1
+                        if roots > 1 or element.tag == "key":
+                            raise ImportError("Property list must contain one root object")
                     depth += 1
                     nodes += 1
                     if depth > 64 or nodes > 50000:
@@ -251,11 +256,7 @@ def _decode(raw: bytes, fmt: str) -> Any:
     if fmt == "literal-env":
         return literal_assignments(text)
     if fmt == "text-list":
-        values = [
-            line.strip()
-            for line in text.splitlines()
-            if line.strip() and not line.strip().startswith("#")
-        ]
+        values = [line for line in literal_lines(text) if line and not line.startswith("#")]
         if (
             len(values) > 1024
             or len(set(values)) != len(values)
