@@ -64,15 +64,20 @@ complete or approved deployable instance.
 already-rendered data files. Its local manifest contains exactly
 `schema_version: 1`, `owner` and a bounded `artifacts` list. Every artifact has
 `id`, `captured` and `rendered`. It does not invoke the renderer. Reported values
-are hashes, sizes and an `identical` Boolean, never input contents.
+are hashes, sizes and an `identical` Boolean, never input contents. `captured`
+and `rendered` must be two different files: a manifest that names one file in
+both roles, under any spelling of its path, is refused. Every comparison records
+the manifest's `owner`.
 
 `promote_owner(instance, owner, import_result, comparisons)` requires:
 
 1. One generated authoring record for that owner, including closed sections and
    stable subjects, with the freshly captured aggregate source digest.
 2. No underivable source for that owner.
-3. Every source ID compared exactly once, its capture digest equal to the fresh
-   source receipt, and identical captured/rendered bytes.
+3. Every source ID compared exactly once by a comparison made for that owner,
+   its capture digest equal to the fresh source receipt, and identical
+   captured/rendered bytes. A comparison made for another owner, or for none,
+   promotes no one.
 4. A provenance-only change to `mode: authored` and `source_sha256: null`.
 
 `check_owner_flip(before, after, owner)` rejects any accompanying desired change,

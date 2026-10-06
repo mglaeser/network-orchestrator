@@ -48,7 +48,9 @@ def instance():
 
 
 def equal():
-    return (compare_bytes("owner-input", b"IP=192.0.2.11\n", b"IP=192.0.2.11\n"),)
+    return (
+        compare_bytes("owner-input", b"IP=192.0.2.11\n", b"IP=192.0.2.11\n", owner="forwarding"),
+    )
 
 
 def test_exact_owner_flip_changes_only_provenance_and_not_inputs():
@@ -65,7 +67,7 @@ def test_exact_owner_flip_changes_only_provenance_and_not_inputs():
     [b"IP=192.0.2.11", b"# new header\nIP=192.0.2.11\n", b"IP=192.0.2.12\n", b"IP = 192.0.2.11\n"],
 )
 def test_even_headers_whitespace_and_final_newline_break_parity(rendered):
-    comparison = compare_bytes("owner-input", b"IP=192.0.2.11\n", rendered)
+    comparison = compare_bytes("owner-input", b"IP=192.0.2.11\n", rendered, owner="forwarding")
     assert not comparison.identical
     assert len(comparison.to_dict()["captured_sha256"]) == 64
     with pytest.raises(ConformanceError, match="byte parity"):
@@ -103,13 +105,13 @@ def test_flip_cannot_hide_other_changes(mutate):
     [
         (),
         equal() * 2,
-        (compare_bytes("unrelated", b"a", b"a"),),
-        (ByteComparison("owner-input", "a" * 64, "b" * 64, 1, 1, True),),
-        (ByteComparison("owner-input", "a" * 64, "a" * 64, 1, 2, True),),
+        (compare_bytes("unrelated", b"a", b"a", owner="forwarding"),),
+        (ByteComparison("owner-input", "a" * 64, "b" * 64, 1, 1, True, "forwarding"),),
+        (ByteComparison("owner-input", "a" * 64, "a" * 64, 1, 2, True, "forwarding"),),
     ],
 )
 def test_parity_requires_every_source_exactly_once(comparisons):
-    with pytest.raises(ConformanceError):
+    with pytest.raises(ConformanceError, match="byte parity"):
         promote_owner(instance(), "forwarding", sources(), comparisons)
 
 

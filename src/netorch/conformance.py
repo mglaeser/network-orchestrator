@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -44,10 +45,13 @@ class ByteComparison:
     captured_bytes: int
     rendered_bytes: int
     identical: bool
+    # The owner the comparison was made for; an unbound comparison promotes no one.
+    owner: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
+            "owner": self.owner,
             "captured_sha256": self.captured_sha256,
             "rendered_sha256": self.rendered_sha256,
             "captured_bytes": self.captured_bytes,
@@ -56,9 +60,13 @@ class ByteComparison:
         }
 
 
-def compare_bytes(identifier: str, captured: bytes, rendered: bytes) -> ByteComparison:
+def compare_bytes(
+    identifier: str, captured: bytes, rendered: bytes, *, owner: str | None = None
+) -> ByteComparison:
     if not _ID.fullmatch(identifier):
         raise ConformanceError("Invalid conformance artifact identifier")
+    if owner is not None and not _ID.fullmatch(owner):
+        raise ConformanceError("Invalid conformance owner")
     return ByteComparison(
         identifier,
         hashlib.sha256(captured).hexdigest(),
@@ -66,6 +74,7 @@ def compare_bytes(identifier: str, captured: bytes, rendered: bytes) -> ByteComp
         len(captured),
         len(rendered),
         captured == rendered,
+        owner,
     )
 
 
@@ -101,7 +110,15 @@ def compare_artifacts(manifest: str | Path) -> tuple[ByteComparison, ...]:
                 raise ConformanceError("Invalid conformance data path")
             p = Path(value)
             paths.append(p if p.is_absolute() else path.parent / p)
-        comparisons.append(compare_bytes(identifier, read_static(paths[0]), read_static(paths[1])))
+        captured, rendered = read_static(paths[0]), read_static(paths[1])
+        try:
+            # One file in both roles is trivially identical and proves no rendering.
+            aliased = os.path.samefile(paths[0], paths[1])
+        except OSError as exc:
+            raise ConformanceError("Conformance artifact is unavailable") from exc
+        if aliased:
+            raise ConformanceError("Captured and rendered artifacts must be different files")
+        comparisons.append(compare_bytes(identifier, captured, rendered, owner=data["owner"]))
     return tuple(comparisons)
 
 
@@ -152,6 +169,8 @@ def promote_owner(
     owner_sources = set(receipt_hashes)
     if any(issue.source in owner_sources for issue in sources.underivable):
         raise ConformanceError("Owner has unresolved static inputs")
+    if any(c.owner != owner for c in comparisons):
+        raise ConformanceError("Byte comparisons are not bound to this owner")
     if (
         not comparisons
         or {c.id for c in comparisons} != owner_sources
