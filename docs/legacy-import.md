@@ -84,7 +84,10 @@ already-rendered data files. Its local manifest contains exactly
 are hashes, sizes and an `identical` Boolean, never input contents. `captured`
 and `rendered` must be two different files: a manifest that names one file in
 both roles, under any spelling of its path, is refused. Every comparison records
-the manifest's `owner`.
+the manifest's `owner`. File identities come from the descriptors whose bytes
+were read, so replacing a parent link afterwards cannot substitute another
+identity. Captured and rendered roles remain disjoint across the entire manifest;
+swapping two captures into each other's rendered slots is also refused.
 
 `promote_owner(instance, owner, import_result, comparisons)` requires:
 

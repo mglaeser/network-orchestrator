@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from .codec import canonical_bytes, strict_loads
-from .legacy_import import ImportResult, read_static
+from .legacy_import import ImportResult, capture_static, read_static
 
 _ID = re.compile(r"[a-z][a-z0-9-]{0,63}")
 _SECTIONS = {
@@ -95,6 +95,8 @@ def compare_artifacts(manifest: str | Path) -> tuple[ByteComparison, ...]:
     if not isinstance(entries, list) or not 1 <= len(entries) <= 128:
         raise ConformanceError("A bounded nonempty artifact list is required")
     seen: set[str] = set()
+    captured_files: set[tuple[int, int]] = set()
+    rendered_files: set[tuple[int, int]] = set()
     comparisons: list[ByteComparison] = []
     for entry in entries:
         if not isinstance(entry, dict) or set(entry) != {"id", "captured", "rendered"}:
@@ -110,7 +112,11 @@ def compare_artifacts(manifest: str | Path) -> tuple[ByteComparison, ...]:
                 raise ConformanceError("Invalid conformance data path")
             p = Path(value)
             paths.append(p if p.is_absolute() else path.parent / p)
-        captured, rendered = read_static(paths[0]), read_static(paths[1])
+        captured, rendered = capture_static(paths[0]), capture_static(paths[1])
+        captured_files.add(captured.file_identity)
+        rendered_files.add(rendered.file_identity)
+        if captured_files & rendered_files:
+            raise ConformanceError("Captured and rendered artifacts must be different files")
         try:
             # One file in both roles is trivially identical and proves no rendering.
             aliased = os.path.samefile(paths[0], paths[1])
@@ -118,7 +124,9 @@ def compare_artifacts(manifest: str | Path) -> tuple[ByteComparison, ...]:
             raise ConformanceError("Conformance artifact is unavailable") from exc
         if aliased:
             raise ConformanceError("Captured and rendered artifacts must be different files")
-        comparisons.append(compare_bytes(identifier, captured, rendered, owner=data["owner"]))
+        comparisons.append(
+            compare_bytes(identifier, captured.data, rendered.data, owner=data["owner"])
+        )
     return tuple(comparisons)
 
 

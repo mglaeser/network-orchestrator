@@ -92,8 +92,14 @@ class ImportResult:
         }
 
 
-def read_static(path: str | Path, *, limit: int = MAX_JSON_BYTES) -> bytes:
-    """Bounded regular-file read with no final symlink and an identity fence."""
+@dataclass(frozen=True)
+class StaticCapture:
+    data: bytes
+    file_identity: tuple[int, int]
+
+
+def capture_static(path: str | Path, *, limit: int = MAX_JSON_BYTES) -> StaticCapture:
+    """Read bounded bytes and retain the identity of the descriptor read."""
     if not 1 <= limit <= MAX_JSON_BYTES:
         raise ImportError("Unsupported capture byte bound")
     p = Path(path)
@@ -121,11 +127,16 @@ def read_static(path: str | Path, *, limit: int = MAX_JSON_BYTES) -> bytes:
                 before
             ):
                 raise ImportError("Capture changed during reading")
-            return raw
+            return StaticCapture(raw, (opened.st_dev, opened.st_ino))
         finally:
             os.close(fd)
     except OSError as exc:
         raise ImportError("Static source is unavailable") from exc
+
+
+def read_static(path: str | Path, *, limit: int = MAX_JSON_BYTES) -> bytes:
+    """Bounded regular-file read with no final symlink and an identity fence."""
+    return capture_static(path, limit=limit).data
 
 
 def _identity(value: os.stat_result) -> tuple[int, ...]:
