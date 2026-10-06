@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import ipaddress
+import json
 import math
 import os
 import signal
@@ -26,7 +27,7 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 from .bonjour_process import DiscoveryFailure, Registration, interface_index, scan
-from .codec import canonical_bytes, digest, strict_loads
+from .codec import MAX_JSON_BYTES, CodecError, canonical_bytes, digest, strict_loads
 from .config import config_digest, load_config, profile_digest
 from .discovery import (
     Publication,
@@ -575,15 +576,31 @@ def scan_pass(config: Config, settings: BonjourSettings, store: Store) -> None:
         }
         if error is not None:
             candidates[policy.id]["reason"] = error
-    store.write(
-        "candidates.json",
-        {
-            "schema_version": 1,
-            "config_digest": config_digest(config),
-            "observed_at": now,
-            "policies": candidates,
-        },
-    )
+    document = {
+        "schema_version": 1,
+        "config_digest": config_digest(config),
+        "observed_at": now,
+        "policies": candidates,
+    }
+    # One state file holds every policy's candidate. When it would exceed the
+    # file's bounds, the bulkiest policy loses its records with a reason of its
+    # own until the rest fits; the other policies keep their lease.
+    while not _storable(document):
+        bulky = [key for key, value in candidates.items() if value["records"]]
+        if not bulky:
+            break
+        largest = max(bulky, key=lambda key: (len(json.dumps(candidates[key]["records"])), key))
+        candidates[largest]["records"] = []
+        candidates[largest]["reason"] = "incomplete"
+    store.write("candidates.json", document)
+
+
+def _storable(document: dict[str, Any]) -> bool:
+    """Whether the store's writer would accept this document: its line fits."""
+    try:
+        return len(canonical_bytes(document)) < MAX_JSON_BYTES
+    except CodecError:
+        return False
 
 
 def desired_requests(config: Config, settings: BonjourSettings, store: Store) -> dict[str, Any]:
@@ -599,9 +616,12 @@ def desired_requests(config: Config, settings: BonjourSettings, store: Store) ->
         or not isinstance(raw["policies"], dict)
     ):
         raise ValueError("invalid desired discovery intent")
-    if set(raw["policies"]) - {item.id for item in _owned(config, settings)}:
-        raise ValueError("foreign discovery intent")
-    return raw["policies"]
+    # The state directory outlives a policy: a declaration that was retired or
+    # renamed leaves its request behind. Only declared policies are ever read, so
+    # such an entry cannot cause a registration; it is dropped here and is gone
+    # from the file with the endpoint's next write under the lock.
+    owned = {item.id for item in _owned(config, settings)}
+    return {key: value for key, value in raw["policies"].items() if key in owned}
 
 
 def lease_records(
