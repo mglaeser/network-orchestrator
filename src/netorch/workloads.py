@@ -27,6 +27,11 @@ from .state import intent_from_dict, intent_to_dict
 from .storage import Busy, Store, UnsafeState
 from .workflow_gate import NOT_QUALIFIED, StageNotQualified, require_mutation_qualified
 
+# `--publish-socket` is deliberately absent. While the vendor's `create` builds
+# its configuration it removes an existing file or directory at the host path,
+# unless that is a socket, and creates missing parent directories (apple/container
+# `Parser.publishSocket` at tags 1.2.0, 1.4.1 and 1.5.0). A recipe cannot name a
+# host path with that effect until socket paths are enrolled identities.
 _OPTIONS = {
     "--cpus",
     "--memory",
@@ -49,7 +54,6 @@ _OPTIONS = {
     "--kernel-arg",
     "--label",
     "--mount",
-    "--publish-socket",
     "--sysctl",
     "--volume",
 }
