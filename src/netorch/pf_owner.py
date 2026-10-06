@@ -45,6 +45,8 @@ from .workflow_gate import NOT_QUALIFIED, StageNotQualified, require_mutation_qu
 STRATEGY = "darwin-pf-v1"
 _ID = re.compile(r"[a-z][a-z0-9-]{0,62}\Z")
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
+# The kernel prints its boot session with uuid_unparse_upper: one upper-case UUID.
+_BOOT_SESSION = re.compile(r"[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\Z")
 _REASON = "unobserved"
 
 
@@ -62,6 +64,9 @@ class Installation:
     intent_path: str | None = None
     interval_seconds: int = 10
     allow_apple_dns_coexistence: bool = False
+    # What a pass does with its remembered records after a proven reboot.
+    # "administrator": nothing by itself while a record is active, as before.
+    cold_start: str = "administrator"
 
     def __post_init__(self) -> None:
         if (
@@ -77,6 +82,11 @@ class Installation:
             raise PFError("invalid reconciliation interval")
         if type(self.allow_apple_dns_coexistence) is not bool:
             raise PFError("invalid coexistence admission")
+        if not isinstance(self.cold_start, str) or self.cold_start not in {
+            "administrator",
+            "self-heal",
+        }:
+            raise PFError("invalid cold-start decision")
         for value in (self.report_path, self.intent_path):
             if value is not None and (
                 not isinstance(value, str) or not os.path.isabs(value) or "\x00" in value
@@ -102,15 +112,23 @@ class Installation:
         }
         if (
             not isinstance(raw, dict)
-            or set(raw) != required
+            or set(raw) - {"cold_start"} != required
             or type(raw["schema_version"]) is not int
             or raw["schema_version"] != 1
+            # One spelling per decision: the key exists only for the choice that
+            # is not the default, so "administrator" and null are not input.
+            or ("cold_start" in raw and raw["cold_start"] != "self-heal")
         ):
             raise PFError("unsupported installation schema")
         return cls(**{key: value for key, value in raw.items() if key != "schema_version"})
 
     def to_dict(self) -> dict[str, Any]:
-        return {"schema_version": 1, **asdict(self)}
+        value = {"schema_version": 1, **asdict(self)}
+        if self.cold_start == "administrator":
+            # Left out while it is the default: an installation that never made
+            # the decision keeps the bytes it was stored with.
+            del value["cold_start"]
+        return value
 
 
 @lru_cache(maxsize=1)
@@ -167,6 +185,13 @@ def admitted_digest(config: Config, profile: Profile, installation: Installation
             "observer": dict(installation.observer),
             "anchor": installation.anchor,
             "allow_apple_dns_coexistence": installation.allow_apple_dns_coexistence,
+            # No input while it is the default, so earlier digests stay valid.
+            # Choosing it voids every admission of this owner.
+            **(
+                {}
+                if installation.cold_start == "administrator"
+                else {"cold_start": installation.cold_start}
+            ),
         }
     )
 
@@ -565,6 +590,7 @@ class Backend(Protocol):
     def ensure_reference(self) -> None: ...
     def endpoint(self, scope: Scope, ipv4: str, mac: str | None, *, direct: bool) -> bool: ...
     def ports_clear(self, scope: Scope, profile: Profile, *, apple_dns: bool) -> bool: ...
+    def boot_session(self) -> str: ...
 
 
 class ShellBackend:
@@ -786,6 +812,20 @@ class ShellBackend:
             ):
                 return False
         return True
+
+    def boot_session(self) -> str:
+        """The identifier the kernel generated for this boot.
+
+        `kern.bootsessionuuid` is a read-only string that the kernel fills once
+        per boot and that the clock does not move. Exactly one upper-case UUID
+        is a read; a failed, empty, repeated or differently spelled answer is
+        not, and the caller then knows nothing about the boot.
+        """
+        answer = self._native(["/usr/sbin/sysctl", "-n", "kern.bootsessionuuid"])
+        session = answer.removesuffix("\n")
+        if _BOOT_SESSION.fullmatch(session) is None:
+            raise PFError("boot session observation is unknown")
+        return session
 
     def _apple_dns_pid(self, pid: int) -> bool:
         signature = run(
@@ -1115,14 +1155,51 @@ def _stopped_before_any_write(journal: Mapping[str, Any]) -> bool:
     immediately before each change. A journal that still has only that first
     shape means the process stopped before a candidate existed: no rule was
     being written, so there is nothing to retire and nothing to acknowledge.
-    Every other unfinished shape remains an interrupted write.
+    Every other unfinished shape remains an interrupted write. The record may
+    name the boot session it was written in, as every record of a pass does.
     """
-    return journal["phase"] == "applying" and set(journal) == {
-        "schema_version",
-        "phase",
-        "actions",
-        "started_at",
-    }
+    return (
+        journal["phase"] == "applying"
+        and set(journal) - {"boot_session"} == {"schema_version", "phase", "actions", "started_at"}
+        and ("boot_session" not in journal or _journal_session(journal) is not None)
+    )
+
+
+def _boot_session(backend: Backend) -> str | None:
+    """This boot's kernel session, or None when it could not be read.
+
+    A failed read stops nothing and proves nothing: the pass goes on as it
+    always did, its journal records name no boot, and no later pass can take
+    such a record for evidence of a reboot.
+    """
+    try:
+        session = backend.boot_session()
+    except (OSError, RuntimeError, ValueError):
+        return None
+    if not isinstance(session, str) or _BOOT_SESSION.fullmatch(session) is None:
+        return None
+    return session
+
+
+def _journal_session(journal: Any) -> str | None:
+    """The boot session a journal record says it was written in, if it says so."""
+    if not isinstance(journal, dict):
+        return None
+    session = journal.get("boot_session")
+    if not isinstance(session, str) or _BOOT_SESSION.fullmatch(session) is None:
+        return None
+    return session
+
+
+def _another_boot(journal: Any, session: str | None) -> bool:
+    """Whether the last journal record provably belongs to another boot than this one.
+
+    Both sessions must be known. A record without one (an earlier release, or a
+    pass whose read failed) never proves a reboot, and neither does a boot whose
+    own session cannot be read.
+    """
+    recorded = _journal_session(journal)
+    return session is not None and recorded is not None and recorded != session
 
 
 def _write_report(installation: Installation, snapshot: Snapshot) -> None:
@@ -1187,12 +1264,17 @@ def reconcile(
         except FileNotFoundError:
             records = {}
         observed_rules = backend.inspect()
+        # Every journal record of this pass names the boot it was written in,
+        # when that is known, and carries no such key when it is not.
+        session = _boot_session(backend)
+        boot = {} if session is None else {"boot_session": session}
         intent = _inhibition(root, installation)
         try:
             journal = root.read("journal.json")
         except FileNotFoundError:
             journal = None
         needs_ack = False
+        cold = False
         if journal is not None:
             if not isinstance(journal, dict) or journal.get("phase") not in {
                 "committed",
@@ -1202,12 +1284,47 @@ def reconcile(
                 "acknowledged",
             }:
                 raise PFError("PF journal is damaged")
+            # A cold start: the last journal record was written by a kernel that
+            # no longer runs, and the owned anchor is verifiably empty. No rule
+            # and no state that this owner created exists any more.
+            cold = _another_boot(journal, session) and observed_rules == backend.normalize("")
+            heal = installation.cold_start == "self-heal"
+            if cold and (heal or not any(record["active"] for record in records.values())):
+                # The remembered records describe nothing in this kernel. They
+                # are dropped, never drained: their addresses may belong to
+                # other guests now. With an active record the default leaves the
+                # drift below to the administrator; `self-heal` drops it too and
+                # goes on as an ordinary pass, which skips no check.
+                owed = journal["phase"] == "failed" or (
+                    not heal
+                    and journal["phase"] == "applying"
+                    and not _stopped_before_any_write(journal)
+                )
+                if records:
+                    records = {}
+                    root.write("live.json", {"schema_version": 1, "records": records})
+                if heal or owed:
+                    # Written after the records: this record ends the proof of
+                    # the cold start, so nothing may still depend on that proof.
+                    # A failure that a pass recorded stays owed across the boot,
+                    # in either mode. A pass that the previous boot merely cut
+                    # short left nothing behind; without the decision it stays
+                    # owed as before. The candidate of the previous boot is not
+                    # carried over.
+                    journal = {
+                        "schema_version": 1,
+                        "phase": "failed" if owed else "inhibited",
+                        "reason": "cold-start",
+                        **boot,
+                    }
+                    root.write("journal.json", journal)
             if journal["phase"] in {"failed", "applying"} and not _stopped_before_any_write(
                 journal
             ):
                 needs_ack = True
                 candidate_records = journal.get("candidate_records")
-                if candidate_records is not None:
+                # A candidate of another boot describes nothing in this kernel.
+                if candidate_records is not None and not cold:
                     possible = _records({"schema_version": 1, "records": candidate_records})
                     if observed_rules == backend.normalize(compose_rules(possible)):
                         records = possible
@@ -1244,9 +1361,11 @@ def reconcile(
                 "journal.json",
                 {
                     "schema_version": 1,
-                    "phase": "applying",
+                    # As for the first record of an ordinary pass below.
+                    "phase": "failed" if needs_ack else "applying",
                     "candidate_records": retired,
                     "started_at": stamp,
+                    **boot,
                 },
             )
             if compose_rules(records):
@@ -1266,6 +1385,7 @@ def reconcile(
                     "candidate_records": retired,
                     "failed_at": stamp,
                     "reason": "kernel-state-unknown",
+                    **boot,
                 },
             )
             uncertain = Snapshot(
@@ -1342,6 +1462,7 @@ def reconcile(
                 "phase": "failed" if needs_ack else "applying",
                 "actions": [asdict(action) for action in actions],
                 "started_at": stamp,
+                **boot,
             },
         )
         changed: list[str] = []
@@ -1432,10 +1553,15 @@ def reconcile(
                     "journal.json",
                     {
                         "schema_version": 1,
-                        "phase": "applying",
+                        # An acknowledgement that is owed is owed in every
+                        # record of the pass, not only in its first and last:
+                        # a later boot discharges an unfinished write of the
+                        # boot before it, never a recorded failure.
+                        "phase": "failed" if needs_ack else "applying",
                         "actions": [asdict(item) for item in actions],
                         "candidate_records": update,
                         "started_at": stamp,
+                        **boot,
                     },
                 )
                 if before != after:
@@ -1483,6 +1609,7 @@ def reconcile(
                     "phase": phase,
                     "actions": [asdict(action) for action in actions],
                     "finished_at": now(),
+                    **boot,
                 },
             )
             try:
@@ -1574,15 +1701,30 @@ def withdraw(
         except FileNotFoundError:
             records = {}
         live = backend.inspect()
+        # A verifiably empty anchor holds no rule to retire and no foreign rule
+        # either, so it needs no proof of which rules were this owner's.
+        empty = live == backend.normalize("")
+        session = _boot_session(backend)
+        try:
+            last = root.read("journal.json")
+        except (OSError, RuntimeError, ValueError):
+            last = None
+        # In another boot than the last journal record, no state that this
+        # owner's rules created exists either, and a remembered address may
+        # belong to another guest by now: nothing is invalidated.
+        cold = empty and _another_boot(last, session)
         if live != backend.normalize(compose_rules(records)):
             try:
                 previous = root.read("journal.json")
                 possible = _records({"schema_version": 1, "records": previous["candidate_records"]})
             except (OSError, KeyError, RuntimeError, ValueError) as exc:
-                raise PFError("cannot independently identify owned withdrawal state") from exc
-            if live != backend.normalize(compose_rules(possible)):
-                raise PFError("foreign PF drift prevents quiescence")
-            records = possible
+                if not empty:
+                    raise PFError("cannot independently identify owned withdrawal state") from exc
+            else:
+                if live == backend.normalize(compose_rules(possible)):
+                    records = possible
+                elif not empty:
+                    raise PFError("foreign PF drift prevents quiescence")
         retired = {key: {**record, "active": False, "rules": ""} for key, record in records.items()}
         root.write(
             "journal.json",
@@ -1591,28 +1733,43 @@ def withdraw(
                 "phase": "applying",
                 "candidate_records": retired,
                 "reason": "administrator-withdrawal",
+                # Until it has completed, a withdrawal after a cold start keeps
+                # naming the boot of the record that proves the cold start, so
+                # that it is still proven when a failed attempt is repeated.
+                **(
+                    {}
+                    if session is None
+                    else {"boot_session": _journal_session(last) if cold else session}
+                ),
             },
         )
         try:
-            if compose_rules(records):
+            if not empty and compose_rules(records):
                 backend.replace(compose_rules(records), "")
             if backend.inspect() != backend.normalize(""):
                 raise PFError("withdrawal rules remain")
             root.write("live.json", {"schema_version": 1, "records": retired})
-            for record in retired.values():
-                if record["kind"] != "host-redirect":
-                    backend.drain(record["target_ipv4"])
+            if not cold:
+                for record in retired.values():
+                    if record["kind"] != "host-redirect":
+                        backend.drain(record["target_ipv4"])
             root.write("live.json", {"schema_version": 1, "records": {}})
             root.write(
                 "journal.json",
-                {"schema_version": 1, "phase": "inhibited", "reason": "administrator-withdrawal"},
+                {
+                    "schema_version": 1,
+                    "phase": "inhibited",
+                    "reason": "administrator-withdrawal",
+                    **({} if session is None else {"boot_session": session}),
+                },
             )
             return {
                 "schema_version": 1,
                 "withdrawn": True,
-                "guest_states_drained": True,
+                "guest_states_drained": not cold,
                 "operator_paused": paused.operator_paused,
                 "reference_preserved": True,
+                **({"cold_start": True} if cold else {}),
             }
         except BaseException:
             journal = root.read("journal.json")
@@ -1766,6 +1923,12 @@ def admit(
                 "implementation_sha256": implementation_digest(),
                 "backend_sha256": installation.backend_sha256,
                 "observer_sha256": digest(dict(installation.observer)),
+                # Shown only where it was chosen; an admission without it covers the default.
+                **(
+                    {}
+                    if installation.cold_start == "administrator"
+                    else {"cold_start": installation.cold_start}
+                ),
             },
         }
 
@@ -1916,6 +2079,11 @@ def main(argv: list[str] | None = None) -> int:
                         "service": asdict(config.service(profile.service)),
                         "strategy": STRATEGY,
                         "implementation_sha256": implementation_digest(),
+                        **(
+                            {}
+                            if installation.cold_start == "administrator"
+                            else {"cold_start": installation.cold_start}
+                        ),
                         "expected_digest": admitted_digest(config, profile, installation),
                         "previous": _read_admissions(root.read("admissions.json")).get(profile.id),
                         "risk_acknowledgement_required": profile.safety.kind == "bounded",

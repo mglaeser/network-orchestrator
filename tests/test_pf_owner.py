@@ -49,6 +49,13 @@ class FakeBackend:
         self.clear = True
         self.fail_after_replace = False
         self.undrainable = False
+        self.session: str | None = None
+
+    def boot_session(self) -> str:
+        # Unknown unless a test names the boot: the journal then says nothing.
+        if self.session is None:
+            raise PFError("simulated unreadable boot session")
+        return self.session
 
     def normalize(self, rules: str) -> str:
         return "\n".join(" ".join(line.split()) for line in rules.splitlines() if line.strip())

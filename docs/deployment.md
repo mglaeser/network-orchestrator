@@ -235,6 +235,12 @@ architecture, privacy readiness and measured time to first valid answer. The
 framework does not enable automatic login, change FileVault, power settings or
 router DNS. These remain explicit native/application-owner decisions.
 
+What the root forwarding owner does after a reboot is such a decision as well:
+the optional `cold_start` member of its settings, described under
+[After a reboot](pf-owner.md#after-a-reboot). Without it the owner leaves its
+remembered rules to an administrator, and forwarding stays withdrawn after a
+reboot until `withdraw` and `resume`.
+
 Runtime upgrades and container recreation require separate maintenance and
 reacceptance. Versioned reader fixtures cover declared shapes, not future unknown
 schemas. Preserve image pins, persistent mounts, kernel arguments and application
