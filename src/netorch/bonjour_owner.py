@@ -78,6 +78,17 @@ class BonjourSettings:
     scan_seconds: int = 2
     poll_seconds: int = 5
     eligible_model_prefixes: tuple[str, ...] = ("AudioAccessory", "AppleTV")
+    pass_seconds: int | None = None
+
+    @property
+    def pass_interval(self) -> int:
+        """Seconds the scanner rests between two passes.
+
+        ``poll_seconds`` also paces the publisher's independent evidence, which
+        must stay younger than each dependency's own limit. A slower scan
+        therefore has a value of its own; unset, it is ``poll_seconds`` as before.
+        """
+        return self.poll_seconds if self.pass_seconds is None else self.pass_seconds
 
 
 def private_json(path: Path) -> Any:
@@ -109,7 +120,7 @@ def load_settings(path: Path) -> BonjourSettings:
         "state_dir",
         "scopes",
     }
-    optional = {"scan_seconds", "poll_seconds", "eligible_model_prefixes"}
+    optional = {"scan_seconds", "poll_seconds", "eligible_model_prefixes", "pass_seconds"}
     if (
         not isinstance(raw, dict)
         or not required <= raw.keys()
@@ -160,6 +171,18 @@ def load_settings(path: Path) -> BonjourSettings:
         value = raw.get(key, default)
         if type(value) is not int or not 1 <= value <= maximum:
             raise ValueError("Bonjour polling must be bounded")
+    pass_seconds = raw.get("pass_seconds")
+    if "pass_seconds" in raw:
+        if type(pass_seconds) is not int or not 5 <= pass_seconds <= 120:
+            raise ValueError("Bonjour polling must be bounded")
+        # A pass refreshes each lease once. Its candidate has to stay fresh until
+        # the next one is written, a rest and two scans later.
+        if any(
+            2 * pass_seconds > item.max_age_seconds
+            for item in config.discovery
+            if item.owner == owner.id
+        ):
+            raise ValueError("Bonjour pass interval must leave room inside every owned lease")
     prefixes = raw.get("eligible_model_prefixes", ["AudioAccessory", "AppleTV"])
     if (
         not isinstance(prefixes, list)
@@ -179,6 +202,7 @@ def load_settings(path: Path) -> BonjourSettings:
         scan_seconds=raw.get("scan_seconds", 2),
         poll_seconds=raw.get("poll_seconds", 5),
         eligible_model_prefixes=tuple(prefixes),
+        pass_seconds=pass_seconds,
     )
 
 
@@ -930,7 +954,7 @@ def serve(config: Config, settings: BonjourSettings, settings_path: Path) -> Non
                         ),
                     },
                 )
-            time.sleep(settings.poll_seconds)
+            time.sleep(settings.pass_interval)
     finally:
         close()
 
@@ -1045,7 +1069,11 @@ def load_config_value(value: Any) -> Config:
 
 def health(settings: BonjourSettings, store: Store) -> bool:
     now = time.time()
-    for filename in ("scanner-heartbeat.json", "publisher-heartbeat.json"):
+    # The scanner writes its heartbeat once per pass, the publisher on every tick.
+    for filename, interval in (
+        ("scanner-heartbeat.json", settings.pass_interval),
+        ("publisher-heartbeat.json", settings.poll_seconds),
+    ):
         raw = store.read(filename)
         if (
             not isinstance(raw, dict)
@@ -1053,9 +1081,7 @@ def health(settings: BonjourSettings, store: Store) -> bool:
             or type(raw["schema_version"]) is not int
             or raw["schema_version"] != 1
             or type(raw["observed_at"]) not in {float, int}
-            or not raw["observed_at"]
-            <= now
-            <= raw["observed_at"] + max(60, settings.poll_seconds * 3)
+            or not raw["observed_at"] <= now <= raw["observed_at"] + max(60, interval * 3)
         ):
             return False
     return True

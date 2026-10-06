@@ -133,6 +133,14 @@ scanner/publisher locks prevent duplicate writers. Each native read has an
 external wall-clock/output bound in addition to the CLI timer; a scan also has
 a fixed total budget. Partial passes cannot refresh an old source lease.
 
+The scanner rests `poll_seconds` between two passes unless the settings give
+`pass_seconds` (5 to 120). `poll_seconds` (1 to 10) also paces the publisher's
+independent evidence, which has to stay younger than each dependency's own
+limit, so a slower scan has a value of its own. A pass interval longer than half
+of an owned policy's `max_age_seconds` is refused: a pass's candidate must
+still be fresh when the next pass has been written. The scanner's heartbeat is
+healthy for three of its own intervals, and for at least 60 seconds.
+
 The watchdog performs no blocking native read in its event loop. Fresh
 independent proof collection runs separately. Record deadlines use monotonic
 time; a backwards wall-clock adjustment cannot extend an unchanged source
