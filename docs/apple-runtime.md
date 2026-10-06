@@ -132,8 +132,9 @@ under this binding.
 Each pass has an eight-second aggregate deadline, with smaller process limits:
 
 1. Verify the exact CLI version against its reader contract.
-2. Read host boot identity and actual helper PID, start time, program, UID and
-   running launchd state. Cached installer receipts do not prove a live helper.
+2. Read the kernel's boot session identifier and the actual helper PID, start
+   time, program, UID and running launchd state. Cached installer receipts do
+   not prove a live helper.
 3. Inspect native NAT network mode/plugin/subnet/gateway and confirm the selected
    interface actually owns the policy's host IPv4 address.
 4. Read complete inventory and independently inspect each named container.
@@ -150,6 +151,23 @@ Each pass has an eight-second aggregate deadline, with smaller process limits:
    out: the address is then unknown, and the independent root owner accepts no
    direct guest target without it.
 7. Reread helper and native network evidence to detect a changed generation.
+
+The boot is named by `sysctl -n kern.bootsessionuuid`, which must print exactly
+one upper-case UUID on one line; anything else, the nil UUID included, is an
+unknown read. The kernel makes that identifier once, when its power-management
+root domain starts
+([`initializeBootSessionUUID`](https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.121.6/iokit/Kernel/IOPMrootDomain.cpp#L4297-L4308),
+[`kern.bootsessionuuid`](https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.121.6/bsd/kern/kern_sysctl.c#L3015-L3017)).
+The boot time is not used. The kernel shifts its stored boot time whenever the
+calendar clock is set
+([`clock_set_calendar_microtime`](https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.121.6/osfmk/kern/clock.c#L729-L800)),
+and the printed value also carries a date in the local time zone
+([`S_timeval`](https://github.com/apple-oss-distributions/system_cmds/blob/system_cmds-1012/sysctl/sysctl.c#L748-L773)),
+so a clock step or a time-zone change would read as another generation and make
+the forwarding owner retire and re-activate every profile. Generation strings
+therefore differ from those of releases that hashed the boot time. Owners on
+either side of that change agree on no generation and plan nothing, so the user
+scope and the root scope run the same release.
 
 Running state from the admitted version's native API plus the exact source
 configuration establishes vendor publication provenance. An unrelated listener

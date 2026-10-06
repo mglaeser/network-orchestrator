@@ -702,6 +702,19 @@ def _reason(exc: Exception) -> str:
     return "malformed"
 
 
+# The kernel's identifier of the running boot, as `sysctl -n` prints it. It is
+# made once per boot. The boot time is not hashed: the kernel moves it whenever
+# the calendar clock is set, and its text carries a date in the local time zone.
+_BOOT_SESSION = re.compile(r"[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\n")
+
+
+def _boot_session(text: str) -> str:
+    """Exactly one upper-case identifier on one line; the nil identifier names no boot."""
+    if _BOOT_SESSION.fullmatch(text) is None or not text.strip("0-\n"):
+        raise RuntimeReadError()
+    return text[:-1]
+
+
 def observe_runtime(
     config: Config,
     settings: RuntimeSettings,
@@ -728,9 +741,7 @@ def observe_runtime(
         }:
             raise RuntimeReadError("identity-mismatch")
         reader.version()
-        boot = reader.tool(["/usr/sbin/sysctl", "-n", "kern.boottime"]).strip()
-        if re.fullmatch(r"\{ sec = \d+, usec = \d+ \}(?: .+)?", boot) is None:
-            raise RuntimeReadError()
+        boot = _boot_session(reader.tool(["/usr/sbin/sysctl", "-n", "kern.bootsessionuuid"]))
         helpers = {network.scope: reader.helper(network) for network in settings.networks}
         networks = {network.scope: reader.network(config, network) for network in settings.networks}
         inventory = reader.inventory()
