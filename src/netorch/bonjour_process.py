@@ -137,7 +137,35 @@ def _banner(line: bytes, index: int, heading: bytes | None = None) -> bool:
     )
 
 
+class InstanceUnusable(DiscoveryFailure):
+    """What one instance's own well-formed replies say cannot be used.
+
+    Raised only by a reader whose command has proved itself: its status, error
+    stream and interface line were accepted, it is seen to have entered its
+    event loop, and every line of its output was a banner or a well-formed
+    reply. It is the one failure a scan confines to the instance it concerns;
+    every other failure still fails the scan.
+    """
+
+
+def _unusable(raw: bytes, reason: str = "malformed") -> DiscoveryFailure:
+    """The failure for replies that were all read and give no usable value.
+
+    Without the start line the client has not shown that it waited for a
+    reply, and the command fails as it did before.
+    """
+    if re.search(rb"(?m)^" + _STARTING.encode() + rb"$", raw) is None:
+        return DiscoveryFailure(reason)
+    return InstanceUnusable(reason)
+
+
 def resolve_endpoint(raw: bytes, index: int) -> tuple[str, str, int]:
+    """The one endpoint the resolve replies name.
+
+    No reply (a browse entry whose instance is gone), replies that differ, a
+    reply for another interface and a port or target that cannot be published
+    are unusable for that instance.
+    """
     pattern = re.compile(
         rf"^{_STAMP}\s+(.+?) can be reached at ([^\s:]+):(\d+) "
         rf"\(interface (\d+)\)(?: Flags: [0-9A-Fa-f]+)?$".encode()
@@ -156,8 +184,10 @@ def resolve_endpoint(raw: bytes, index: int) -> tuple[str, str, int]:
                         int(match[4]),
                     )
                 )
-            except UnicodeError as exc:
-                raise DiscoveryFailure() from exc
+            except UnicodeError:
+                # Names that are not UTF-8: a reply that can never be used. It
+                # is kept as one, so that the rest of the output is still read.
+                unique.add(("", "", 0, 0))
             continuation = True
         elif _banner(line, index) or re.fullmatch(
             rb"Lookup .+\._[A-Za-z0-9-]+\._(?:tcp|udp)\.local\.", line
@@ -165,25 +195,34 @@ def resolve_endpoint(raw: bytes, index: int) -> tuple[str, str, int]:
             continuation = False
         elif (
             continuation
-            and (not line or line.startswith(b" "))
+            and (not line or line.startswith(b" ") or line == b"<< invalid data >>")
             and all(byte >= 32 for byte in line)
             and re.match(rb"^ *[0-9]{1,2}:", line) is None
         ):
             # ShowTXTRecord emits exactly one optional continuation; printable
             # bytes are not necessarily UTF-8. The authoritative TXT query is
-            # -Q's hexadecimal RDATA, not this shell-friendly display.
+            # -Q's hexadecimal RDATA, not this shell-friendly display. For a
+            # record shorter than one of its strings declares, the display is
+            # or ends with "<< invalid data >>"; -Q then shows why.
             continuation = False
         else:
             raise DiscoveryFailure()
     if len(unique) != 1:
-        raise DiscoveryFailure()
+        raise _unusable(raw)
     fullname, host, port, actual = unique.pop()
     if actual != index or not 1 <= port <= 65535 or not host.endswith(".local."):
-        raise DiscoveryFailure()
+        raise _unusable(raw)
     return fullname, host, port
 
 
-def resolve_ipv4(raw: bytes, hostname: str, index: int) -> str:
+def resolve_ipv4(raw: bytes, hostname: str, index: int, guest_ipv4: str | None = None) -> str:
+    """The host's one current IPv4 address.
+
+    An export passes the announcing service's inspected guest address. A host
+    that holds that address among several is read as that address: the record
+    is tied to the service by it, and what is published comes from the verified
+    publication, never from this answer.
+    """
     pattern = re.compile(
         rf"^{_STAMP}\s+(Add|Rmv)\s+[0-9A-Fa-f]+\s+(\d+)\s+"
         rf"{re.escape(hostname)}\s+([0-9.]+)\s+\d+$"
@@ -204,8 +243,10 @@ def resolve_ipv4(raw: bytes, hostname: str, index: int) -> str:
             active.add(address)
         else:
             active.discard(address)
+    if guest_ipv4 is not None and guest_ipv4 in active:
+        return guest_ipv4
     if len(active) != 1:
-        raise DiscoveryFailure("incomplete")
+        raise _unusable(raw, "incomplete")
     return active.pop()
 
 
@@ -233,15 +274,16 @@ def resolve_txt(raw: bytes, fullname: str, index: int) -> tuple[bytes, ...]:
         else:
             active.discard(data)
     if len(active) != 1:
-        raise DiscoveryFailure("incomplete")
+        raise _unusable(raw, "incomplete")
     data = active.pop()
     entries = []
     offset = 0
     while offset < len(data):
         size = data[offset]
         offset += 1
+        # The record is shorter than one of its strings declares.
         if offset + size > len(data):
-            raise DiscoveryFailure()
+            raise _unusable(raw)
         entries.append(data[offset : offset + size])
         offset += size
     return tuple(entries)
@@ -256,7 +298,15 @@ def scan(
     now: float,
     runner: Runner = command,
     max_seconds: float = 45,
+    *,
+    guest_ipv4: str | None = None,
+    skipped: list[str] | None = None,
 ) -> tuple[Record, ...]:
+    """Browse one type and resolve each instance; a failed command fails the scan.
+
+    Only an instance whose own replies are unusable is left out, and its name
+    is added to ``skipped``. ``guest_ipv4`` is the export rule of resolve_ipv4.
+    """
     deadline = time.monotonic() + max_seconds
 
     def query(args: list[str]) -> bytes:
@@ -273,10 +323,23 @@ def scan(
     names = browse_names(query(["-B", service_type, "local."]), service_type, index, limit)
     result = []
     for name in names:
-        fullname, host, port = resolve_endpoint(query(["-L", name, service_type, "local."]), index)
-        address = resolve_ipv4(query(["-G", "v4", host]), host, index)
-        txt = resolve_txt(query(["-Q", fullname, "TXT", "IN"]), fullname, index)
-        result.append(Record(name, service_type, host, port, address, txt, interface, now))
+        # query() never raises InstanceUnusable: a command that cannot prove
+        # itself, a diagnostic and the scan's time budget end the whole scan.
+        try:
+            fullname, host, port = resolve_endpoint(
+                query(["-L", name, service_type, "local."]), index
+            )
+            address = resolve_ipv4(query(["-G", "v4", host]), host, index, guest_ipv4)
+            txt = resolve_txt(query(["-Q", fullname, "TXT", "IN"]), fullname, index)
+            try:
+                record = Record(name, service_type, host, port, address, txt, interface, now)
+            except ValueError as exc:
+                raise InstanceUnusable() from exc
+        except InstanceUnusable:
+            if skipped is not None:
+                skipped.append(name)
+            continue
+        result.append(record)
     return tuple(result)
 
 

@@ -666,7 +666,7 @@ def old_discovery_digest(config, item, version):
     )
 
 
-@pytest.mark.parametrize("old_version", [1, 2])
+@pytest.mark.parametrize("old_version", [1, 2, 3])
 @pytest.mark.parametrize("old_field", ["candidate", "request"])
 def test_discovery_owner_refuses_prior_lease_records(config, settings, old_field, old_version):
     current = snapshot(config)
@@ -699,7 +699,7 @@ def test_discovery_owner_refuses_prior_lease_records(config, settings, old_field
     )
 
 
-@pytest.mark.parametrize("old_version", [1, 2])
+@pytest.mark.parametrize("old_version", [1, 2, 3])
 @pytest.mark.parametrize("boundary", ["readback", "endpoint"])
 def test_discovery_owner_refuses_prior_readback_and_endpoint(
     config, settings, monkeypatch, boundary, old_version
@@ -1444,7 +1444,7 @@ def test_scan_pass_uses_live_records_and_refreshes_lease_only_when_complete(
     )
     monkeypatch.setattr(owner, "_interfaces", lambda *_args: {"wired-lan": (7, 9)})
 
-    def scan(interface, index, kind, _limit, _seconds, _now):
+    def scan(interface, index, kind, _limit, _seconds, _now, **_keywords):
         if kind == "_airplay._tcp":
             return (media_record(),)
         if kind == "_hap._tcp":
@@ -1467,7 +1467,7 @@ def test_scan_pass_uses_live_records_and_refreshes_lease_only_when_complete(
     assert len(candidates["policies"]["media-import"]["records"]) == 1
     assert len(candidates["policies"]["camera-export"]["records"]) == 1
 
-    def fail_media(interface, index, kind, limit, seconds, now):
+    def fail_media(interface, index, kind, limit, seconds, now, **_keywords):
         if kind == "_airplay._tcp":
             raise native.DiscoveryFailure("local-network-denied")
         return scan(interface, index, kind, limit, seconds, now)
