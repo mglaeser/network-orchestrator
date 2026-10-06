@@ -177,9 +177,15 @@ def create_arguments(config: Config, settings: RuntimeSettings, workload: Worklo
             values = {pair[0]: pair[1] for pair in pairs if len(pair) == 2}
             if (
                 len(values) != len([pair for pair in pairs if len(pair) == 2])
-                or values.get("type") != "bind"
-                or not values.get("source", "").startswith("/")
-                or not values.get("target", "").startswith("/")
+                # The vendor also reads `src` as the source and `dst` or
+                # `destination` as the target, keeps the last spelling it saw
+                # and drops an empty piece after a further `=`. Any other key,
+                # or a value holding `=`, names a path that is not checked here.
+                or set(values) != {"type", "source", "target"}
+                or any("=" in value for value in values.values())
+                or values["type"] != "bind"
+                or not values["source"].startswith("/")
+                or not values["target"].startswith("/")
                 or any(pair not in [["readonly"]] and len(pair) != 2 for pair in pairs)
             ):
                 raise ValueError("mount requires an unambiguous absolute bind source")
