@@ -36,9 +36,9 @@ Install the reviewed wheel in a normal unprivileged Python environment. Commands
 
 ```sh
 netorch-host validate --instance /private/instance/instance.json
-netorch-host preflight --instance /private/instance/instance.json
-netorch-host status --instance /private/instance/instance.json --evidence /private/host-state/preflight.json
-netorch-host plan --instance /private/instance/instance.json --evidence /private/host-state/observations.json
+netorch-host preflight --instance /private/instance/instance.json --collect-local --emit-evidence > /private/host-state/host-evidence.json
+netorch-host status --instance /private/instance/instance.json --evidence /private/host-state/host-evidence.json
+netorch-host plan --instance /private/instance/instance.json --evidence /private/host-state/host-evidence.json
 netorch-host check --instance /private/instance/instance.json
 netorch-host report --instance /private/instance/instance.json
 ```
@@ -48,6 +48,8 @@ netorch-host report --instance /private/instance/instance.json
 Optional `--framework-artifact /private/release/package.whl --dependency-lock /private/release/dependency-lock.json` checks exact artifact/lock bytes and the installed package version. `--data-dir` selects the existing private directory containing contract references. `--evidence-dir` selects retained content-addressed acceptance files. No path in these data files is executed.
 
 Only `preflight`, `status` and `report` permit explicit `--collect-local`. This invokes a fixed, bounded local macOS collector, never a LAN/Bonjour probe, owner endpoint, privilege escalation or service action. It checks OS/vendor state readable without administrator rights. Unavailable, malformed, denied or unexamined facts remain unknown. Terminal consent is not LaunchAgent consent; read-only collection cannot establish the latter.
+
+`--evidence` reads one document of `schemas/host-evidence.schema.json`. The ordinary output of every verb, `preflight` included, is a report and not such a document; it is refused there with 65. `preflight --collect-local --emit-evidence` prints the collected document itself as canonical JSON instead of the report view, and is the only command that produces one. The flag is a usage error for every other verb and without `--collect-local`, and it writes no file: redirect standard output into an existing private host-state directory, as in the second command above. Each fact keeps the time it was observed, and a report judges that age against its own clock: a fact older than 300 seconds is `stale` and therefore unknown, so collect again instead of reusing an old document. The collector's document has no profile, workload or component rows. Those belong to an owner snapshot, the same schema with source `owner-snapshot`; nothing in this release writes one, so with the collector's document `plan` shows every profile as pending.
 
 ## Truth and confidence
 

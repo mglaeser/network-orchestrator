@@ -27,7 +27,9 @@ macOS command set. It does not accept commands from instance data and records
 inaccessible facts as unknown rather than invoking sudo or requesting consent.
 
 Use `--data-dir` for content-referenced workload contracts; `--evidence` reads a
-closed retained host-evidence document. `--framework-artifact` plus
+closed retained host-evidence document. Only `preflight --collect-local
+--emit-evidence` prints one; the ordinary output of every verb is a report and
+is not accepted there. `--framework-artifact` plus
 `--dependency-lock` verify release material, and `--evidence-dir` resolves retained
 acceptance evidence. Hashes alone do not prove administrator approval or native
 behavior. See [instances](instances.md) for exact formats and command examples.
