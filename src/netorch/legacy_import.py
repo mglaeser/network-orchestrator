@@ -33,6 +33,9 @@ _FORMATS = {"json", "plist", "toml", "literal-env", "text-list", "source-invento
 # Decisions, acceptance records, deviations, provenance and the release pin are
 # written by a person; a static import never fills them.
 _AUTHORED_SECTIONS = frozenset({"decisions", "acceptance", "deviations", "authoring", "framework"})
+# The one spelling of a number that an integer slot takes from text: no sign,
+# no leading zero, at most ten digits.
+_INTEGER_TEXT = re.compile(r"0|[1-9][0-9]{0,9}")
 
 
 class ImportError(ValueError):
@@ -403,13 +406,67 @@ def check_generated_view(manifest: str | Path, generated: str | Path) -> bool:
     return generated_bytes(import_sources(manifest)) == read_static(generated)
 
 
+def _choices(nodes: list[Any]) -> list[dict[str, Any]]:
+    """Schema nodes, each ``anyOf``/``oneOf`` node replaced by its alternatives."""
+    flat: list[dict[str, Any]] = []
+    for node in nodes:
+        if isinstance(node, dict) and ("anyOf" in node or "oneOf" in node):
+            flat.extend(_choices([*node.get("anyOf", []), *node.get("oneOf", [])]))
+        else:
+            # A boolean schema says nothing about a type; treat it as an open one.
+            flat.append(node if isinstance(node, dict) else {})
+    return flat
+
+
+def _integer_slot(schema: Any, pointer: str) -> bool:
+    """Whether a closed schema admits nothing but an integer, or null, at ``pointer``.
+
+    Only ``properties``, ``items`` and ``anyOf``/``oneOf`` are followed. Any other
+    construct, and any alternative that leaves the member open, answers no: the
+    value then stays as it is and the instance parser decides.
+    """
+    nodes = _choices([schema])
+    for part in _pointer(pointer):
+        members: list[Any] = []
+        for node in nodes:
+            if part in node.get("properties", {}):
+                members.append(node["properties"][part])
+            elif "items" in node and re.fullmatch(r"0|[1-9][0-9]*", part):
+                members.append(node["items"])
+            elif node.get("type") != "null" and node.get("additionalProperties") is not False:
+                return False
+        nodes = _choices(members)
+    integer = False
+    for node in nodes:
+        listed = node.get("enum", [node["const"]] if "const" in node else [])
+        if node.get("type") == "integer" or (listed and all(type(v) is int for v in listed)):
+            integer = True
+        elif node.get("type") != "null":
+            return False
+    return integer
+
+
+def _slot_value(schema: Any, pointer: str, value: Any) -> Any:
+    """Text for an integer slot becomes that integer; nothing else is converted."""
+    if not isinstance(value, str) or not _integer_slot(schema, pointer):
+        return value
+    if not _INTEGER_TEXT.fullmatch(value):
+        raise ImportError(f"Text mapped to integer field {pointer} is not a plain decimal integer")
+    return int(value)
+
+
 def project_instance(result: ImportResult, template: dict[str, Any]) -> bytes:
-    """Fill explicit null slots and validate the independently closed instance model."""
-    from .instance import canonical_instance_bytes, parse_instance
+    """Fill explicit null slots and validate the independently closed instance model.
+
+    A literal file holds text only. Text mapped to a slot that the instance
+    schema types as an integer is converted from its plain decimal form.
+    """
+    from .instance import canonical_instance_bytes, instance_validator, parse_instance
 
     if not _AUTHORED_SECTIONS.isdisjoint(result.values):
         raise ImportError("Authored instance sections cannot be filled by an import")
     data = copy.deepcopy(template)
+    schema = instance_validator().schema
 
     def apply(node: Any, prefix: str) -> None:
         if isinstance(node, dict):
@@ -418,7 +475,7 @@ def project_instance(result: ImportResult, template: dict[str, Any]) -> bytes:
                 if isinstance(value, dict):
                     apply(value, pointer)
                 else:
-                    _fill(data, pointer, value)
+                    _fill(data, pointer, _slot_value(schema, pointer, value))
         else:
             raise ImportError("Generated projection must be an object")
 
