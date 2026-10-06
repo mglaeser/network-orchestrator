@@ -140,12 +140,17 @@ state is not proof of audible playback.
 .venv/bin/ruff check .
 .venv/bin/ruff format --check .
 .venv/bin/mypy
+.venv/bin/python -m netorch.privacy_check --root . --exceptions schemas/privacy-exceptions.json
 .venv/bin/python -m build --no-isolation
 .venv/bin/pip-audit -r requirements-dev-lock.txt --strict
 ```
 
 All CI jobs run on macOS, with Python 3.12–3.14 and a 90% combined line/branch
-coverage gate. Tests use synthetic fixtures, temporary roots and fake effects;
+coverage gate. The `netorch.privacy_check` line is the public host-data guard
+that CI runs: it reports private addresses, interface names, home paths and
+site-like namespaces in tracked and not yet committed files, and an exception
+must name the exact path, kind and value hash in `schemas/privacy-exceptions.json`.
+Tests use synthetic fixtures, temporary roots and fake effects;
 installed-wheel checks run outside the checkout. Native PF checks compile only
 and never load rules. No CI job runs guests, plays audio or qualifies a production
 host. Workflows have read-only permissions, SHA-pinned actions and hash-locked
@@ -156,7 +161,7 @@ dependencies. The scheduled audit proposes no automatic deployment.
 - `src/netorch/`: closed instance/evidence models, profile/platform/requirement
   libraries, importer, conformance/privacy checks, read-only CLI and retained owners.
 - `schemas/`: versioned data schemas; unknown versions are refused.
-- `examples/`: one synthetic instance and content-addressed data contracts;
+- `examples/`: two synthetic instances and content-addressed data contracts;
   older owner fixtures remain laboratory examples.
 - `tests/`: strictness, property, process, privilege, uncertainty and failure tests.
 - `docs/`: architecture, ownership, migration, acceptance and review traceability.
