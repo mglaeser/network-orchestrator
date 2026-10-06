@@ -7,17 +7,19 @@ configuration must remain data.
 
 ## Local checks
 
-Use a managed Python 3.12 or newer in a virtual environment:
+Use a managed Python 3.12, 3.13 or 3.14, the versions CI runs, in a virtual
+environment:
 
 ```sh
 python3 -m venv .venv
 .venv/bin/python -m pip install --require-hashes -r requirements-dev-lock.txt
 .venv/bin/python -m pip install --no-deps --no-build-isolation -e .
-.venv/bin/python -m pytest --cov=netorch --cov-branch --cov-report=term-missing
+.venv/bin/python -m pytest -m 'not acceptance' --cov=netorch --cov-branch --cov-report=term-missing
 .venv/bin/ruff check .
 .venv/bin/ruff format --check .
 .venv/bin/mypy
 .venv/bin/python -m build --no-isolation
+.venv/bin/pip-audit -r requirements-dev-lock.txt --strict
 ```
 
 Tests should prove behavior across a boundary or a failure mode. Avoid tests that
