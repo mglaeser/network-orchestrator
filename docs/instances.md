@@ -16,6 +16,15 @@ Automatic UDP socket ranges have one named definition. The workload and its retu
 
 Resolved transport and discovery digest envelopes are version 2. They now bind the target workload's container name, owning account, runtime/platform context and supervision settings, including observation/read bounds and discovery timing, through each required transport dependency. Version 1 profile acceptance and owner-state digests require renewed evidence; renaming a target or changing its account, runtime, platform or supervision cannot reuse a previous profile's receipt or readiness.
 
+`supervision.discovery_seconds` and `supervision.discovery_misses` record how
+often the site's discovery owner makes a pass and after how many consecutive
+passes that miss a record it withdraws that record. A selection whose
+tolerance differs says so with `misses`, 1 to 8. The instance-wide value is
+said by leaving the member out; repeating it on a selection is refused.
+`misses` is part of the selection and therefore of its resolved digest. These
+values describe the site's own discovery owner. No retained owner reads them:
+the bundled discovery owner takes its timing from its own settings.
+
 Installed names and state paths can be pinned. Null names are deterministically derived from the private namespace; the PF namespace stays under the platform-defined `com.apple/` anchor namespace. Pinned or derived, the five launchd labels must be distinct, the export prefix must differ from the import prefix, and the user state directory must differ from the root state directory; two workloads cannot share a container name. Changing names is a reviewed owner migration, not an automatic rename.
 
 ## One source of settings during migration
