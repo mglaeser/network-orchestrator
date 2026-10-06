@@ -127,7 +127,8 @@ and [fullname API](https://github.com/apple-oss-distributions/mDNSResponder/blob
 
 Each `-P` registration must independently confirm both the exact unchanged
 service name and its own A-record hostname. Auto-renaming, conflict, removal,
-any child exit and missing confirmation invalidate it. This uses the maintained
+any child exit other than the client's own timer (see below) and missing
+confirmation invalidate it. This uses the maintained
 [Apple DNS-SD client implementation](https://github.com/apple-oss-distributions/mDNSResponder/blob/mDNSResponder-2881.120.11/Clients/dns-sd.c).
 
 ## Supervision, leases and recovery
@@ -167,6 +168,21 @@ client terminates itself on that timer even if the publisher is killed. This
 second lifetime bound prevents indefinitely orphaned registrations; normal
 supervision renews from fresh evidence after client expiry. Actual renewal and
 cache propagation behavior remain native acceptance gates.
+
+A client that exits with status 0 at or after its own `-t` lifetime, without an
+`Error code` line, has ended on that timer: `Clients/dns-sd.c` lines 1315-1320 at
+the revision above arm it with `exit(0)`, and lines 245-246 show the other
+`exit(0)`, which prints that line first. This is the expiry of one record, not a
+failure. The publisher replaces that client alone, with the lease that is left
+and only after the old client has ended, so it never runs two clients for one
+record. Sibling registrations keep running. A record that was confirmed keeps
+the policy's state while its replacement confirms; the five-second confirmation
+limit bounds that, and the observation's `record_count` leaves the record out
+until then. The record is not registered between the two clients. A replacement that
+fails, and every other exit (another status, a signal, status 0 before the
+lifetime or after an `Error code` line), is a registration-child failure as
+before. Renewal still needs fresh evidence: without it the lease ends and the
+policy withdraws.
 
 Bounded scan denial and registration-child failure are isolated by discovery
 policy. The affected policy withdraws or becomes unknown while sibling policies
