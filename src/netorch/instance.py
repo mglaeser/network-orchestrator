@@ -10,7 +10,7 @@ from dataclasses import asdict
 from datetime import datetime
 from functools import lru_cache
 from importlib import resources
-from ipaddress import IPv4Address, IPv4Network
+from ipaddress import IPv4Address, IPv4Network, IPv6Address
 from pathlib import Path, PurePosixPath
 from typing import Any, cast
 
@@ -62,7 +62,15 @@ SECTIONS = (
     "acceptance",
     "deviations",
 )
-_ADDRESS = re.compile(r"(?<![0-9.])(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?:/[0-9]{1,2})?(?![0-9.])")
+# An address may end a sentence. Only a dot that continues into another component
+# makes it part of a longer token.
+_ADDRESS = re.compile(r"(?<![0-9.])(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?:/[0-9]{1,2})?(?![0-9])(?!\.\w)")
+# Hexadecimal groups joined by at least two colons, optionally ending in a dotted
+# quad. This only finds candidates; ``ipaddress`` decides what is an address.
+_ADDRESS6 = re.compile(
+    r"(?<![0-9A-Za-z])(?:[0-9A-Fa-f]{1,4}(?=:)|(?=::))(?::[0-9A-Fa-f]{0,4}){2,}"
+    r"(?:\.[0-9]{1,3}){0,3}(?![0-9A-Za-z])"
+)
 # C0, DEL and C1 controls plus the Unicode line and paragraph separators.
 _CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
 
@@ -356,6 +364,20 @@ def check_plain_data(data: Any, float_keys: frozenset[str] = frozenset()) -> Non
         raise InstanceError("closed data strings cannot contain control characters")
 
 
+def _routed_ipv6(text: str) -> bool:
+    """Whether a candidate is an address a guest or receiver could be reached at."""
+    if text.endswith(":") and not text.endswith("::"):
+        text = text[:-1]  # a colon that ends a clause, not the address
+    try:
+        value = int(IPv6Address(text))
+    except ValueError:
+        return False  # a clock time or a hardware address has colons too
+    unique_local = value >> 121 == 0b1111110  # RFC 4193
+    global_unicast = value >> 125 == 0b001  # RFC 4291
+    documentation = value >> 96 == 0x20010DB8  # RFC 3849, 2001:db8::/32
+    return (unique_local or global_unicast) and not documentation
+
+
 def _check_data_strings(data: Any, allowed_addresses: set[str]) -> None:
     if isinstance(data, dict):
         for value in data.values():
@@ -379,6 +401,8 @@ def _check_data_strings(data: Any, allowed_addresses: set[str]) -> None:
         for address in _ADDRESS.findall(data):
             if address not in allowed_addresses:
                 raise InstanceError("instance cannot contain live guest or receiver addresses")
+        if any(_routed_ipv6(candidate) for candidate in _ADDRESS6.findall(data)):
+            raise InstanceError("instance cannot contain live guest or receiver addresses")
 
 
 def _timestamp(value: str | None) -> None:
