@@ -1,4 +1,4 @@
-"""No command line of a deployment reaches root: jobs and monitors alike."""
+"""Known privilege helpers and shell strings are refused in jobs and monitors."""
 
 from __future__ import annotations
 
@@ -71,3 +71,36 @@ def test_words_that_only_contain_those_names_are_not_refused(manifest: dict[str,
         "--service",
         "sum",
     )
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["/bin/sh", "-c", "/usr/bin/sudo -n /protected/check"],
+        ["/bin/bash", "-lc", "exec /protected/check"],
+        ["/bin/zsh", "-ec", "exec /protected/check"],
+        ["/bin/csh", "-c", "exec /protected/check"],
+        ["/opt/homebrew/bin/fish", "--command=exec /protected/check"],
+        ["/usr/bin/env", "PATH=/bin", "sh", "-c", "exec /protected/check"],
+    ],
+)
+@pytest.mark.parametrize("field", ["job", "check_argv", "recovery_argv"])
+def test_known_shell_command_strings_cannot_be_deployment_data(
+    manifest: dict[str, Any], argv: list[str], field: str
+) -> None:
+    if field == "job":
+        manifest["jobs"][0]["argv"] = argv
+    else:
+        manifest["monitors"][0][field] = argv
+    with pytest.raises(DeploymentError, match="shell command strings"):
+        parse_deployment(canonical_bytes(manifest))
+
+
+def test_reviewed_script_path_and_non_shell_options_remain_provider_bindings(
+    manifest: dict[str, Any],
+) -> None:
+    manifest["monitors"][0]["check_argv"] = ["/bin/sh", "/protected/check.sh"]
+    manifest["monitors"][0]["recovery_argv"] = ["/protected/manager", "-c", "camera"]
+    deployment = parse_deployment(canonical_bytes(manifest))
+    assert deployment.monitors[0].check_argv == ("/bin/sh", "/protected/check.sh")
+    assert deployment.monitors[0].recovery_argv == ("/protected/manager", "-c", "camera")

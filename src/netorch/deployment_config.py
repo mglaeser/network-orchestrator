@@ -36,12 +36,24 @@ def _path(value: str) -> None:
 
 
 def _unprivileged(argv: tuple[str, ...]) -> None:
-    # Jobs run under launchd and monitors under Monit; neither may reach root.
+    # Bindings are trusted executable code, not a sandbox. These guards reject
+    # explicit elevation and known shell-command strings in manifest data.
     if any(
         value in {"sudo", "su", "doas"} or value.endswith(("/sudo", "/su", "/doas"))
         for value in argv
     ):
         raise DeploymentError("deployment never embeds privilege escalation")
+    shells = {"sh", "bash", "zsh", "dash", "ksh", "fish", "csh", "tcsh"}
+    for index, value in enumerate(argv):
+        # Include an explicit env/wrapper shell argument, without interpreting
+        # command text or claiming to detect renamed executables or scripts.
+        if PurePosixPath(value).name in shells and any(
+            item == "--command"
+            or item.startswith("--command=")
+            or (item.startswith("-") and not item.startswith("--") and "c" in item[1:])
+            for item in argv[index + 1 :]
+        ):
+            raise DeploymentError("deployment never embeds shell command strings")
 
 
 def _shape(value: Any) -> None:
