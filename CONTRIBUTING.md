@@ -17,8 +17,16 @@ python3 -m venv .venv
 .venv/bin/ruff check .
 .venv/bin/ruff format --check .
 .venv/bin/mypy
+.venv/bin/python -m netorch.privacy_check --root . --exceptions schemas/privacy-exceptions.json
 .venv/bin/python -m build --no-isolation
 ```
+
+The `netorch.privacy_check` line is the public host-data guard that CI runs. It
+scans tracked and not yet committed files, new tests included, and reports a
+finding by path, line, kind and value hash without echoing the value. Prefer
+rewriting the line; an exception in `schemas/privacy-exceptions.json` must name
+the exact path, kind, value SHA-256 and a written reason. See
+[runnable CI checks](docs/legacy-import.md#runnable-ci-checks).
 
 Tests should prove behavior across a boundary or a failure mode. Avoid tests that
 only repeat implementation details. When changing a reader, include complete,

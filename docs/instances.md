@@ -43,7 +43,7 @@ netorch-host check --instance /private/instance/instance.json
 netorch-host report --instance /private/instance/instance.json
 ```
 
-`validate` checks schema, canonical bytes, references, collisions and referenced contract contents. `preflight` reports declared versus observed prerequisites. `status` reports profiles and requirements. `plan` compares desired and owner-reported digests and emits **no actions**. `check` exits 1 until all applicable requirements, current evidence and qualified support are established. `report` produces the complete report. Root execution is refused (77); invalid/unavailable local data returns 65, with redacted errors.
+`validate` checks schema, canonical bytes, references, collisions and referenced contract contents. `preflight` reports the observed prerequisites (each fact with its state, reason, age and value), the resolved names and the platform flags; it does not compare them with the declared `host.baseline`. `status` and `report` print the same complete report: profiles, requirements, facts, workloads and the rest. `plan` compares desired and owner-reported digests and emits **no actions**. `check` exits 1 until all applicable requirements, current evidence and qualified support are established. Root execution is refused (77); invalid/unavailable local data returns 65, with redacted errors.
 
 Optional `--framework-artifact /private/release/package.whl --dependency-lock /private/release/dependency-lock.json` checks exact artifact/lock bytes and the installed package version. `--data-dir` selects the existing private directory containing contract references. `--evidence-dir` selects retained content-addressed acceptance files. No path in these data files is executed.
 

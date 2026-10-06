@@ -135,8 +135,9 @@ fresh readers establish `present` or `absent`; inaccessible, truncated, busy,
 malformed or timed-out readers report `unknown` with a closed reason. The stored
 network and service generations must represent actual runtime lifecycle changes.
 
-Initialize the independent private state directory with `init-state`; it starts
-paused. Operator pause and operation-owned suspensions form an activation block.
+`init-state` initializes the independent private state directory, which starts
+paused. This release refuses that command with status 78 before it creates
+anything. Operator pause and operation-owned suspensions form an activation block.
 Neither expires; only the operator resumes, and only the matching holder releases
 its suspension. Release installation and rollback preserve this directory.
 

@@ -11,8 +11,8 @@ The same external tables can describe an entire site's custom container-networki
 setup. Installation is explicit, domain-separated and journalled; a successful
 public build does not change a production host.
 
-Use [getting started](getting-started.md) for the end-to-end command sequence,
-[provisioning](provisioning.md) for the bundle transaction, and the
+Use [getting started](getting-started.md) for the read-only workflow of this
+release, [provisioning](provisioning.md) for the bundle transaction, and the
 [runtime](apple-runtime.md), [workload](workloads.md),
 [Bonjour](bonjour-owner.md) and [PF](pf-owner.md) guides for owner contracts.
 
@@ -91,7 +91,6 @@ reviewed user bindings:
 
 ```sh
 netorch validate --config /operator/site/network.json
-netorch init-state --state-dir /operator/state/netorch
 netorch observe --config /operator/site/network.json \
   --bindings /operator/site/bindings.json
 netorch reconcile --config /operator/site/network.json \
@@ -100,7 +99,13 @@ netorch reconcile --config /operator/site/network.json \
   --state-dir /operator/state/netorch
 ```
 
-Initial intent is paused. Reconciliation is a plan until
+`netorch init-state --state-dir /operator/state/netorch` creates the state
+directory with a paused initial intent. This release refuses it with status 78
+(`stage-not-qualified`) before anything is created, so it writes no initial
+intent; a state directory left by an earlier installation is read as it is. The
+preview never initializes state: an absent or unreadable `intent.json` is
+planned as damaged intent, which inhibits activation, and an unreadable
+`--admissions` file ends the command with status 65. Reconciliation is a plan until
 `--execute-user-owners` is explicitly supplied; it cannot execute external-root
 actions. Provider paths are trusted local bindings, not network-policy commands.
 Real fixed owner endpoints independently validate requests and current evidence.
