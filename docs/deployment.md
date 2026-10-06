@@ -55,7 +55,8 @@ The framework does not install Python, Monit, Apple Container or an application.
 Install reviewed managed tool artifacts first. Root must use a root-owned installed
 Python/package in isolated mode, never a user's checkout or virtual environment.
 No `sudo`, privileged RPC or automatic runtime upgrade is embedded in the user
-coordinator.
+coordinator. The manifest refuses `sudo`, `su` and `doas` in every job, monitor
+check and monitor recovery command line.
 
 ## 1. Inventory and choose authority
 
