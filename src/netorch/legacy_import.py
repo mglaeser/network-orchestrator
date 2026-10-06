@@ -165,7 +165,8 @@ def _pointer(pointer: object) -> list[str]:
     if pointer == "/" or "~" in pointer or any(not p for p in pointer[1:].split("/")):
         raise ImportError("Unsupported JSON pointer")
     parts = pointer[1:].split("/")
-    if any(part.isdecimal() and len(part) > 1 and part.startswith("0") for part in parts):
+    # One spelling per index: no leading zero and no digit outside ASCII.
+    if any(part.isdecimal() and not re.fullmatch(r"0|[1-9][0-9]*", part) for part in parts):
         raise ImportError("Ambiguous JSON pointer index")
     return parts
 
@@ -184,6 +185,24 @@ def _lookup(data: Any, pointer: str) -> Any:
         else:
             raise ImportError("Mapped static value is unavailable")
     return value
+
+
+def _claim(claimed: dict[str, Any], pointer: str) -> None:
+    """Record one mapped destination of a manifest; every setting has one author.
+
+    The mappings alone decide, not the values they yield: a null, an absent or
+    an underivable value does not make room for a second mapping. A destination
+    inside another mapped destination has two authors as well.
+    """
+    *containers, last = _pointer(pointer)
+    node = claimed
+    for part in containers:
+        node = node.setdefault(part, {})
+        if node is None:
+            raise ImportError("Mapping container is unavailable")
+    if last in node:
+        raise ImportError("Mapped value has more than one author")
+    node[last] = None
 
 
 def _fill(data: dict[str, Any], pointer: str, value: Any) -> None:
@@ -324,6 +343,7 @@ def import_sources(manifest: str | Path) -> ImportResult:
     if not isinstance(entries, list) or not 1 <= len(entries) <= 128:
         raise ImportError("A bounded static source list is required")
     values: dict[str, Any] = {}
+    claimed: dict[str, Any] = {}
     receipts: list[SourceReceipt] = []
     issues: list[Issue] = []
     seen: set[str] = set()
@@ -359,6 +379,7 @@ def import_sources(manifest: str | Path) -> ImportResult:
         for selector, pointer in mapping.items():
             if any(_secret_key(part) for part in _pointer(selector) + _pointer(pointer)):
                 raise ImportError("Credential and environment values are not instance data")
+            _claim(claimed, pointer)
         if fmt == "source-inventory" and mapping:
             raise ImportError("Executable owner sources cannot provide desired settings")
         capture = Path(source_path)

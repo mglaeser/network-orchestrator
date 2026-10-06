@@ -21,7 +21,13 @@ and literal data lists. Only explicit source-JSON-pointer to destination-pointer
 mappings are emitted. Duplicate JSON/plist keys, duplicate TOML/assignment keys,
 unsupported types, oversized/deep input, malformed text and unavailable mappings
 are refused or represented as underivable. The pointer subset deliberately
-excludes escaping, empty segments and ambiguous array indices.
+excludes escaping, empty segments and ambiguous array indices: an index has one
+spelling, without a leading zero and in ASCII digits.
+
+Every destination has exactly one mapping in the whole manifest. A second
+mapping to the same destination, or to a destination inside another mapped
+one, refuses the import whatever the mappings yield. A null, an absent value or
+an underivable source does not make room for a second author.
 
 Property lists require complete dictionary/array/scalar structure. Text outside
 scalar values cannot be silently discarded; scalar elements cannot contain child
