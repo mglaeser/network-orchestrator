@@ -107,7 +107,9 @@ saved addresses or states.
 The reserved recovery failure code remains **42**, above the signal range.
 `recovery_exit_code` returns it only for a fresh, complete absence after the
 initial PF/Bonjour readiness gate. Unknown, stale, future, timeout and cold-start
-observations return uncertainty code1. A supervisor must match **42 exactly**,
+observations return uncertainty code1. The one cold start that returns 42 is a
+fresh absence that the caller states was established with the declared
+fleet-start evidence (`fleet_start_proven`). A supervisor must match **42 exactly**,
 never every nonzero exit status. This pure helper does not modify live Monit
 rules or start a recovery loop. The executable workload probe reports the same
 uncertainty as status 69, not 1 ([Apple runtime](apple-runtime.md)); neither

@@ -91,7 +91,9 @@ an empty array. All owners must agree on the live network-generation identity.
 Version, reason, freshness and complete-read checks are mandatory. Do not report
 absent because a command returned empty output; establish that the invocation and
 snapshot were complete. Treat implausible all-stopped runtime lists, consent denial
-and API/helper restarts according to the platform acceptance contract.
+and API/helper restarts according to the platform acceptance contract. An
+all-stopped list is unknown unless independent evidence for each stopped
+workload is declared and holds.
 
 ## User-owned reconciliation
 

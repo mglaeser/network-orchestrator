@@ -75,7 +75,9 @@ persistent identities. It takes its own holder-owned suspension and journal.
 Every write has a fresh target/inventory/identity check. Missing names are
 created stopped; `--start-initial` deliberately starts these or validated
 existing stopped names even when initial fleet state is all stopped. Monit
-cannot invoke this bootstrap path.
+cannot invoke this bootstrap path; its own start rule reaches a fully stopped
+fleet only where the runtime settings declare
+[`fleet_start`](apple-runtime.md#starting-a-fully-stopped-fleet).
 
 Already-running enrolled containers are retained with zero lifecycle changes.
 Unexpected names, changed resources, different mounts, duplicate names or
