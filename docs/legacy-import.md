@@ -38,11 +38,15 @@ digest-pinned image reference needs no quotes. A property list must contain
 exactly one root object; a second one is refused, not silently preferred.
 
 Literal assignment data contains only comments, blank lines and standalone
-uppercase assignments with quoted or bare literals. Variable substitution,
-command substitution, sourcing, function bodies, conditionals, executable
-statements, shell escapes and expressions are underivable. The entire file must
-be a literal data file: extracting one plausible assignment from executable
-code could mistake a test/default/conditional value for production settings.
+assignments with quoted or bare literals. A key is a name of ASCII letters,
+digits and underscores that does not begin with a digit. Upper and lower case
+are both accepted and are significant: `port` and `PORT` are two keys. A
+prefixed line such as `export NAME=value`, a space beside the `=`, variable
+substitution, command substitution, sourcing, function bodies, conditionals,
+executable statements, shell escapes and expressions are underivable. The
+entire file must be a literal data file: extracting one plausible assignment
+from executable code could mistake a test/default/conditional value for
+production settings.
 `source-inventory` records the full executable's digest and an explicit
 `executable-source-not-evaluated` issue; it cannot map settings.
 
@@ -74,6 +78,14 @@ accepted decision. Any mapped destination under `decisions`, `acceptance`,
 holds a null slot: signatures, acceptance records, provenance and the release
 pin are written by a person. A partial generated report is useful evidence; it
 is not a complete or approved deployable instance.
+
+A literal file holds text only. Where the instance schema admits nothing but an
+integer in the destination slot, mapped text in plain decimal form (digits
+only, no sign, no leading zero, at most ten digits) is converted to that
+integer; any other text for such a slot is refused and the error names the
+field. The instance parser still checks the field's range. Nothing else is
+converted: digits mapped to a text field stay text, and text never becomes a
+Boolean. The generated view keeps every value as it was read.
 
 ## Flip only one owner with exact parity
 
