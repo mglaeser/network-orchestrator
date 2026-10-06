@@ -25,6 +25,7 @@ loader. Operator data supplies:
 | Networks | Scope, native network name/gateway, launchd helper domain/label, expected program and UID |
 | Service contracts | Service/name/scope, full native configuration fingerprint, persistent mount identities, hashed file receipts |
 | Paths | Private generated policy, user admissions, durable intent and state directory |
+| Fleet start (optional) | launchd label and program of the vendor API job, label prefix of the per-guest runtime jobs; left out, the all-stopped guard applies |
 
 No receiver IP is enrolled. Media receivers come from genuine current LAN
 DNS-SD records; DHCP changes and additional eligible devices need no code edit.
@@ -119,6 +120,10 @@ API service restart can produce that apparent state. The supported decoders
 cover explicitly versioned nested CLI and resource-shaped envelopes; unfamiliar
 output never falls back to a permissive interpretation.
 
+The all-stopped rule is the default. Settings that declare `fleet_start` replace
+it with evidence for each stopped guest; see
+[Starting a fully stopped fleet](#starting-a-fully-stopped-fleet).
+
 ## User endpoint and Monit
 
 ```sh
@@ -144,18 +149,107 @@ performs two complete stopped observations in the same network generation,
 starts the existing enrolled name, then requires running readback. Running but
 unhealthy guests, unknown observations and all-stopped inventories never cause
 automatic restart. Initial all-stopped provisioning is a distinct explicitly
-approved operator operation in [workloads.md](workloads.md).
+approved operator operation in [workloads.md](workloads.md). Where `fleet_start`
+is declared, an all-stopped inventory is no longer excluded as such: each
+stopped guest is judged on the evidence described below.
 
 Networking jobs and Monit do not replace the site's initial application startup
 chain after login. Preserve that existing maintained owner during migration;
-the routine all-stopped guard deliberately cannot bootstrap the fleet. See the
-[site migration responsibility map](site-migration.md) before claiming unattended
-reboot availability.
+without `fleet_start` the routine all-stopped guard deliberately cannot
+bootstrap the fleet, and with it Monit starts workloads only, never the vendor
+runtime. See the [site migration responsibility map](site-migration.md) before
+claiming unattended reboot availability.
 
 Operator pause inhibits custom networking and recovery. Vendor publications are
 part of existing application definitions; an operator pause is not permission
 to stop those applications. Missing native publication or a changed definition
 therefore reports a maintenance requirement rather than hidden recreation.
+
+## Starting a fully stopped fleet
+
+After a boot every guest is stopped, but the API alone cannot prove it: whenever
+its service starts, it lists every stored definition as stopped, whether or not
+a guest outlived the restart. The settings may therefore name where independent
+evidence is found:
+
+```json
+"fleet_start": {
+  "api_label": "example.vendor.api",
+  "api_executable": "/Library/ExampleVendor/libexec/api-server",
+  "runtime_label_prefix": "example.vendor."
+}
+```
+
+| Member | Value |
+|---|---|
+| `api_label` | launchd label of the vendor API job: a letter or digit, then up to 127 letters, digits, dots, underscores or hyphens |
+| `api_executable` | that job's program, an absolute canonical path |
+| `runtime_label_prefix` | prefix of the per-guest runtime jobs: a letter or digit, then letters, digits, dots or hyphens, ending in a dot, at most 97 characters; one guest's job is `<prefix><runtimeHandler>.<name>` |
+
+The object is closed and all three members are required. Leave the key out to
+keep the all-stopped guard: an explicit `null` is refused, and settings without
+the key keep their bytes and digests. With it, every network must state the same
+`helper_domain`; the jobs are looked up there.
+
+With the declaration a pass reads the following in addition, and anything
+missing or unfamiliar is unknown:
+
+1. Before the inventory and once more at the very end of the pass,
+   `launchctl print <helper_domain>/<api_label>` must show a running job with a
+   process ID whose program is `api_executable`, and `ps` must show that
+   process running that program as the enrolled account. Both reads must agree.
+   The process ID and start time join the network generation, so the two
+   observations of a recovery cannot lie on either side of an API restart.
+2. For each guest that the inventory lists as stopped, the job
+   `<runtime_label_prefix><runtimeHandler>.<name>` is printed in `gui/<uid>` and
+   in `user/<uid>` of the enrolled account, or in `system` alone when that is the
+   helper domain. The handler comes from the enrolled configuration, which must
+   also carry the guest's own name as its `id`. The guest is absent only when
+   every print ends with exit status 113 and no standard output, the service
+   manager's answer for a label it has no job for. A job that is printed makes
+   that guest unknown (`generation-mismatch`); any other outcome makes it
+   unknown (`unavailable`). Other guests are not affected.
+
+A guest listed as running is read as before. Recovery itself is unchanged: the
+lock, the durable intent read twice, two stopped observations in one network
+generation, one `start`, running readback. An operator pause therefore keeps a
+fully stopped fleet stopped, and a stop of everything without a pause is undone
+like the stop of one workload. Workloads start one after another, in whatever
+order the supervisor fires its rules.
+
+Nothing here starts the vendor runtime. A site that wants unattended recovery
+after a boot names another tool that starts the runtime after login. Without
+one the API job is never the declared running job, every workload stays unknown
+and nothing is started. A runtime job that stays loaded without a process, for
+example after the API service was away while its guest ended, also keeps that
+guest unknown until an operator removes the job or starts the guest.
+
+The declaration belongs in every settings object from which a network generation
+is computed: the user's runtime settings and the `observer` of the root
+forwarding owner. The API job's identity is part of that generation, so owners
+that do not carry the same declaration compute different generations and the
+coordinator plans nothing (`network-unknown`). Adding it to the root
+installation changes every root admission digest; each profile is admitted
+again, as after any change of the trusted observer. A wrong label or program
+makes every workload unknown, running ones included, so read the result of
+`observe` before the settings reach the root owner.
+
+The rule follows from the vendor's source, which agrees at tags 1.2.0, 1.4.1 and
+1.5.0. The API service is the job `com.apple.container.apiserver`
+([`SystemStart`](https://github.com/apple/container/blob/1.5.0/Sources/ContainerCommands/System/SystemStart.swift#L115-L122)).
+It lists every stored definition as stopped when it starts
+([`loadAtBoot`](https://github.com/apple/container/blob/1.5.0/Sources/Services/ContainerAPIService/Server/Containers/ContainersService.swift#L92-L161)),
+labels a guest's runtime job `com.apple.container.<runtimeHandler>.<id>` from
+that guest's configuration
+([`fullLaunchdServiceLabel`](https://github.com/apple/container/blob/1.5.0/Sources/Services/ContainerAPIService/Server/Containers/ContainersService.swift#L1016-L1018)),
+and registers it in `system`, `user/<uid>` or `gui/<uid>` according to the
+session the API service itself was started from
+([`getDomainString`](https://github.com/apple/container/blob/1.5.0/Sources/ContainerPlugin/ServiceManager.swift#L124-L136)).
+Source reading is not a capture. The exit status and the output of a missing
+job, and the lines of a loaded one, are checked against the real service manager
+on the hosted CI runner only, which is evidence for that runner image. The
+launchd behaviour of a production build, a runtime job that survives an API
+restart and the time a start takes remain native acceptance items.
 
 ## Runtime and login gates
 

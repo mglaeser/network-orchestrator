@@ -110,6 +110,12 @@ identity, interface addresses, network and started-instance generations, live
 automatic socket ranges and inspection races. Tests reject wrong mounts/contracts,
 unknown resource shapes, duplicate attachments/publications, other guest writers,
 all-stopped outage ambiguity, timeout and successful incomplete output.
+With `fleet_start` declared they cover the evidence for each stopped guest
+instead: the API job read before and after the pass, a runtime job loaded in
+either domain of the account, and every missing or unfamiliar answer as unknown.
+Six `darwin` contract tests ask the hosted runner's real service manager for a
+missing job and for a loaded one, and run the reader of the API job, its `ps`
+call included, on running jobs of that runner.
 
 Recovery rechecks independently proven stopped state, pause and admission before
 starting. It never recreates running/unknown definitions. Only the workload probe

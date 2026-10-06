@@ -27,6 +27,7 @@ from .pf_owner import reject_acl as reject_privileged_acl
 from .process import OutputLimit, ProcessTimeout, Result, run
 from .runtime_settings import (
     FileIdentity,
+    FleetStart,
     RuntimeContract,
     RuntimeNetwork,
     RuntimeSettings,
@@ -65,6 +66,16 @@ class RuntimeReadError(RuntimeError):
 
 class NativePublicationMaintenance(RuntimeReadError):
     """A fixed vendor socket requires its existing application maintenance owner."""
+
+
+# One loaded job as the service manager prints it; `Reader.helper` reads the
+# network helper with the same three expressions.
+_JOB_RUNNING = re.compile(r"^\s*state = running\s*$", re.MULTILINE)
+_JOB_PID = re.compile(r"^\s*pid = ([1-9]\d*)\s*$", re.MULTILINE)
+_JOB_PROGRAM = re.compile(r"^\s*program = (.+?)\s*$", re.MULTILINE)
+# The service manager's exit status for a label it has no job for.
+_JOB_NOT_LOADED = 113
+_RUNTIME_HANDLER = re.compile(r"[a-z0-9][a-z0-9-]{0,62}\Z")
 
 
 class Reader:
@@ -176,6 +187,51 @@ class Reader:
             "uid": int(found[1]),
             "executable": found[3],
         }
+
+    def api(self, fleet: FleetStart, domain: str) -> dict[str, Any]:
+        """The vendor API job behind the inventory: loaded, running, the declared program."""
+        report = self.tool(["/bin/launchctl", "print", f"{domain}/{fleet.api_label}"])
+        pid, program = _JOB_PID.search(report), _JOB_PROGRAM.search(report)
+        if (
+            _JOB_RUNNING.search(report) is None
+            or pid is None
+            or program is None
+            or program[1] != fleet.api_executable
+        ):
+            raise RuntimeReadError("identity-mismatch")
+        process = self.tool(
+            ["/bin/ps", "-p", pid[1], "-o", "uid=", "-o", "lstart=", "-o", "comm="]
+        ).strip()
+        found = re.fullmatch(r"(\d+)\s+(.{24})\s+(.+)", process)
+        if (
+            found is None
+            or int(found[1]) != self.settings.account.uid
+            or found[3] != fleet.api_executable
+        ):
+            raise RuntimeReadError("identity-mismatch")
+        return {
+            "pid": int(pid[1]),
+            "started": found[2],
+            "uid": int(found[1]),
+            "executable": found[3],
+        }
+
+    def job_absent(self, domain: str, label: str) -> bool:
+        """Whether the service manager itself says it has no job with this label.
+
+        True only for its own "no such job" answer and False for a job it prints.
+        Any other outcome is evidence of neither and makes the read unavailable.
+        """
+        result = self.runner(
+            ["/bin/launchctl", "print", f"{domain}/{label}"],
+            timeout=self.remaining(3),
+            max_output=262_144,
+        )
+        if result.returncode == _JOB_NOT_LOADED and not result.stdout:
+            return True
+        if result.returncode == 0 and result.stdout and not result.stderr:
+            return False
+        raise RuntimeReadError("unavailable")
 
 
 def decode_snapshot(raw: Any, version: str) -> dict[str, Any]:
@@ -497,6 +553,27 @@ def _service(
     reader: Reader,
 ) -> Observation:
     if current["state"] == "stopped":
+        fleet = reader.settings.fleet_start
+        if fleet is not None:
+            # The API gives every stored definition this state whenever it starts,
+            # so its word alone does not say that the guest is not running. The
+            # guest's runtime job carries the configuration's own identifier.
+            handler = current["configuration"].get("runtimeHandler")
+            if (
+                not isinstance(handler, str)
+                or _RUNTIME_HANDLER.fullmatch(handler) is None
+                or current["configuration"].get("id") != contract.name
+            ):
+                raise RuntimeReadError("identity-mismatch")
+            label = f"{fleet.runtime_label_prefix}{handler}.{contract.name}"
+            uid = reader.settings.account.uid
+            # An earlier incarnation of the API may have registered the guest in
+            # the account's other domain; a job there is as live as one here.
+            for domain in (
+                ("system",) if network.helper_domain == "system" else (f"gui/{uid}", f"user/{uid}")
+            ):
+                if not reader.job_absent(domain, label):
+                    raise RuntimeReadError("generation-mismatch")
         return Observation(
             "absent",
             "confirmed-absent",
@@ -647,10 +724,21 @@ def observe_runtime(
             raise RuntimeReadError()
         helpers = {network.scope: reader.helper(network) for network in settings.networks}
         networks = {network.scope: reader.network(config, network) for network in settings.networks}
+        fleet, domain, api = settings.fleet_start, "", None
+        if fleet is not None:
+            domains = {network.helper_domain for network in settings.networks}
+            if len(domains) != 1:
+                raise RuntimeReadError("identity-mismatch")
+            (domain,) = domains
+            api = reader.api(fleet, domain)
         inventory = reader.inventory()
-        if inventory and all(item["state"] == "stopped" for item in inventory):
+        if fleet is None and inventory and all(item["state"] == "stopped" for item in inventory):
             raise RuntimeReadError("incomplete")
-        generation = "network-" + digest({"boot": boot, "helpers": helpers, "networks": networks})
+        identity: dict[str, Any] = {"boot": boot, "helpers": helpers, "networks": networks}
+        if api is not None:
+            # A restarted API forgets which guests run; it is another generation.
+            identity["api"] = api
+        generation = "network-" + digest(identity)
         for contract in settings.contracts:
             try:
                 listed = [item for item in inventory if item["id"] == contract.name]
@@ -680,6 +768,8 @@ def observe_runtime(
         if networks != {
             network.scope: reader.network(config, network) for network in settings.networks
         }:
+            raise RuntimeReadError("generation-mismatch")
+        if fleet is not None and api != reader.api(fleet, domain):
             raise RuntimeReadError("generation-mismatch")
     except (ValueError, OSError, RuntimeReadError, ProcessTimeout, OutputLimit) as exc:
         generation = None

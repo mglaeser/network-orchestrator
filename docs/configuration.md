@@ -149,7 +149,10 @@ The CLI bounds their execution but is not a sandbox for malicious adapters.
 This release supplies executable Apple runtime and Bonjour adapters, an independent
 PF owner, and separate user/root provisioning. It does not install a packet stack,
 upgrade the vendor runtime, choose automatic login or replace application settings.
-The existing application startup chain remains independently owned. Missing or
+The existing application startup chain remains independently owned; an optional
+[`fleet_start`](apple-runtime.md#starting-a-fully-stopped-fleet) declaration lets
+the supervisor start proven-stopped workloads after a boot, never the vendor
+runtime. Missing or
 unsafe native prerequisites stay unknown/pending. Public CI proves model and
 mock contracts plus hosted PF grammar; consult the [deployment gates](deployment.md)
 for real packets, consent, boot/restore and application acceptance.

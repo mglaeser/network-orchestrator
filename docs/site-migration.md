@@ -83,6 +83,12 @@ to delete files, gates, journals, locks or kernel references.
 Native SSH, SMB, screen sharing and unrelated listeners/anchors remain separately
 owned. Ordinary guest egress remains vendor NAT. Existing application start-after-
 login and management tools remain explicit lifecycle writers; Monit is not a
-second fleet-bootstrap loop. Component failure does not default to restarting its
-parent workload. See [safety contract](safety-contract.md), [legacy import](legacy-import.md)
-and [testing](testing.md).
+second fleet-bootstrap loop unless the runtime settings declare
+[`fleet_start`](apple-runtime.md#starting-a-fully-stopped-fleet), and even then
+it starts proven-stopped workloads only, never the vendor runtime. A site whose
+present supervisor is the only starter of its workloads after a boot cannot flip
+that owner before this declaration is accepted there; if nothing else starts the
+vendor runtime there either, it cannot flip that owner in this release.
+Component failure does not default to restarting its parent workload. See
+[safety contract](safety-contract.md), [legacy import](legacy-import.md) and
+[testing](testing.md).

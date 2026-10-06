@@ -10,6 +10,8 @@ from typing import Any
 from .codec import canonical_bytes, digest, strict_load, strict_loads
 
 _ID = re.compile(r"[a-z][a-z0-9-]*\Z")
+_JOB_LABEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
+_JOB_LABEL_PREFIX = re.compile(r"[A-Za-z0-9][A-Za-z0-9.-]{0,95}\.\Z")
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
 _VERSIONS = {"1.2.0", "1.4.1", "1.5.0"}
 
@@ -53,6 +55,20 @@ class RuntimeNetwork:
 
 
 @dataclass(frozen=True, slots=True)
+class FleetStart:
+    """Service-manager evidence that lets a fully stopped fleet be read as stopped.
+
+    Without this declaration an inventory in which every guest is stopped stays
+    unknown. With it, a stopped guest is absent only while the vendor API job is
+    the declared one and the service manager has no runtime job for that guest.
+    """
+
+    api_label: str
+    api_executable: str
+    runtime_label_prefix: str
+
+
+@dataclass(frozen=True, slots=True)
 class RuntimeSettings:
     schema_version: int
     owner: str
@@ -66,6 +82,7 @@ class RuntimeSettings:
     intent: str | None = None
     state_dir: str | None = None
     legacy_risk_acknowledged: bool = False
+    fleet_start: FleetStart | None = None
 
     @classmethod
     def from_dict(cls, value: Any) -> RuntimeSettings:
@@ -145,7 +162,7 @@ def parse_settings(value: Any) -> RuntimeSettings:
             "networks",
             "contracts",
         },
-        {"policy", "admissions", "intent", "state_dir", "legacy_risk_acknowledged"},
+        {"policy", "admissions", "intent", "state_dir", "legacy_risk_acknowledged", "fleet_start"},
     )
     if (
         type(data["schema_version"]) is not int
@@ -252,6 +269,23 @@ def parse_settings(value: Any) -> RuntimeSettings:
         key: _path(data[key]) if data.get(key) is not None else None
         for key in ("policy", "admissions", "intent", "state_dir")
     }
+    fleet = None
+    if "fleet_start" in data:
+        # Present means declared. An explicit null is not a second way to leave it out.
+        item = _object(data["fleet_start"], {"api_label", "api_executable", "runtime_label_prefix"})
+        if (
+            not isinstance(item["api_label"], str)
+            or not _JOB_LABEL.fullmatch(item["api_label"])
+            or not isinstance(item["runtime_label_prefix"], str)
+            or not _JOB_LABEL_PREFIX.fullmatch(item["runtime_label_prefix"])
+        ):
+            raise ValueError("invalid fleet start declaration")
+        # That one domain is where the API job and the runtime jobs are looked up.
+        if len({network.helper_domain for network in networks}) != 1:
+            raise ValueError("fleet start needs one helper domain")
+        fleet = FleetStart(
+            item["api_label"], _path(item["api_executable"]), item["runtime_label_prefix"]
+        )
     return RuntimeSettings(
         1,
         data["owner"],
@@ -262,6 +296,7 @@ def parse_settings(value: Any) -> RuntimeSettings:
         tuple(contracts),
         **paths,
         legacy_risk_acknowledged=legacy,
+        fleet_start=fleet,
     )
 
 
@@ -271,4 +306,7 @@ def load_settings(path: Path | str) -> RuntimeSettings:
 
 def settings_to_dict(settings: RuntimeSettings) -> dict[str, Any]:
     result: dict[str, Any] = strict_loads(canonical_bytes(asdict(settings)))
+    # Left out while undeclared: settings without it keep their bytes and digests.
+    if result["fleet_start"] is None:
+        del result["fleet_start"]
     return result

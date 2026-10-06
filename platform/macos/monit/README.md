@@ -9,6 +9,9 @@ the configured cycle count can execute the declared workload recovery command.
 Ordinary failure, signals, timeout, malformed/incomplete observations, permission
 denial, busy locks and stale evidence cannot match this rule. A start command
 must reobserve the workload and independently preserve pause/suspension gates.
+A fully stopped fleet returns 42 only where the runtime settings declare
+`fleet_start` and its evidence holds for the workload; Monit never starts the
+vendor runtime.
 
 Forwarding and discovery checks can alert, but cannot have a recovery command.
 A PF failure therefore cannot restart a container. Bonjour's own registration
