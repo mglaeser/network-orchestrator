@@ -291,6 +291,11 @@
         },
         "recovery_code": {
           "const": 42
+        },
+        "recovery_repeat_cycles": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 360
         }
       }
     }

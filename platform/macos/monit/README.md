@@ -10,6 +10,12 @@ Ordinary failure, signals, timeout, malformed/incomplete observations, permissio
 denial, busy locks and stale evidence cannot match this rule. A start command
 must reobserve the workload and independently preserve pause/suspension gates.
 
+By default the rule runs the recovery command once per failure episode. When a
+workload monitor sets `recovery_repeat_cycles`, its rule ends in
+`repeat every N cycles` and Monit runs the command again every N cycles while
+the probe still returns 42. The repeat has no upper count; each run is the same
+guarded start.
+
 Forwarding and discovery checks can alert, but cannot have a recovery command.
 A PF failure therefore cannot restart a container. Bonjour's own registration
 watchdog enforces its lease; Monit is not the lease clock. A single existing
