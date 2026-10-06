@@ -22,11 +22,18 @@ the existing policy/enrollment tables. A recipe cannot override `--name`,
 Environment inheritance is forbidden; literal `KEY=value` input is required.
 No shell, `eval`, command substitution or executable configuration is used.
 
-Resources, entrypoint, process arguments, DNS, bind mounts, socket publications,
+Resources, entrypoint, process arguments, DNS, bind mounts,
 kernel and sysctls can be preserved in the private recipe. Mount sources must
 match the enrolled persistent identities exactly. Kernel and environment-file
 inputs need hashed receipts. Custom init images also need immutable digest pins.
 The 1.5.0 kernel-argument flag is rejected on older reader contracts.
+
+A recipe cannot publish a host socket: `--publish-socket` is refused. While the
+vendor's `create` builds its configuration it removes an existing file or
+directory at the host path, unless that is a socket, and creates missing parent
+directories; a row naming a data directory would delete it. No enrolled identity
+binds that path yet. An existing definition that publishes a socket is still
+fingerprinted, observed and retained; only creating one from a recipe is refused.
 
 Normal application secret storage stays with its existing application. A private
 recipe may contain a secret environment value, so recipes and journals are
