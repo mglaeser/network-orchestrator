@@ -155,7 +155,11 @@ capture, content/implementation-bound admission, activation rechecks, actual
 readback parser contracts, healthy no-op passes and withdrawal/state-drain ordering.
 Fake kernels inject foreign drift, partial loads, stale generations, busy locks,
 truncated rules/states, source swaps, denied target validation and interrupted
-journals. The native Bash backend is syntax/argument tested with fake effects.
+journals. The native Bash backend itself is executed by the host's `/bin/bash`
+against a fake `pfctl`: argument guards, rule-file checks, the drift and readback
+exits of a replacement, state invalidation and failed or warning listings. That
+is bash 5 on a Linux machine and the system's bash 3.2 on macOS; the
+`NETORCH_TEST_BASH` environment variable names another shell binary for them.
 No fake PF result is presented as Darwin grammar or state semantics acceptance.
 
 ### Provisioning and recovery

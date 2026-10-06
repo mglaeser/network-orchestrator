@@ -232,6 +232,19 @@ not unsupported appended labels. Darwin's `pfctl(8)` documents address/network
 state invalidation; this implementation does not invent OpenBSD state-ID or
 label kill support.
 
+The backend script names an explicit exit for every check, because the bash 3.2
+that macOS installs as `/bin/bash` does not end a `set -e` script after a
+failing `[[ ... ]]` statement. Its rule files must be regular, single-link,
+owned by root and mode `0600`; their group is not compared, since a new file
+takes the group of its directory and mode `0600` gives the group no access. A
+listing that names no anchor (states, status, references, the main hooks) fails
+on a nonzero exit status and on any standard-error text other than the two ALTQ
+notices `pfctl` writes on every call, so a failed read is not taken for an empty
+table. Listings of the owned anchor check the exit status only: that anchor does
+not exist before its first load, and the diagnostic `pfctl` writes for a missing
+anchor is not published. The script has no operation that releases a PF enable
+reference.
+
 ## Explicit DNS availability fallback
 
 A `guest-direct` profile may name `fallback_publication`, referencing an exact
