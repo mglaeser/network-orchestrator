@@ -22,6 +22,12 @@ The initial view of an existing installation is generated from literal, static l
 
 `authoring` records select an owner, closed sections, optional subject IDs and either `generated` or `authored`. Generated sections require their aggregate source hash; authored sections cannot retain a generated-source hash. Overlapping ownership is rejected. Missing section/subject coverage is reported as not fulfilled. Promoting one owner requires its frozen byte conformance and explicit owner flip; the host CLI does neither. Do not maintain a manually edited duplicate alongside a generated authoritative view.
 
+The complete instance contract digest (version 2) binds these authoring records,
+including owner, source hash and migration mode. A source or ownership change
+invalidates earlier whole-instance attestations even if rendered behavior has
+not changed. Only the acceptance ledger itself and informational deviations are
+excluded from that digest; version 1 receipts require renewed evidence.
+
 ## Six commands
 
 Install the reviewed wheel in a normal unprivileged Python environment. Commands read local files and print JSON to stdout. They do not create state; redirect reports into an existing private host-state directory if desired.
@@ -45,7 +51,29 @@ Only `preflight`, `status` and `report` permit explicit `--collect-local`. This 
 
 Every profile reports five distinct state layers: desired, admitted, observed, applied and receipt. Admission/application digests supplied in an owner snapshot are explicitly unverified owner reports, not root authorization or kernel readback. Observations keep independent timestamps, reasons and generation IDs. Receipts are historical and never establish current readiness. Transport, discovery, probe, application and heard-audio observations remain separate. A transport success with unknown discovery is not a healthy application. The optional `workloads` and `components` evidence rows describe their own observations. Current readiness also requires every declared workload and component to be freshly present. Required layers/dependencies for one workload must carry the same shared workload-identity generation token; a projection from an old generation cannot be combined with a newly running workload. These are consistency checks on owner-reported evidence, not independent observation or restart authorization.
 
+Transport and discovery readiness both require the owner's desired digest to
+match the canonical, admitted and applied digests. An absent or different owner
+desired digest remains unready even when other observations are positive.
+
+The instance-to-framework privacy guard checks the instance name, workload and
+component IDs, profile/range/tool IDs and authoring owners as well as addresses,
+ports and pinned native names. Generic pattern checks alone cannot recognize
+these locally chosen names.
+
+The static importer rejects known credential and environment keys in selectors,
+targets and nested projections, including camelCase and acronym spellings such
+as `apiToken`, `clientSecret` and `APIKey`. This is a key-name guard, not a detector
+for arbitrary secret values; mappings still require review before committing.
+
 Discovery selections have their own rows and resolved digests, with dependency states. Warm-cache reload does not establish inward Apple-media discovery. The pinned Home Assistant shared-scanner cold-start/receiver-change proof remains a named **unverified** acceptance requirement; offline synthetic coverage does not claim it happened.
+
+Every current export profile requires a TCP publication for its own workload;
+a UDP socket at the same port cannot substantiate a TCP DNS-SD announcement.
+Instances with imports also report `IMPORT-VISIBILITY`: visibility must be
+explicitly accepted with a nonblank owner name and a nonfuture signing time.
+That remains an owner-recorded accepted residual, not authenticated authority,
+even if a matching acceptance artifact exists. Export-only instances do not
+need an import-visibility decision.
 
 Requirement statuses are `fulfilled-verified`, `fulfilled-unverified`, `accepted-residual`, `not-applicable` or `not-fulfilled`. Software invariants can be verified by deterministic tests. Native/application requirements need their exact recorded tier and method. Retained evidence must match schema, host build/runtime, framework artifact and resolved profile or complete instance contract. A single profile receipt cannot cover a second applicable profile. Synthetic sources/proofs and offline fixture contexts never establish native acceptance. Heard audio requires a person's record; root observer and LaunchAgent consent require their named execution contexts. These records are owner attestations with content hashes, not independently replayed measurements or cryptographic authority.
 

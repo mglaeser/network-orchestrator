@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import plistlib
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +12,14 @@ import pytest
 
 from netorch import macos_preflight as preflight
 from netorch.process import OutputLimit, ProcessTimeout, Result
+
+VPN_HEADER = "Available network connection services in the current set (*=enabled):"
+VPN_ID = "00000000-0000-4000-8000-000000000001"
+
+
+def vpn_row(status: str = "Disconnected", *, enabled: bool = True, name: str = "Example") -> str:
+    return f'{"*" if enabled else " "} ({status}) {VPN_ID} VPN "{name}" [VPN:example]'
+
 
 SAMPLES = {
     "macos_version": "27.0.1",
@@ -23,8 +32,8 @@ SAMPLES = {
     "application_firewall": "Firewall is enabled. (State = 1)",
     "network_extensions": "0 extension(s)",
     "proxies": "<dictionary> {\n HTTPEnable : 0\n}",
-    "vpns": "Available network connection services in the current set:",
-    "internet_sharing": "{\n Enabled = 0;\n}",
+    "vpns": VPN_HEADER + "\n" + vpn_row(),
+    "internet_sharing": plistlib.dumps({"NAT": {"Enabled": 0}}).decode(),
     "interfaces": (
         "example0: flags=8863<UP> mtu 1500\n ether 02:00:00:00:00:01\n"
         " inet 192.0.2.20 netmask 0xffffff00\n"
@@ -274,3 +283,221 @@ def test_extension_version_numbers_are_not_bundle_identifiers() -> None:
         "* * ABCDE12345 org.example.driver (1.2.3/1.2.3) Example [activated enabled]"
     )
     assert preflight._parse("network_extensions", text) == ["org.example.driver"]
+
+
+@pytest.mark.parametrize("status", ["Connected", "Connecting", "Disconnecting"])
+def test_vpn_active_status_column_including_disconnect_transition(status: str) -> None:
+    assert preflight._parse("vpns", VPN_HEADER + "\n" + vpn_row(status)) is True
+
+
+def test_vpn_service_name_cannot_impersonate_its_status_column() -> None:
+    assert preflight._parse("vpns", VPN_HEADER + "\n" + vpn_row(name="(Connected)")) is False
+    assert preflight._parse("vpns", VPN_HEADER + "\n" + vpn_row("Invalid", enabled=False)) is False
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        VPN_HEADER,
+        VPN_HEADER + "\n* (Connec",
+        VPN_HEADER + "\n" + vpn_row("Unknown"),
+        VPN_HEADER + "\n" + vpn_row("Invalid"),
+        VPN_HEADER + "\n" + vpn_row("Connected", enabled=False),
+        VPN_HEADER + "\n" + vpn_row() + "\n" + vpn_row(),
+        VPN_HEADER + "\n" + vpn_row() + "\nunparsed row",
+        VPN_HEADER + "\n" + vpn_row().replace(VPN_ID, "truncated-id"),
+        VPN_HEADER + "\n" + vpn_row().replace('"Example"', '"Example'),
+        VPN_HEADER + " truncated",
+    ],
+)
+def test_incomplete_or_unknown_vpn_inventory_cannot_prove_disabled(text: str) -> None:
+    with pytest.raises(ValueError):
+        preflight._parse("vpns", text)
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        ("<dictionary> {\n}", False),
+        ("<dictionary> {\n  HTTPEnable : 0\n  HTTPSEnable : 1\n}", True),
+        (
+            "<dictionary> {\n  ExceptionsList : <array> {\n"
+            "    0 : *.example\n    1 : localhost\n  }\n"
+            "  ExcludeSimpleHostnames : 1\n  HTTPEnable : 0\n}",
+            False,
+        ),
+        (
+            "<dictionary> {\n  __SCOPED__ : <dictionary> {\n"
+            "    example0 : <dictionary> {\n      HTTPEnable : 1\n"
+            "      HTTPProxy : proxy.example\n      HTTPPort : 8080\n    }\n  }\n}",
+            True,
+        ),
+        (
+            "<dictionary> {\n  __SUPPLEMENTAL__ : <array> {\n"
+            "    0 : <dictionary> {\n      ProxyAutoConfigEnable : 1\n"
+            "      ProxyAutoConfigURLString : https://proxy.example/config.pac\n    }\n  }\n}",
+            True,
+        ),
+    ],
+)
+def test_complete_proxy_dictionary_and_nested_native_shapes(text: str, expected: bool) -> None:
+    assert preflight._parse("proxies", text) is expected
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "<dictionary> {\n  HTTPEnable blah\n}",
+        "<dictionary> {\n  HTTPEnable :\n}",
+        "<dictionary> {\n  HTTPEnable : 0\n  HTTPEnable : 0\n}",
+        "<dictionary> {\n  HTTPEnable : 0\n  HTTPEnable : 1\n}",
+        "<dictionary> {\n  Scoped : <dictionary> {\n  HTTPEnable : 0\n}",
+        "<dictionary> {\n  Scoped : <dictionary> {\n  HTTPEnable : 1\n}",
+        "<dictionary> {\n  List : <array> {\n    1 : missing-first-item\n  }\n}",
+        "<dictionary> {\n  List : <array> {\n    0 : one\n    0 : repeated\n  }\n}",
+        "<dictionary> {\n  Scoped : <dictionary>\n}",
+        "<dictionary> {\n  HTTPEnable : <dictionary> {\n  }\n}",
+        "<dictionary> {\n}\ntrailing",
+        "<dictionary> {\n}\n}",
+        "<dictionary> {\n  HTTPEnable : 0\x00\n}",
+    ],
+)
+def test_malformed_proxy_tree_never_becomes_complete(text: str) -> None:
+    with pytest.raises(ValueError):
+        preflight._parse("proxies", text)
+
+
+def test_proxy_nesting_is_bounded_without_rejecting_complete_shallow_trees() -> None:
+    def nested(depth: int) -> str:
+        return "<dictionary> {\n" + "  item : <dictionary> {\n" * depth + "}\n" * (depth + 1)
+
+    assert preflight._parse("proxies", nested(31)) is False
+    with pytest.raises(ValueError, match="nesting"):
+        preflight._parse("proxies", nested(32))
+
+
+def test_collector_preserves_unknown_vpn_instead_of_complete_false(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(preflight.sys, "platform", "darwin")
+    monkeypatch.setattr(os, "geteuid", lambda: 501)
+    monkeypatch.setattr(Path, "is_file", lambda path: False)
+    monkeypatch.setattr(preflight, "_file_digest", lambda path: "a" * 64)
+    monkeypatch.setattr(Path, "iterdir", lambda path: iter(()))
+    reverse = {argv: key for key, argv in preflight.COMMANDS.items()}
+
+    def runner(argv: tuple[str, ...], timeout: float) -> Result:
+        key = reverse[argv]
+        return Result(0, (VPN_HEADER if key == "vpns" else SAMPLES[key]).encode(), b"")
+
+    report = preflight.collect_preflight(runner=runner)
+    fact = next(item for item in report["facts"] if item["key"] == "vpns")
+    assert fact["state"] == "unknown"
+    assert fact["reason"] == "incomplete"
+    assert fact["value"] is None
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "0 extension(s)\nmalformed extension row",
+        "0 extension(s) partial response",
+        "1 extension(s)\norg.example.driver",
+        "1 extension(s)\n--- com.apple.system_extension.network_extension",
+        "1 extension(s)\n--- com.apple.system_extension.network_extension\n"
+        "enabled active teamID bundleID (version) name [state]",
+    ],
+)
+def test_extension_count_or_id_alone_cannot_prove_complete_inventory(text: str) -> None:
+    with pytest.raises(ValueError):
+        preflight._parse("network_extensions", text)
+
+
+def test_complete_multiple_extension_categories_and_duplicate_rejection() -> None:
+    columns = "enabled active teamID bundleID (version) name [state]\n"
+    group_one = "--- com.apple.system_extension.network_extension\n" + columns
+    group_two = (
+        "--- com.apple.system_extension.driver_extension (Go to System Settings)\n" + columns
+    )
+    row_one = "* * ABCDE12345 org.example.driver (1.2.3/1.2.3) Example [activated enabled]"
+    row_two = "    ABCDE12345 org.example.other (4.5/4.5) Example [activated waiting for user]"
+    text = "2 extension(s)\n" + group_one + row_one + "\n" + group_two + row_two
+    assert preflight._parse("network_extensions", text) == [
+        "org.example.driver",
+        "org.example.other",
+    ]
+    for broken in (
+        text.replace("org.example.other", "org.example.driver"),
+        text + "\n" + group_one,
+        text.replace("[activated enabled]", "[future state]"),
+        text.replace("2 extension(s)", "1 extension(s)"),
+    ):
+        with pytest.raises(ValueError):
+            preflight._parse("network_extensions", broken)
+
+
+def test_power_inventory_is_sectioned_and_ac_setting_is_explicit() -> None:
+    assert (
+        preflight._parse(
+            "power_restart", "Battery Power:\n sleep 1\nAC Power:\n autorestart 1\n sleep 0"
+        )
+        is True
+    )
+    assert preflight._parse("power_restart", "AC Power:\n autorestart 0\n sleep 0") is False
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "not the pmset inventory\nautorestart 1",
+        "AC Power:\n autorestart 1\ntruncated row",
+        "AC Power:\n autorestart 1\n autorestart 1",
+        "AC Power:\n autorestart 1\n sleep 0\n sleep 0",
+        "AC Power:\n autorestart 2",
+        "Battery Power:\n autorestart 1",
+        "AC Power:\n sleep 0",
+        "AC Power:\n autorestart 1\nUPS Power:",
+        "AC Power:\nUPS Power:\n autorestart 1",
+        "AC Power:\n autorestart 1\nAC Power:\n autorestart 1",
+        "Future Power:\n autorestart 1",
+    ],
+)
+def test_power_inventory_incomplete_or_conflicting_is_unknown(text: str) -> None:
+    with pytest.raises(ValueError):
+        preflight._parse("power_restart", text)
+
+
+@pytest.mark.parametrize("enabled", [0, 1, False, True])
+def test_sharing_reads_only_complete_top_level_nat_flag(enabled: int | bool) -> None:
+    data = {"NAT": {"Enabled": enabled, "PrimaryInterface": {"Enabled": 1}}}
+    assert preflight._parse("internet_sharing", plistlib.dumps(data).decode()) is bool(enabled)
+    assert preflight.COMMANDS["internet_sharing"][1:] == (
+        "export",
+        "/Library/Preferences/SystemConfiguration/com.apple.nat",
+        "-",
+    )
+
+
+@pytest.mark.parametrize(
+    "data",
+    [{}, {"NAT": {}}, {"NAT": True}, {"NAT": {"Enabled": 2}}, {"NAT": {"Enabled": "1"}}],
+)
+def test_absent_or_invalid_sharing_flag_is_unknown(data: dict[str, Any]) -> None:
+    with pytest.raises(ValueError):
+        preflight._parse("internet_sharing", plistlib.dumps(data).decode())
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "broken output\nEnabled = 0;",
+        "{\n Enabled = 0;\n}",
+        '<?xml version="1.0"?><plist><dict><key>NAT</key><dict><key>Enabled</key>',
+        '<?xml version="1.0"?><plist><dict><key>NAT</key><dict><key>Enabled</key>'
+        "<integer>0</integer><key>Enabled</key><integer>1</integer></dict></dict></plist>",
+        '<?xml version="1.0"?><!DOCTYPE x [<!ENTITY flag "1">]><plist><dict/></plist>',
+    ],
+)
+def test_malformed_sharing_xml_never_proves_disabled(text: str) -> None:
+    with pytest.raises(ValueError):
+        preflight._parse("internet_sharing", text)

@@ -128,7 +128,7 @@ def _read_file(
     if privileged or root_owned:
         _check_tree(path.parent, os.geteuid(), privileged=True)
         _privileged_acl(path)
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     try:
         info = os.fstat(fd)
         if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
@@ -529,7 +529,7 @@ def _require_platform(scope: str, deployment: Deployment) -> int:
 
 def _protected_executable(path: Path) -> None:
     _privileged_acl(path)
-    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     try:
         info = os.fstat(descriptor)
         if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or stat.S_IMODE(info.st_mode) & 0o022:
@@ -597,7 +597,7 @@ def _fence_job(installed: Path, payload: bytes, job: Job, uid: int) -> None:
             if not path.exists() and not path.is_symlink():
                 continue
             _privileged_acl(path, content=False)
-            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
             try:
                 info = os.fstat(fd)
                 if (

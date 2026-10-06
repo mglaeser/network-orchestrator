@@ -176,7 +176,7 @@ def read_once(
 ) -> bytes:
     """Pin one regular single-link inode and reject pathname swaps after reading."""
     before = path.lstat()
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     try:
         opened = os.fstat(fd)
         identity = _code_metadata_identity(opened)
@@ -449,35 +449,109 @@ def compose_rules(records: Mapping[str, Mapping[str, Any]]) -> str:
     ) + ("\n" if lines else "")
 
 
-def state_addresses(raw: str) -> tuple[tuple[str, tuple[str, ...]], ...]:
-    """Strict enough to reject truncated/diagnostic output; never empty-on-error.
+def _state_endpoint(token: str) -> str | None:
+    """Validate one numerical endpoint; return its IPv4 address, if any.
 
-    PF state lines are retained opaque. Only numerical IPv4 endpoint tokens are
-    extracted; malformed rows stop the owner instead of granting absence.
+    The nonverbose PF printer uses IPv4:port and IPv6[port], with no suffix
+    for port zero. Translation endpoints are unwrapped by the row parser.
+    No DNS names, diagnostics or partially parsed address can prove absence.
+    """
+    address = token
+    port: str | None = None
+    if "[" in token or "]" in token:
+        matched = re.fullmatch(r"([^\[\]]+)\[([0-9]{1,5})\]", token)
+        if matched is None:
+            raise PFError("malformed PF endpoint")
+        address, port = matched.groups()
+        family = 6
+    elif token.count(":") == 1:
+        address, port = token.split(":")
+        family = 4
+    else:
+        family = None
+    if port is not None and (
+        re.fullmatch(r"[0-9]{1,5}", port) is None or not 1 <= int(port) <= 65535
+    ):
+        raise PFError("malformed PF endpoint port")
+    try:
+        parsed = ipaddress.ip_address(address)
+    except ValueError as exc:
+        raise PFError("malformed PF endpoint address") from exc
+    if (family is not None and parsed.version != family) or "%" in address:
+        raise PFError("unsupported PF endpoint address")
+    if isinstance(parsed, ipaddress.IPv4Address):
+        return str(parsed)
+    # Preserve conservative matching for IPv4-mapped IPv6 observations too.
+    return str(parsed.ipv4_mapped) if parsed.ipv4_mapped is not None else None
+
+
+def _state_status(token: str, protocol: str) -> bool:
+    if protocol in {"icmp", "icmp6", "ipv6-icmp"}:
+        values = token.split(":")
+        return len(values) == 2 and all(
+            re.fullmatch(r"[0-9]{1,3}", value) is not None and int(value) <= 255 for value in values
+        )
+    if protocol == "tcp":
+        if token in {"PROXY:SRC", "PROXY:DST"}:
+            return True
+        states = {
+            "CLOSED",
+            "LISTEN",
+            "SYN_SENT",
+            "SYN_RCVD",
+            "ESTABLISHED",
+            "CLOSE_WAIT",
+            "FIN_WAIT_1",
+            "CLOSING",
+            "LAST_ACK",
+            "FIN_WAIT_2",
+            "TIME_WAIT",
+        }
+    else:
+        states = {"NO_TRAFFIC", "SINGLE", "MULTIPLE"}
+    values = token.split(":")
+    return len(values) == 2 and all(value in states for value in values)
+
+
+def state_addresses(raw: str) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    """Validate complete numerical nonverbose PF rows, never empty-on-error.
+
+    Every original and translated endpoint on both sides is checked before any
+    IPv4 target is extracted. IPv6-only rows require valid IPv6 addresses, not
+    merely a colon somewhere in the output. New printer formats remain unknown
+    until reviewed fixtures establish their complete grammar.
     """
     result: list[tuple[str, tuple[str, ...]]] = []
     for line in raw.splitlines():
         if not line.strip():
             continue
-        if (
-            len(line) > 4096
-            or any(ord(c) < 32 and c != "\t" for c in line)
-            or (" -> " not in line and " <- " not in line)
-        ):
+        if len(line) > 4096 or any(ord(c) < 32 and c != "\t" for c in line):
             raise PFError("unsupported PF state observation")
         pieces = line.split()
-        if len(pieces) < 5 or pieces[1] not in {"tcp", "udp", "icmp", "icmp6", "ipv6-icmp"}:
+        if (
+            not 6 <= len(pieces) <= 8
+            or re.fullmatch(r"[A-Za-z][A-Za-z0-9_.:-]{0,15}", pieces[0]) is None
+            or pieces[1] not in {"tcp", "udp", "icmp", "icmp6", "ipv6-icmp"}
+            or not _state_status(pieces[-1], pieces[1])
+        ):
             raise PFError("unsupported PF state observation")
+        body = pieces[2:-1]
+        arrows = [index for index, token in enumerate(body) if token in {"->", "<-"}]
+        if len(arrows) != 1:
+            raise PFError("unsupported PF state direction")
+        arrow = arrows[0]
         addresses: list[str] = []
-        for token in re.findall(r"(?<![0-9.])(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?![0-9.])", line):
-            try:
-                value = str(ipaddress.IPv4Address(token))
-            except ValueError as exc:
-                raise PFError("malformed PF address observation") from exc
-            addresses.append(value)
-        # IPv6 rows may have no IPv4; they cannot name an IPv4 PF target.
-        if not addresses and ":" not in line:
-            raise PFError("PF state row has no numerical endpoints")
+        for side in (body[:arrow], body[arrow + 1 :]):
+            if not 1 <= len(side) <= 2:
+                raise PFError("incomplete PF state endpoints")
+            for index, token in enumerate(side):
+                if index == 1:
+                    if not token.startswith("(") or not token.endswith(")"):
+                        raise PFError("malformed PF translated endpoint")
+                    token = token[1:-1]
+                address = _state_endpoint(token)
+                if address is not None:
+                    addresses.append(address)
         result.append((line, tuple(addresses)))
     return tuple(result)
 
@@ -602,10 +676,44 @@ class ShellBackend:
 
     def endpoint(self, scope: Scope, ipv4: str, mac: str | None, *, direct: bool) -> bool:
         interface = self._native(["/sbin/ifconfig", scope.interface])
+        lines = interface.splitlines()
         if (
-            sum(line.split()[:2] == ["inet", scope.host_ipv4] for line in interface.splitlines())
-            != 1
+            not lines
+            or re.fullmatch(
+                re.escape(scope.interface) + r": flags=[0-9a-fA-F]+(?:<[^<>]+>)?(?: .+)?",
+                lines[0],
+            )
+            is None
+            or sum(re.match(r"^[^\s:]+:", line) is not None for line in lines) != 1
         ):
+            return False
+        selected = [
+            inet_fields
+            for line in interface.splitlines()
+            if (inet_fields := line.split())[:2] == ["inet", scope.host_ipv4]
+        ]
+        if (
+            len(selected) != 1
+            or len(selected[0]) < 4
+            or selected[0][2] != "netmask"
+            or selected[0].count("netmask") != 1
+            or re.fullmatch(r"0x[0-9a-fA-F]{8}", selected[0][3]) is None
+        ):
+            return False
+        # Admission cannot widen the live interface's own prefix. Merely
+        # finding the host address would accept a /8 policy on a /24 LAN.
+        mask = int(selected[0][3], 16)
+        inverse = (~mask) & 0xFFFFFFFF
+        if inverse & (inverse + 1):
+            return False
+        try:
+            # IPv4Network's dotted-mask parser accepts inverse hostmasks. The
+            # native field is a netmask: require contiguous MSB ones explicitly.
+            actual = ipaddress.IPv4Network((scope.host_ipv4, mask.bit_count()), strict=False)
+            declared = ipaddress.IPv4Network(scope.lan_cidr, strict=True)
+        except ValueError:
+            return False
+        if not declared.subnet_of(actual):
             return False
         if not direct:
             return True

@@ -61,7 +61,7 @@ def _unknown(config: Config, owner: str, reason: str) -> Snapshot:
 
 
 def _secure_binding_file(path: Path) -> Any:
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     try:
         info = os.fstat(fd)
         if (
@@ -218,7 +218,7 @@ def _root_report(path: Path) -> Any:
             raise OwnerFailure("root report ancestors must be root-owned and protected")
         reject_acl(parent)
     reject_acl(path)
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     try:
         info = os.fstat(fd)
         if (

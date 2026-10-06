@@ -63,12 +63,20 @@ an allowed `AudioAccessory*` or `AppleTV*` model, or the existing owner's
 are rejected. This is discovery eligibility, not authentication of a device.
 
 Related records must have the same hostname **and** IPv4 as an eligible AirPlay
-endpoint. An unrelated service sharing an IP does not qualify. All eligible
+endpoint. Hostnames compare using ASCII DNS case equivalence, preserving observed
+spelling; Unicode case folding is not used. An unrelated service sharing an IP
+does not qualify. All eligible
 devices in the configured LAN are supported; no per-device IP list is needed.
 DHCP changes replace registrations. The port, instance and TXT remain genuine.
 Each projected record uses a separate stable `netorch-lan-…` hostname and the
 real LAN device address on the guest interface. Projected records are excluded
-from the reverse path to prevent loops.
+from the reverse path to prevent loops, including case variations of both reserved
+projection prefixes in names and hostnames.
+
+Discovery digest version 2 binds these selection semantics. Version 1 requests,
+candidates and cached readbacks are rejected by the owner; they cannot authorize
+the changed implementation. Transport policy digests are unchanged. This does not
+open the current native qualification gate.
 
 Discovery does not supply the audio/video return path. A verified UDP-return
 dependency is required by the canonical import policy. The forwarding owner
@@ -92,7 +100,8 @@ Synthetic native-format fixtures follow Apple's timestamp width, including the
 single leading hour-padding space before 10:00. Registration callbacks parse the
 timestamp prefix once and retain the full exact name, including consecutive
 spaces. These fixtures are source-derived contracts, not production captures.
-Every SRV/A/TXT callback must parse; a valid row cannot hide a malformed callback
+Asynchronous registration reads retain incomplete trailing lines until their
+newline; a split pipe read is not a conflicting identity. Every SRV/A/TXT callback must parse; a valid row cannot hide a malformed callback
 or unexpected query row. Fixed native banners are separately recognized. SRV's
 single optional shell-friendly TXT continuation stays opaque bytes because that
 native display can contain non-UTF-8 data; only `-Q` provides authoritative TXT.

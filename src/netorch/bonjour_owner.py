@@ -31,6 +31,8 @@ from .config import config_digest, load_config, profile_digest
 from .discovery import (
     Publication,
     Record,
+    dns_name_key,
+    is_own_projection,
     project_export,
     txt_from_json,
     txt_to_json,
@@ -79,7 +81,7 @@ class BonjourSettings:
 
 
 def private_json(path: Path) -> Any:
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     try:
         info = os.fstat(fd)
         if (
@@ -356,15 +358,17 @@ def project_records(
             and record.service_type in policy.types
             and record.seen_at <= now <= record.seen_at + policy.max_age_seconds
             and ipaddress.IPv4Address(record.ipv4) in ipaddress.IPv4Network(scope.lan_cidr)
-            and not record.hostname.startswith(("netorch-container-", "netorch-lan-"))
+            and not is_own_projection(record)
         )
         eligible = {
-            (record.hostname, record.ipv4)
+            (dns_name_key(record.hostname), record.ipv4)
             for record in fresh
             if record.service_type == "_airplay._tcp"
             and apple_eligible(record.txt, settings.eligible_model_prefixes)
         }
-        selected = tuple(record for record in fresh if (record.hostname, record.ipv4) in eligible)
+        selected = tuple(
+            record for record in fresh if (dns_name_key(record.hostname), record.ipv4) in eligible
+        )
         import_keys = [(record.name, record.service_type) for record in selected]
         if len(import_keys) != len(set(import_keys)) or not set(policy.dependencies) <= ready:
             raise DiscoveryFailure("incomplete")
@@ -488,6 +492,7 @@ def _observation(
         {
             "policy_digest": discovery_digest(config, policy),
             "interface_confirmed": interface,
+            "service_generation": endpoint.generation if endpoint else None,
             "network_generation": snapshot.network_generation if snapshot else None,
             "states": [],
             "record_count": count,

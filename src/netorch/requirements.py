@@ -233,6 +233,15 @@ REQUIREMENTS = (
         ("test_transport_success_does_not_prove_discovery",),
     ),
     _requirement(
+        "IMPORT-VISIBILITY",
+        "The owner explicitly accepts the visibility of imported discovery records.",
+        "3.2",
+        "imports",
+        ("schema-tests",),
+        1,
+        ("test_import_visibility_requires_current_explicit_owner_decision",),
+    ),
+    _requirement(
         "DISCOVERY-LEASES",
         "A genuine projection has interface, identity and independent age proof.",
         "Rule8",

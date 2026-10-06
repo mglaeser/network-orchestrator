@@ -49,6 +49,41 @@ def test_json_is_explicit_projection_not_unfiltered_capture(tmp_path):
 
 
 @pytest.mark.parametrize(
+    "key",
+    [
+        "apiToken",
+        "accessToken",
+        "clientSecret",
+        "privateKey",
+        "APIKey",
+        "apikey",
+        "APIKEY",
+        "token_count",
+    ],
+)
+@pytest.mark.parametrize("location", ["selector", "target", "nested"])
+def test_credential_keys_are_rejected_across_word_styles(tmp_path, key, location):
+    value = "synthetic-credential-must-not-be-emitted"
+    if location == "selector":
+        data, mapping = {key: value}, {"/" + key: "/chosen"}
+    elif location == "target":
+        data, mapping = {"chosen": value}, {"/chosen": "/" + key}
+    else:
+        data, mapping = {"chosen": [{key: value}]}, {"/chosen": "/chosen"}
+    (tmp_path / "owner.json").write_text(json.dumps(data))
+    with pytest.raises(ImportError, match="Credential") as error:
+        import_sources(manifest(tmp_path, [entry(mapping=mapping)]))
+    assert value not in str(error.value)
+
+
+@pytest.mark.parametrize("key", ["monkey", "tokenizer"])
+def test_credential_filter_matches_words_not_arbitrary_substrings(tmp_path, key):
+    (tmp_path / "owner.json").write_text(json.dumps({"chosen": {key: "example"}}))
+    result = import_sources(manifest(tmp_path, [entry(mapping={"/chosen": "/chosen"})]))
+    assert result.values == {"chosen": {key: "example"}}
+
+
+@pytest.mark.parametrize(
     "fmt,raw,mapping,expected",
     [
         (

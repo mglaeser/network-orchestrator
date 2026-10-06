@@ -349,3 +349,56 @@ def test_record_validation_rejects_invalid_native_boundary_data(change):
     }
     with pytest.raises(ValueError):
         replace(media_record(), **alterations[change])
+
+
+def test_import_does_not_associate_unrelated_hostname_on_shared_address(config):
+    source = media_record()
+    related = media_record("Related", "_raop._tcp")
+    unrelated = replace(media_record("Other", "_raop._tcp"), hostname="other.local.")
+    result = import_records(config, (source, related, unrelated))
+    assert {record.name for record in result} == {source.name, related.name}
+
+
+def test_import_does_not_reimport_its_own_projection(config):
+    source = replace(media_record(), hostname="netorch-lan-previous.local.")
+    assert import_records(config, (source,)) == ()
+
+
+@pytest.mark.parametrize(
+    "source_host,related_host,expected",
+    [
+        ("Speaker.LOCAL.", "speaker.local.", 2),
+        ("Åpeaker.local.", "åpeaker.local.", 1),
+        ("Straße.local.", "strasse.local.", 1),
+    ],
+)
+def test_import_dns_hostname_comparison_is_ascii_only_and_preserves_output(
+    config, source_host, related_host, expected
+):
+    source = replace(media_record(), hostname=source_host)
+    related = replace(media_record("Related", "_raop._tcp"), hostname=related_host)
+    result = import_records(config, (source, related))
+    assert len(result) == expected
+    assert next(record for record in result if record.name == source.name).hostname == source_host
+    if expected == 2:
+        assert (
+            next(record for record in result if record.name == related.name).hostname
+            == related_host
+        )
+
+
+@pytest.mark.parametrize("prefix", ["NeToRcH-CoNtAiNeR-", "NETORCH-LAN-"])
+@pytest.mark.parametrize("field", ["name", "hostname"])
+def test_import_projection_prefix_exclusion_uses_ascii_dns_case(config, prefix, field):
+    source = replace(media_record(), **{field: prefix + "previous.local."})
+    assert import_records(config, (source,)) == ()
+
+
+@pytest.mark.parametrize("prefix", ["NeToRcH-CoNtAiNeR-", "NETORCH-LAN-"])
+@pytest.mark.parametrize("field", ["name", "hostname"])
+def test_export_projection_prefix_exclusion_uses_ascii_dns_case(
+    config, export_record, endpoint, prefix, field
+):
+    record = replace(export_record, **{field: prefix + "previous.local."})
+    result = export(config, record, endpoint, (camera_publication(config),))
+    assert (result.state, result.reason) == ("absent", "loop-excluded")

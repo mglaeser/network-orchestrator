@@ -6,7 +6,7 @@ import os
 import sys
 import time
 from concurrent.futures import Future
-from dataclasses import replace
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import ClassVar
 
@@ -16,7 +16,7 @@ from hypothesis import strategies as st
 
 from netorch import bonjour_owner as owner
 from netorch import bonjour_process as native
-from netorch.codec import canonical_bytes
+from netorch.codec import canonical_bytes, digest
 from netorch.config import config_digest, load_config, profile_digest, to_dict
 from netorch.discovery import Record
 from netorch.discovery_plan import discovery_digest
@@ -594,6 +594,145 @@ def test_related_service_on_same_ip_different_host_is_excluded(config, settings)
         )
         == 1
     )
+
+
+@pytest.mark.parametrize(
+    "source_host,related_host,expected",
+    [
+        ("Speaker.LOCAL.", "speaker.local.", 2),
+        ("Åpeaker.local.", "åpeaker.local.", 1),
+        ("Straße.local.", "strasse.local.", 1),
+    ],
+)
+def test_owner_import_associates_only_ascii_equivalent_hostnames(
+    config, settings, source_host, related_host, expected
+):
+    records = (
+        media_record(hostname=source_host),
+        media_record(name="Related", hostname=related_host, service_type="_raop._tcp"),
+    )
+    result = owner.project_records(
+        config, policy(config), records, snapshot(config), frozenset({"media-udp"}), settings, 1000
+    )
+    assert len(result) == expected
+    assert result[0].name == records[0].name and result[0].txt == records[0].txt
+
+
+@pytest.mark.parametrize("prefix", ["NeToRcH-CoNtAiNeR-", "NETORCH-LAN-"])
+@pytest.mark.parametrize("field", ["name", "hostname"])
+def test_owner_import_rejects_own_projection_prefix_in_any_ascii_case(
+    config, settings, prefix, field
+):
+    records = (media_record(**{field: prefix + "previous.local."}),)
+    assert (
+        owner.project_records(
+            config,
+            policy(config),
+            records,
+            snapshot(config),
+            frozenset({"media-udp"}),
+            settings,
+            1000,
+        )
+        == ()
+    )
+
+
+def old_discovery_digest(config, item):
+    """Frozen v1 envelope: same policy must not approve v2 selector behavior."""
+    service = config.service(item.service)
+    return digest(
+        {
+            "digest_version": 1,
+            "schema_version": config.schema_version,
+            "discovery": asdict(item),
+            "scope": asdict(config.scope(item.scope)),
+            "service": asdict(service),
+            "service_owner": asdict(config.owner(service.owner)),
+            "owner": asdict(config.owner(item.owner)),
+            "dependencies": {
+                identifier: profile_digest(config, config.profile(identifier))
+                for identifier in sorted(item.dependencies)
+            },
+        }
+    )
+
+
+@pytest.mark.parametrize("old_field", ["candidate", "request"])
+def test_discovery_owner_refuses_v1_lease_records(config, settings, old_field):
+    current = snapshot(config)
+    request, candidate = candidate_request(config, settings, current, media_record())
+    assert owner.lease_records(
+        config,
+        policy(config),
+        request,
+        candidate,
+        current,
+        Intent(),
+        frozenset({"media-udp"}),
+        1000,
+    )
+    (candidate if old_field == "candidate" else request)["policy_digest"] = old_discovery_digest(
+        config, policy(config)
+    )
+    assert (
+        owner.lease_records(
+            config,
+            policy(config),
+            request,
+            candidate,
+            current,
+            Intent(),
+            frozenset({"media-udp"}),
+            1000,
+        )
+        is None
+    )
+
+
+@pytest.mark.parametrize("boundary", ["readback", "endpoint"])
+def test_discovery_owner_refuses_v1_readback_and_endpoint(config, settings, monkeypatch, boundary):
+    monkeypatch.setattr(owner.time, "time", lambda: 1000)
+    current = snapshot(config)
+    old_profiles = {
+        item.id: Observation(
+            "present",
+            "verified",
+            1000,
+            current.services[item.service].generation,
+            {
+                "policy_digest": old_discovery_digest(config, item),
+                "network_generation": current.network_generation,
+                "service_generation": current.services[item.service].generation,
+                "interface_confirmed": True,
+            },
+        )
+        for item in config.discovery
+    }
+    store = Store(settings.state_dir)
+    store.write("readback.json", snapshot_to_dict(replace(current, profiles=old_profiles)))
+    if boundary == "readback":
+        result = owner.readback(config, settings, store, 1000)
+        assert all(
+            item.state == "unknown" and item.reason == "identity-mismatch"
+            for item in result.profiles.values()
+        )
+    else:
+        request = {
+            "protocol_version": 1,
+            "operation": "reconcile-discovery",
+            "owner": settings.owner,
+            "policy_digest": config_digest(config),
+            "discovery_digest": old_discovery_digest(config, policy(config)),
+            "discovery": policy(config).id,
+            "active": True,
+            "config": to_dict(config),
+            "service_generation": current.services[policy(config).service].generation,
+            "network_generation": current.network_generation,
+        }
+        with pytest.raises(ValueError, match="invalid fixed discovery request"):
+            owner.endpoint(config, settings, store, request)
+        assert not (settings.state_dir / "requests.json").exists()
 
 
 def test_export_uses_same_service_publication_not_colliding_port(config, settings):
@@ -1689,3 +1828,87 @@ def test_collect_proof_rejects_policy_change_before_observing(config, settings, 
 def legacy_cli_conformance(monkeypatch):
     """Explicit CI-only seam for preserved owner internals; never qualification."""
     monkeypatch.setattr(owner, "require_mutation_qualified", lambda _capability: None)
+
+
+@pytest.mark.parametrize("active", [False, True])
+def test_real_owner_readback_preserves_generation_for_discovery_planner(
+    config, settings, monkeypatch, active
+):
+    """Join the owner's actual wire report to the planner, not a hand-made report."""
+    from netorch.discovery_plan import plan_discovery
+    from netorch.planner import plan
+    from netorch.state import snapshot_from_dict
+
+    monkeypatch.setattr(owner.time, "time", lambda: 1000)
+    current = snapshot(config)
+    store = Store(settings.state_dir)
+    if active:
+        request, candidate = candidate_request(config, settings, current, media_record())
+        store.write("requests.json", {"schema_version": 1, "policies": {"media-import": request}})
+        store.write(
+            "candidates.json",
+            {
+                "schema_version": 1,
+                "config_digest": config_digest(config),
+                "policies": {"media-import": candidate},
+            },
+        )
+    proof = (current, Intent(), frozenset({"media-udp", "camera-web"}), {"wired-lan": (7, 9)})
+    manager = publisher()
+    try:
+        owner.publisher_tick(config, settings, store, manager, proof, 0, 1000)
+        response = owner.endpoint(
+            config,
+            settings,
+            store,
+            {
+                "protocol_version": 1,
+                "operation": "observe",
+                "owner": settings.owner,
+                "config": to_dict(config),
+            },
+        )
+        discovery = snapshot_from_dict(response["result"])
+        observed = replace(current, profiles={**current.profiles, **discovery.profiles})
+        transport = plan(config, observed, mock_admissions(config), Intent(), 1000)
+        actions = {
+            item.id: item for item in plan_discovery(config, observed, transport, Intent(), 1000)
+        }
+        assert actions["media-import"].active
+        assert actions["media-import"].reason == ("verified" if active else "ready")
+    finally:
+        manager.close()
+
+
+@pytest.mark.parametrize("fragmented_kind", ["service", "record"])
+def test_registration_waits_for_complete_callback_line(tmp_path, monkeypatch, fragmented_kind):
+    record = media_record()
+    service = (
+        "12:34:56.000  Got a reply for service Example speaker._airplay._tcp.local.: "
+        "Name now registered and active\n"
+    )
+    address = (
+        "12:34:56.000  Got a reply for record speaker.local.: Name now registered and active\n"
+    )
+    lines = [service, address]
+    fragmented = 0 if fragmented_kind == "service" else 1
+    chunks = ["Using interface 7\n"]
+    for index, line in enumerate(lines):
+        chunks.extend([line[:45], line[45:]] if index == fragmented else [line])
+    fake = tmp_path / "fragmented-dns-sd"
+    fake.write_text(
+        f"#!{sys.executable}\nimport os, time\n"
+        f"for chunk in {chunks!r}:\n"
+        " os.write(1, chunk.encode())\n time.sleep(0.1)\n"
+        "time.sleep(5)\n"
+    )
+    fake.chmod(0o700)
+    monkeypatch.setattr(native, "DNS_SD", str(fake))
+    registration = native.Registration(record, 7)
+    try:
+        deadline = time.monotonic() + 3
+        while not registration.poll() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert registration.active
+    finally:
+        registration.close()

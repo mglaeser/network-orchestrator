@@ -84,11 +84,15 @@ class DiscoveryAction:
 
 
 def discovery_digest(config: Config, item: Discovery) -> str:
-    """Bind discovery intent to resolved policy and every transport dependency."""
+    """Bind resolved policy, dependencies and the v2 discovery selector contract.
+
+    V2 binds related records by ASCII DNS hostname plus address and excludes
+    both projection prefixes case-insensitively. V1 approval cannot enable it.
+    """
     service = config.service(item.service)
     return digest(
         {
-            "digest_version": 1,
+            "digest_version": 2,
             "schema_version": config.schema_version,
             "discovery": asdict(item),
             "scope": asdict(config.scope(item.scope)),

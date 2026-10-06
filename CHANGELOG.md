@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.3.1 — adversarial review corrections
+
+- Current discovery readiness now requires the owner's desired configuration to
+  match admission and applied state. Whole-instance evidence binds authoring
+  provenance using contract digest version 2; older attestations need renewal.
+- Instance privacy checks cover chosen host, workload and component identifiers.
+  Static import rejects common camelCase credential keys as well as separated keys.
+- TCP export dependencies must be TCP publications. Imported-record visibility
+  has its own explicit owner-attested residual requirement.
+- Native preflight parsers refuse ambiguous or truncated inventories instead of
+  declaring inactive settings. Header-only VPN output remains unknown.
+- Nonregular file inputs cannot block validation, status or negative-intent reads
+  while waiting for a FIFO writer; protected metadata checks remain enforced.
+- Bonjour reports retain the service generation expected by their consumer;
+  registration callbacks wait for complete lines across asynchronous pipe reads.
+  Both selectors use ASCII DNS hostname equivalence plus address and exclude own
+  projections regardless of ASCII case. Discovery digest version 2 rejects older
+  requests, candidates and readback after this semantic change.
+- PF state readback rejects incomplete endpoint rows before claiming withdrawal.
+  Root endpoint validation bounds declared LAN scope to the observed interface prefix.
+- Added failing-before regression cases and a PR-by-PR review record in
+  [the adversarial audit](docs/reviews/2026-10-06-adversarial-review.md).
+
+The native qualification matrix remains empty. These fixes do not activate any
+owner, migrate a production host or certify packets, reboot, recovery or audio.
+
 ## 0.3.0 — read-only host-independent extraction
 
 - Closed canonical instance and workload-contract schemas; separate public code,

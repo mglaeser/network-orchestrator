@@ -108,7 +108,7 @@ class Store:
     def read(self, name: str) -> Any:
         self._path(name)
         with self._directory_fd() as parent:
-            fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=parent)
+            fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
             try:
                 _check_file(fd)
                 with os.fdopen(os.dup(fd), "rb") as stream:
@@ -124,7 +124,7 @@ class Store:
         self._path(name)
         with self._directory_fd() as parent:
             try:
-                existing = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=parent)
+                existing = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
             except FileNotFoundError:
                 pass
             else:

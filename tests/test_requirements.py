@@ -165,7 +165,8 @@ def test_profile_receipt_digest_binds_owner_names_release_and_dependency_behavio
     elif mutation == "framework-artifact":
         changed["framework"]["artifact_sha256"] = "1" * 64
     elif mutation == "framework-version":
-        changed["framework"]["version"] = "0.3.1"
+        major, minor, patch = changed["framework"]["version"].split(".")
+        changed["framework"]["version"] = f"{major}.{minor}.{int(patch) + 1}"
     else:
         # The redirect's own host port and dependency ID are unchanged. Its
         # publication now delivers to a different guest service endpoint.

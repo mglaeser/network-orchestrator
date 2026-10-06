@@ -13,7 +13,7 @@ from typing import Any, cast
 
 from jsonschema import Draft202012Validator, FormatChecker
 
-from .codec import CodecError, digest, strict_load, strict_loads
+from .codec import CodecError, digest, read_bounded_file, strict_load, strict_loads
 from .model import Config, Discovery, Owner, PortRange, Profile, Safety, Scope, Service
 
 
@@ -314,9 +314,7 @@ def parse_config(text: str | bytes) -> Config:
 
 
 def load_config(path: str | Path) -> Config:
-    with Path(path).open("rb") as stream:
-        raw = stream.read(1_048_577)
-    return parse_config(raw)
+    return parse_config(read_bounded_file(path))
 
 
 def to_dict(config: Config) -> dict[str, Any]:

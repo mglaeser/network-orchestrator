@@ -170,6 +170,30 @@ def test_incomplete_instance_can_still_supply_checked_literals():
     assert instance_literals({}) == ()
 
 
+def test_instance_guard_includes_host_and_local_identifiers():
+    chosen = {
+        "instance": "example-private-host",
+        "workloads": [{"id": "example-private-workload", "components": [{"id": "example-part"}]}],
+        "port_ranges": [{"id": "example-private-range"}],
+        "transport": [{"id": "example-private-transport"}],
+        "discovery": [{"id": "example-private-discovery"}],
+        "lifecycle_tools": [{"id": "example-private-tool"}],
+        "authoring": [{"owner": "example-private-owner"}],
+    }
+    text = " ".join(
+        [chosen["instance"]]
+        + [
+            chosen[key][0]["id"]
+            for key in ("workloads", "port_ranges", "transport", "discovery", "lifecycle_tools")
+        ]
+        + ["example-part", "example-private-owner"]
+    )
+    findings = scan_text(
+        text, path="candidate.py", literals=instance_literals(chosen), generic=False
+    )
+    assert len(findings) == 8
+
+
 def test_default_walk_refuses_unchecked_symlink_directory(tmp_path):
     (tmp_path / "real").mkdir()
     (tmp_path / "link").symlink_to(tmp_path / "real", target_is_directory=True)

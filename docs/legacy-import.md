@@ -33,7 +33,8 @@ code could mistake a test/default/conditional value for production settings.
 `executable-source-not-evaluated` issue; it cannot map settings.
 
 Credential/environment selectors and nested credential/environment objects are
-rejected. Unmapped source fields are not copied. Diagnostics contain a closed
+rejected, including common camelCase, acronym, separator and API-key spellings.
+Unmapped source fields are not copied. Diagnostics contain a closed
 reason, source ID and optional selector, never the source body or parser error
 text. Operators must still select sanitized owner inputs: this is a static
 migration boundary, not a secret detector for arbitrary mislabeled data.
