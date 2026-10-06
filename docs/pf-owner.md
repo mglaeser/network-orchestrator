@@ -41,8 +41,10 @@ Transient parser/rule files are confined to that protected directory. The
 published snapshot lives under a separately protected root-owned directory and
 is readable at mode `0644`. It contains only this owner's profile observations,
 not raw inspection output, account credentials, or user environment variables.
-A profile's `states` entry says only whether states for its target remain; the
-kernel's state rows, which name peers and LAN clients, are not copied into it.
+A profile's `states` entry says only whether a state of its own rules remains
+(see "Retained states"); the kernel's state rows, which name peers and LAN
+clients, are not copied into it. A profile that the pass deferred carries
+`deferred` with the reason; no other profile has that entry.
 `admitted` records exact protected approval. The separate `root_ready` flag
 requires that approval, unblocked final root intent, an exact verified final
 plan/readback and, on the same pass, a readback of the owner's PF enable
@@ -191,12 +193,14 @@ order of a real hand-over, are not verified on a host.
    Immediately before each activation, reread durable gates, desired content,
    approvals and fresh runtime evidence. Verify current LAN interface/address,
    forwarding, route/ARP for direct guest targets and host socket coexistence.
+   A check that is not met defers that one profile to the next pass.
 6. Parse candidate rules first, reread the old anchor immediately before loading,
    load only the owned anchor, and compare exact normalized readback. NAT
    statements precede RDR statements. A healthy pass does not reload rules.
-7. Withdraw stale/missing/changed guest targets, then invalidate states from and
-   to the exact old guest address and read back absence. Activate a replacement
-   only in a later pass with fresh identity evidence.
+7. Withdraw stale/missing/changed guest targets. While a retained state of a
+   withdrawn rule exists, invalidate states from and to the exact old guest
+   address and read back that none is left. Activate a replacement only in a
+   later pass with fresh identity evidence.
 8. Publish a typed snapshot. Unknown never restarts a container or other service.
 
 The independent endpoint check reads the selected address's actual contiguous
@@ -243,11 +247,11 @@ put a translated endpoint in parentheses. The reader accepts these forms:
   with one arrow and a translated endpoint in parentheses on either side, as
   before. It never combines with a second arrow or with the `~` marker.
 
-Every IPv4 address that a row names counts when the states of a target are
-looked for, whichever endpoint carries it. Arrows of mixed direction, a missing
-endpoint, a third arrow, two endpoints without an arrow between them, a port
-above 65535, a tcp or udp endpoint without a port and a control character
-inside a row are refused. Only a line feed ends a row.
+The reader returns the protocol of a row and, for every endpoint that names an
+IPv4 address, that address and its port, whichever endpoint carries it. Arrows
+of mixed direction, a missing endpoint, a third arrow, two endpoints without an
+arrow between them, a port above 65535, a tcp or udp endpoint without a port
+and a control character inside a row are refused. Only a line feed ends a row.
 
 The forms without parentheses are macOS display forms as an existing site's
 own state reader is tested with them: sanitized rows, not a raw capture that
@@ -256,6 +260,56 @@ every address and port in them is a documentation value. They are not hardware
 acceptance. Any other native format must remain unknown until its complete
 grammar is established by reviewed captured output; the native qualification
 gate remains closed.
+
+### Retained states
+
+A row of the state table is a retained state of an owned record when
+
+- its protocol is the profile's (the name, or the number the printer writes for
+  a protocol without a name),
+- one of its endpoints is the record's target with a port inside the profile's
+  target ports (for a UDP return profile: inside its ports), and
+- another of its endpoints is an address inside the scope's LAN prefix that is
+  neither the target nor the host's own LAN address.
+
+These are the properties of the rendered rules. A redirect matches one protocol
+from the LAN prefix to the host and translates to the target and its port; the
+return rule matches the target's ports towards the LAN prefix. The kernel keeps
+the target with that port as the `lan` host of a state made under a translation
+rule and the peer as its external host, for a redirect and for an outbound
+translation alike
+([xnu `bsd/net/pf.c`, tag `xnu-12377.121.6`, lines 5620-5732](https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.121.6/bsd/net/pf.c#L5620-L5732)).
+The properties, not the position of an endpoint in the row, decide which
+endpoint is which. A guest's own connections, to hosts outside the LAN or from
+other ports, are not retained states: they do not delay a retirement and a
+retirement does not reset them.
+
+When the installed policy no longer describes the record (the profile was
+removed, its digest or kind changed, or the policy cannot be read during an
+administrator withdrawal), the rule that was loaded is not known any more and
+every row that names the target counts. A host redirect has no retained states:
+its target is the host itself.
+
+The published `states` entry, the plan's `retained-states` decision, the drain
+of a pass and the drains of the administrator `withdraw` use this one rule and
+the one validated reader. A drain reads the table first. If no retained state
+exists it invalidates nothing. Otherwise it invalidates states from and to the
+target and reads the table again; the backend only issues the two scoped
+invalidations, and a state that is still listed is not drained.
+
+Two limits are known. The rule looks at the target, its port and the peer; the
+host endpoint's port is not consulted. It therefore cannot tell two profiles
+apart that publish different host ports onto one target port of one guest. Nor
+can it tell a state of the rule from a flow that the guest itself opens to a
+LAN peer from a port of the rule: for a UDP return profile that is every flow
+from the published range to the LAN, also one that the runtime's own
+translation carries after the rule is withdrawn. In both cases the retirement
+stays `states-retained`, with an invalidation on each pass, for as long as such
+a state is listed again when the table is read back. And that a macOS state
+table shows the client and the target with its port as endpoints of such a
+state, and what the scoped invalidation removes, follows from the kernel source
+and the printer lineage cited here, not from a capture reviewed in this
+repository. Both belong to native acceptance.
 
 A runtime inspection exception is unknown and withdraws existing guest exposure.
 A corrupt root admission record also inhibits activation and retires known
@@ -276,9 +330,51 @@ acknowledgement. What a pass does with its records after a reboot is described
 under [After a reboot](#after-a-reboot).
 
 Within one pass the owner applies every planned withdrawal before it invalidates
-any state, as the administrator withdrawal does. A state readback that fails
-then fails the pass with all planned rules already retired; it cannot leave the
-rule of a later profile loaded. Drains and activations keep their planned order.
+any state, as the administrator withdrawal does. A retained state that stays
+then defers its profile with all planned rules already retired; it cannot leave
+the rule of a later profile loaded. Drains and activations keep their planned
+order.
+
+### Deferral and writes in doubt
+
+The acknowledgement exists for one situation: the kernel may hold something
+other than what the owner's records say. That is a write in doubt: a rule load
+that fails or whose readback differs from the journalled candidate, a candidate
+or a record that cannot be written, an enable reference that cannot be taken
+or identified, protected installation or policy content that changes during the
+pass, admissions that cannot be read when they are checked again, a final
+readback that differs from the records, a final state table that cannot be
+read, or a report that cannot be written. Each ends the pass `failed`, as does
+a state table that cannot be read when the pass starts.
+
+A precondition that is not met before anything was written for a profile is not
+that situation. The pass defers that one profile, goes on with its other
+actions and ends `inhibited`. The next pass reads everything again; nothing is
+retried inside a pass. The reasons are a closed vocabulary:
+
+| Reason | What the pass found before it wrote anything for the profile |
+|---|---|
+| `inhibited` | A pause, suspension or damaged intent that appeared during the pass |
+| `not-admitted` | The profile's admission no longer matches |
+| `evidence-unavailable` | The fresh runtime observation, the state table or the plan from them could not be had |
+| `target-changed` | Fresh evidence no longer supports the planned target |
+| `endpoint-unverified` | The interface, route or neighbour check did not pass or could not run |
+| `ports-unverified` | The host socket check did not pass or could not run |
+| `states-retained` | A retained state of the already withdrawn rule remains, or its invalidation or readback failed |
+
+A deferred profile has no rule loaded and is never `root_ready`. Its reason is
+recorded as `deferred` in the journal's final record (`{profile: reason}`), in
+the result of the pass, whose `pending` list includes the profile, and in the
+profile's published data. All three are absent when nothing was deferred. A
+profile with `states-retained` keeps its withdrawn record, so the plan holds it
+at "drain only" and no replacement target is activated for it while the state
+remains. A pass that still owes an acknowledgement ends `failed` whatever it
+deferred.
+
+A final runtime observation that fails is not a write either. The pass then
+treats every service as unknown, as it does when its first observation fails:
+it ends `inhibited`, reports no profile `root_ready` and leaves the loaded
+rules to the next pass, whose own first observation decides what to retire.
 
 The owner holds only its own PF enable reference and keeps it while paused or
 empty. It never globally disables PF or releases a token owned by another

@@ -11,7 +11,7 @@ running native tools. These assessments are report data, never admission.
 |---|---|---|
 | Resolved-content admission | Root binds the complete resolved profile, scope, workload contract, strategy, backend, observer, Python implementation and dependency versions. A changed digest stays pending. | Render/install conformance and the explicit host admission. |
 | No unprivileged call into root | Root independently pulls protected inputs. The user executor only observes its report. No privileged RPC or sudoers entry exists. | User-domain runtime/API clients remain able to redirect admitted ports by changing the runtime; record this residual. |
-| Bounded guest identity | Fresh helper and guest identities fence activation. Changed generations withdraw before later activation; unknown retires immediately. Old guest states are drained from and to the address. | Native allocator/reset, first-packet/reply and state invalidation acceptance; a signed age/count decision per bounded profile. |
+| Bounded guest identity | Fresh helper and guest identities fence activation. Changed generations withdraw before later activation; unknown retires immediately. While a state that the withdrawn rule can have created remains (its protocol, the old target with a port of the profile, a LAN peer), states from and to the old address are invalidated and the profile stays retired until a readback shows none. | Native allocator/reset, first-packet/reply and state invalidation acceptance; a signed age/count decision per bounded profile. |
 | Pause and suspensions | Separate durable operator pause and holder-owned operation records survive reinstall and rollback. Damage inhibits. | Native reboot/restore acceptance does not follow from model tests. |
 | Unknown and readiness | Complete typed observations, age decay, exact dependency readback and independent Bonjour leases. Unknown never calls workload recovery. | Consent and application evidence in the actual launch context; a warm-cache reload is not inward-discovery proof. |
 
@@ -81,7 +81,8 @@ For a targeted workload or runtime-wide stop, the administrator/lifecycle owner:
 
 1. Takes its own durable suspension, preserving operator pause and other holders.
 2. Lets the independently scheduled PF owner withdraw the exact owned rules.
-3. Verifies readback and invalidation of states from and to each old guest target.
+3. Verifies readback, and that no state of a withdrawn rule remains for an old
+   guest target; such states are invalidated from and to that address.
 4. Stops the workload/runtime only after quiescence is established.
 5. Starts it through its existing declared lifecycle owner.
 6. Obtains fresh runtime, helper, workload and publication identities.

@@ -47,7 +47,8 @@ def test_published_report_names_no_peer_or_client_of_a_guest(environment: Any) -
     report = published(environment)
 
     assert report.profiles["dns-udp"].data["states"] == ("retained",)
-    assert report.profiles["dns-tcp"].data["states"] == ("retained",)
+    # The only tcp row is the guest's own connection, not a state of the rule.
+    assert report.profiles["dns-tcp"].data["states"] == ()
     assert report.profiles["media-udp"].data["states"] == ()
     text = canonical_bytes(snapshot_to_dict(report)).decode()
     assert PEER not in text and CLIENT not in text

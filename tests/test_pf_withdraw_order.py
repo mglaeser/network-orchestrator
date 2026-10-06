@@ -17,17 +17,22 @@ REMAIN = "scoped PF states remain"
 
 
 class LiveKernel(FakeBackend):
-    """Fake rules and states, with the owner's own drain and its readback.
+    """Fake rules and states, with the owner's own drain.
 
     A guest in `live_guests` keeps one ordinary outbound connection, so a new
     state row naming its address exists again right after its states are killed.
     With `clients`, a LAN client keeps using every redirect that is still loaded.
+    A guest in `held` has a LAN client whose state, to the given port of the
+    guest, is not removed by an invalidation: a state of the owner's rule.
     """
 
-    def __init__(self, live_guests: set[str], *, clients: bool = False) -> None:
+    def __init__(
+        self, live_guests: set[str], *, clients: bool = False, held: dict[str, int] | None = None
+    ) -> None:
         super().__init__()
         self.live_guests = live_guests
         self.clients = clients
+        self.held = held or {}
         self.kills: list[str] = []
         self.shell = object.__new__(ShellBackend)
         self.shell._call = self.call  # type: ignore[method-assign]
@@ -49,6 +54,10 @@ class LiveKernel(FakeBackend):
         rows += [
             f"all tcp {guest}:51000 -> 203.0.113.5:443 ESTABLISHED:ESTABLISHED"
             for guest in sorted(self.live_guests)
+        ]
+        rows += [
+            f"all udp 192.0.2.78:54321 -> {guest}:{port} NO_TRAFFIC:SINGLE"
+            for guest, port in sorted(self.held.items())
         ]
         if self.clients:
             for rule in self.rules.splitlines():
@@ -82,16 +91,18 @@ def address(environment: Any, service: str) -> str:
 
 def test_pause_retires_every_rule_although_one_state_readback_fails(environment: Any) -> None:
     resolver = address(environment, "resolver")
-    backend = LiveKernel({resolver})  # the resolver guest is simply still running
+    # The resolver guest is simply still running; its own connection is not a
+    # state of a rule. One client's state of its DNS rule survives invalidation.
+    backend = LiveKernel({resolver}, held={resolver: 53})
     environment = active(environment, backend)
     root = environment[0]
     root.write("operator-intent.json", intent_to_dict(Intent().pause()))
 
-    with pytest.raises(PFError, match=REMAIN):
-        run_pass(environment)
+    result = run_pass(environment)
 
+    assert result["deferred"] == {"dns-udp": "states-retained"}
     assert owned(backend) == []
-    assert root.read("journal.json")["phase"] == "failed"
+    assert root.read("journal.json")["phase"] == "inhibited"
     operations = [item["operation"] for item in root.read("journal.json")["actions"]]
     first_drain = operations.index("drain")
     assert "withdraw" not in operations[first_drain:]
@@ -99,7 +110,8 @@ def test_pause_retires_every_rule_although_one_state_readback_fails(environment:
 
 
 def test_unknown_runtime_identity_retires_every_rule_in_the_same_pass(environment: Any) -> None:
-    backend = LiveKernel({address(environment, "resolver")})
+    resolver = address(environment, "resolver")
+    backend = LiveKernel({resolver}, held={resolver: 53})
     environment = active(environment, backend)
     snapshots = environment[4]
     snapshots.append(
@@ -114,9 +126,9 @@ def test_unknown_runtime_identity_retires_every_rule_in_the_same_pass(environmen
         )
     )
 
-    with pytest.raises(PFError, match=REMAIN):
-        run_pass(environment)
+    result = run_pass(environment)
 
+    assert result["deferred"] == {"dns-udp": "states-retained"}
     assert owned(backend) == []
 
 
@@ -135,12 +147,15 @@ def test_sibling_rule_no_longer_refills_the_states_of_a_restarted_guest(environm
         {**current.services["resolver"].data, "ipv4": "198.51.100.50"},
     )
     snapshots.append(replace(current, services=services))
+    # The state a client made through the UDP rule before the restart is still
+    # in the table; it is the only state of a retired rule.
+    backend.flow_states = f"all udp 192.0.2.77:54321 -> {old}:53 NO_TRAFFIC:SINGLE"
 
     # Both rules to the old address go first, so no client can create a new
     # state for it while the first profile is drained. The pass completes.
     assert run_pass(environment)["phase"] != "failed"
     assert old not in backend.rules
-    assert backend.kills.count(old) == 2
+    assert backend.kills.count(old) == 1
 
     # The next pass serves the restarted guest at its new address.
     assert run_pass(environment)["phase"] == "committed"
@@ -186,13 +201,15 @@ def test_stale_rule_of_a_later_profile_goes_although_an_earlier_drain_fails(
     }
     snapshots.append(Snapshot(STAMP, "network-2", services, publications))
     backend.live_guests = {media}
+    # A LAN receiver's return flow to the old address survives the invalidation.
+    backend.held = {media: 45001}
 
-    with pytest.raises(PFError, match=REMAIN):
-        run_pass(environment)
+    result = run_pass(environment)
 
     # `proxy-standard` sorts after the profile whose drain fails; it is gone.
+    assert result["deferred"] == {"media-udp": "states-retained"}
     assert owned(backend) == []
-    assert root.read("journal.json")["phase"] == "failed"
+    assert root.read("journal.json")["phase"] == "inhibited"
 
 
 def test_drains_and_activations_keep_their_planned_order(environment: Any) -> None:
@@ -231,7 +248,8 @@ def test_drains_and_activations_keep_their_planned_order(environment: Any) -> No
 def test_interrupted_withdrawal_retries_retirement_before_a_failing_drain(
     environment: Any, monkeypatch: Any, withdrawal: int, boundary: str
 ) -> None:
-    backend = LiveKernel({address(environment, "resolver")})
+    resolver = address(environment, "resolver")
+    backend = LiveKernel({resolver}, held={resolver: 53})
     environment = active(environment, backend)
     root = environment[0]
     admissions = root.read("admissions.json")
@@ -268,9 +286,10 @@ def test_interrupted_withdrawal_retries_retirement_before_a_failing_drain(
     assert fired
     # Retrying is still inhibited by the failed journal. It must identify either
     # the old or candidate kernel state, retire every remaining rule and only
-    # then reach the still-live guest's independently failing drain.
-    with pytest.raises(PFError, match=REMAIN):
-        run_pass(environment)
+    # then reach the drain that a client's surviving state keeps open.
+    result = run_pass(environment)
+    assert result["phase"] == "failed"
+    assert result["deferred"] == {"dns-udp": "states-retained"}
     assert owned(backend) == []
     assert all(not item["active"] for item in root.read("live.json")["records"].values())
     assert root.read("journal.json")["phase"] == "failed"
@@ -281,14 +300,20 @@ def test_interrupted_withdrawal_retries_retirement_before_a_failing_drain(
 
 
 def test_cleared_drain_does_not_acknowledge_a_failed_generation_change(environment: Any) -> None:
-    backend = LiveKernel({address(environment, "resolver")})
+    resolver = address(environment, "resolver")
+    backend = LiveKernel({resolver}, held={resolver: 53})
     environment = active(environment, backend)
     root, _, _, _, snapshots = environment
     # No operator pause: a generation change alone requires retirement.
     snapshots.append(replace(snapshots[-1], network_generation="network-2"))
-    with pytest.raises(PFError, match=REMAIN):
+    # A drain that stays open is not a failure. The retirement fails here
+    # because its first withdrawal is a write in doubt.
+    backend.fail_after_replace = True
+    with pytest.raises(PFError, match="interrupted write"):
         run_pass(environment)
+    assert run_pass(environment)["deferred"] == {"dns-udp": "states-retained"}
     assert not owned(backend)
+    backend.held.clear()
     backend.live_guests.clear()
     backend.commands.clear()
     for _ in range(2):

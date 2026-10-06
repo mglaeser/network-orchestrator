@@ -56,6 +56,19 @@ _ANCHOR = re.compile(r"com\.apple/(?:netorch\.[a-z][a-z0-9-]{0,62}|[a-z][a-z0-9.
 # The kernel prints its boot session with uuid_unparse_upper: one upper-case UUID.
 _BOOT_SESSION = re.compile(r"[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\Z")
 _REASON = "unobserved"
+# Why a pass left one profile to the next pass: a precondition that was not met
+# before anything was written for it. A write in doubt is never one of these.
+DEFERRAL_REASONS = frozenset(
+    {
+        "inhibited",
+        "not-admitted",
+        "evidence-unavailable",
+        "target-changed",
+        "endpoint-unverified",
+        "ports-unverified",
+        "states-retained",
+    }
+)
 
 
 class PFError(RuntimeError):
@@ -519,8 +532,8 @@ def compose_rules(records: Mapping[str, Mapping[str, Any]]) -> str:
     ) + ("\n" if lines else "")
 
 
-def _state_endpoint(token: str, *, port_required: bool) -> str | None:
-    """Validate one numerical endpoint; return its IPv4 address, if any.
+def _state_endpoint(token: str, *, port_required: bool) -> tuple[str, int | None] | None:
+    """Validate one numerical endpoint; return its IPv4 address and port, if any.
 
     The nonverbose PF printer uses IPv4:port and IPv6[port]. Only a protocol
     other than tcp and udp may leave the suffix out, and a zero port is read
@@ -554,10 +567,11 @@ def _state_endpoint(token: str, *, port_required: bool) -> str | None:
         raise PFError("malformed PF endpoint address") from exc
     if (family is not None and parsed.version != family) or "%" in address:
         raise PFError("unsupported PF endpoint address")
+    number = None if port is None else int(port)
     if isinstance(parsed, ipaddress.IPv4Address):
-        return str(parsed)
+        return str(parsed), number
     # Preserve conservative matching for IPv4-mapped IPv6 observations too.
-    return str(parsed.ipv4_mapped) if parsed.ipv4_mapped is not None else None
+    return (str(parsed.ipv4_mapped), number) if parsed.ipv4_mapped is not None else None
 
 
 def _state_status(token: str, protocol: str) -> bool:
@@ -608,7 +622,21 @@ def _state_status(token: str, protocol: str) -> bool:
     return protocol not in {"tcp", "udp"} and numeric and max(map(int, values)) >= 3
 
 
-def state_addresses(raw: str) -> tuple[tuple[str, tuple[str, ...]], ...]:
+@dataclass(frozen=True, slots=True)
+class StateRow:
+    """One validated state row: its text, its protocol and its IPv4 endpoints.
+
+    `endpoints` holds, in printed order, the address and the port of every
+    endpoint that names an IPv4 address. The port is None where the row prints
+    none.
+    """
+
+    line: str
+    protocol: str
+    endpoints: tuple[tuple[str, int | None], ...]
+
+
+def state_rows(raw: str) -> tuple[StateRow, ...]:
     """Validate complete numerical nonverbose PF rows, never empty-on-error.
 
     A row is `interface protocol endpoints status`. The kernel's state has a
@@ -620,12 +648,13 @@ def state_addresses(raw: str) -> tuple[tuple[str, tuple[str, ...]], ...]:
     second arrow or with the marker.
 
     Every endpoint of a row is checked before any IPv4 target is extracted,
-    and every IPv4 address the row names is returned, whatever its position.
+    and every IPv4 address the row names is returned with its port, whatever
+    its position.
     IPv6-only rows require valid IPv6 addresses, not merely a colon somewhere
     in the output. New printer formats remain unknown until reviewed fixtures
     establish their complete grammar.
     """
-    result: list[tuple[str, tuple[str, ...]]] = []
+    result: list[StateRow] = []
     # Only a line feed ends a row. A form feed, a vertical tab or a Unicode
     # line separator inside the output is refused below, not read as a break.
     for line in raw.split("\n"):
@@ -672,15 +701,85 @@ def state_addresses(raw: str) -> tuple[tuple[str, tuple[str, ...]], ...]:
         marked = sum(token.startswith("~") for token in endpoints)
         if marked > 1 or (marked and len(endpoints) != len(sides)):
             raise PFError("malformed PF endpoint marker")
-        addresses: list[str] = []
+        named: list[tuple[str, int | None]] = []
         for token in endpoints:
-            address = _state_endpoint(
+            endpoint = _state_endpoint(
                 token.removeprefix("~"), port_required=pieces[1] in {"tcp", "udp"}
             )
-            if address is not None:
-                addresses.append(address)
-        result.append((line, tuple(addresses)))
+            if endpoint is not None:
+                named.append(endpoint)
+        result.append(StateRow(line, pieces[1], tuple(named)))
     return tuple(result)
+
+
+def state_addresses(raw: str) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    """Each validated row with every IPv4 address it names, whatever its position.
+
+    A view of `state_rows`: the same parse, without protocols and ports.
+    """
+    return tuple(
+        (row.line, tuple(address for address, _ in row.endpoints)) for row in state_rows(raw)
+    )
+
+
+# The printer writes a protocol's number when the protocol database has no
+# name for it. A profile names tcp or udp only.
+_PROTOCOL_NUMBER = {"tcp": "6", "udp": "17"}
+
+
+def retained_states(
+    config: Config | None,
+    key: str,
+    target: str,
+    record: Mapping[str, Any] | None,
+    rows: tuple[StateRow, ...],
+) -> bool:
+    """Whether a state remains that the rules of one record can have created.
+
+    A rendered rule matches one protocol and a peer inside the scope's LAN
+    prefix, and translates to the target with a port of the profile. The
+    kernel keeps the target with that port and the peer as hosts of a state
+    made under such a rule. A row is therefore a state of the record when it
+    has the profile's protocol, names the target with a port inside the
+    profile's target ports at one endpoint, and names at another endpoint an
+    address of the LAN prefix that is neither the target nor the host's own
+    address. These properties decide which endpoint is which; its position in
+    the row does not. A guest's own connections lack one of them.
+
+    When the installed policy no longer describes the record (no policy, no
+    record, the profile is gone, or its digest or kind differs), the rule that
+    was loaded is not known any more and every row that names the target
+    counts.
+
+    The host endpoint's port is not consulted: two profiles that publish
+    different host ports onto one target port of one guest are not told apart.
+    The caller excludes a host redirect, whose target is the host itself.
+    """
+    if config is not None and record is not None:
+        profile = next((item for item in config.profiles if item.id == key), None)
+        if (
+            profile is not None
+            and record["kind"] == profile.kind
+            and record["policy_digest"] == profile_digest(config, profile)
+        ):
+            scope = config.scope(profile.scope)
+            lan = ipaddress.IPv4Network(scope.lan_cidr)
+            ports = profile.target_ports or profile.ports
+            protocols = {profile.protocol, _PROTOCOL_NUMBER.get(profile.protocol)}
+            return any(
+                row.protocol in protocols
+                and any(
+                    address == target and port is not None and ports.first <= port <= ports.last
+                    for address, port in row.endpoints
+                )
+                and any(
+                    address not in {target, scope.host_ipv4}
+                    and ipaddress.IPv4Address(address) in lan
+                    for address, _ in row.endpoints
+                )
+                for row in rows
+            )
+    return any(address == target for row in rows for address, _ in row.endpoints)
 
 
 class Backend(Protocol):
@@ -688,6 +787,7 @@ class Backend(Protocol):
     def normalize(self, rules: str) -> str: ...
     def replace(self, expected: str, candidate: str) -> str: ...
     def states(self) -> str: ...
+    # Issues the scoped invalidations only; the caller reads the table back.
     def drain(self, ipv4: str) -> None: ...
     def ensure_reference(self) -> None: ...
     def reference_held(self) -> bool: ...
@@ -756,10 +856,10 @@ class ShellBackend:
         return self._call("states")
 
     def drain(self, ipv4: str) -> None:
-        address = str(ipaddress.IPv4Address(ipv4))
-        self._call("drain", address)
-        if any(address in addresses for _, addresses in state_addresses(self.states())):
-            raise PFError("scoped PF states remain after invalidation")
+        # The two scoped invalidations, from and to the address, and nothing
+        # else. Whether a state of a record remains is read back by the caller
+        # with `retained_states`.
+        self._call("drain", str(ipaddress.IPv4Address(ipv4)))
 
     def ensure_reference(self) -> None:
         try:
@@ -1210,6 +1310,36 @@ def _inhibition(root: Store, installation: Installation) -> Intent:
     )
 
 
+def _installed_policy(root: Store) -> Config | None:
+    """The installed policy for `retained_states`, or None when it cannot be read.
+
+    Without it no retired rule is described, so every state of a target counts.
+    """
+    try:
+        return parse_config(canonical_bytes(root.read("policy.json")))
+    except (OSError, RuntimeError, ValueError):
+        return None
+
+
+def _own_states_gone(
+    backend: Backend,
+    config: Config | None,
+    key: str,
+    target: str,
+    record: Mapping[str, Any] | None,
+) -> bool:
+    """Invalidate the states of a retired record if one remains; read back that none does.
+
+    The scoped invalidation is issued only while the state table shows such a
+    state. Both reads go through the validated reader, so a table that cannot
+    be read raises here and is never taken for an empty one.
+    """
+    if not retained_states(config, key, target, record, state_rows(backend.states())):
+        return True
+    backend.drain(target)
+    return not retained_states(config, key, target, record, state_rows(backend.states()))
+
+
 def _snapshot(
     config: Config,
     runtime: Snapshot,
@@ -1218,7 +1348,7 @@ def _snapshot(
     now: float,
     owner: str,
 ) -> Snapshot:
-    states = state_addresses(backend.states())
+    states = state_rows(backend.states())
     profiles = dict(runtime.profiles)
     for profile in config.profiles:
         if config.profile_owner(profile).id != owner:
@@ -1227,15 +1357,16 @@ def _snapshot(
         data: dict[str, Any] = {"states": ()}
         if record is not None:
             target = record["target_ipv4"]
-            # Only the fact that states remain is evidence for planning. Raw
-            # kernel rows name a guest's remote peers and the clients on the
-            # LAN: they stay out of the snapshot that is hashed for the plan
-            # and out of the world-readable report, and they cannot grow
-            # either one beyond its serialization bound.
+            # Only the fact that states of this record's own rules remain is
+            # evidence for planning. Raw kernel rows name a guest's remote
+            # peers and the clients on the LAN: they stay out of the snapshot
+            # that is hashed for the plan and out of the world-readable
+            # report, and they cannot grow either one beyond its
+            # serialization bound.
             matching = (
                 ()
                 if record["kind"] == "host-redirect"
-                or not any(target in addresses for _, addresses in states)
+                or not retained_states(config, profile.id, target, record, states)
                 else ("retained",)
             )
             data = {
@@ -1381,6 +1512,13 @@ def _reference_held(backend: Backend, records: Mapping[str, Mapping[str, Any]]) 
     except (OSError, RuntimeError, ValueError):
         return None
     return held if isinstance(held, bool) else None
+
+
+def _deferrals(deferred: Mapping[str, str]) -> dict[str, str]:
+    """A pass's deferred profiles with their reasons, in one order; the vocabulary is closed."""
+    if not DEFERRAL_REASONS.issuperset(deferred.values()):
+        raise PFError("unknown deferral reason")
+    return dict(sorted(deferred.items()))
 
 
 def reconcile(
@@ -1618,6 +1756,7 @@ def reconcile(
         )
         changed: list[str] = []
         acquired = False
+        deferred: dict[str, str] = {}
         try:
             for action in actions:
                 if action.operation in {"blocked", "pending", "noop"}:
@@ -1631,37 +1770,63 @@ def reconcile(
                 ):
                     raise PFError("protected desired snapshot changed during pass")
                 if action.operation == "activate":
+                    # Nothing has been written for this profile in this pass.
+                    # A precondition that is not met leaves it without a rule
+                    # and defers it to the next pass, which reads everything
+                    # again; this pass goes on with its other actions.
                     if _inhibition(root, installation).blocked:
-                        raise PFError("inhibition appeared before activation")
+                        deferred[action.profile] = "inhibited"
+                        continue
                     profile = config.profile(action.profile)
                     current_admissions = _effective_admissions(
                         config, installation, root.read("admissions.json")
                     )
                     if action.profile not in current_admissions:
-                        raise PFError("admission changed before activation")
-                    fresh = observer(config, installation.observer)
-                    fresh_snapshot = _snapshot(
-                        config, fresh, records, backend, now(), installation.owner
-                    )
-                    fresh_plan = plan(
-                        config, fresh_snapshot, admissions, _inhibition(root, installation), now()
-                    )
+                        deferred[action.profile] = "not-admitted"
+                        continue
+                    try:
+                        fresh = observer(config, installation.observer)
+                        fresh_snapshot = _snapshot(
+                            config, fresh, records, backend, now(), installation.owner
+                        )
+                        fresh_intent = _inhibition(root, installation)
+                        fresh_plan = plan(config, fresh_snapshot, admissions, fresh_intent, now())
+                    except (OSError, RuntimeError, ValueError):
+                        deferred[action.profile] = "evidence-unavailable"
+                        continue
                     if action not in fresh_plan.actions:
-                        raise PFError("runtime changed before activation")
+                        deferred[action.profile] = (
+                            "inhibited" if fresh_intent.blocked else "target-changed"
+                        )
+                        continue
                     assert action.target_ipv4 is not None and action.target_generation is not None
                     scope = config.scope(profile.scope)
                     service = fresh.services.get(profile.service)
                     mac = None if service is None else service.data.get("mac")
-                    if not backend.endpoint(
-                        scope,
-                        action.target_ipv4,
-                        mac if isinstance(mac, str) else None,
-                        direct=profile.kind != "host-redirect"
-                        and action.effective_strategy != "degraded-fallback",
-                    ) or not backend.ports_clear(
-                        scope, profile, apple_dns=installation.allow_apple_dns_coexistence
-                    ):
-                        raise PFError("kernel target or socket coexistence is unverified")
+                    try:
+                        verified = backend.endpoint(
+                            scope,
+                            action.target_ipv4,
+                            mac if isinstance(mac, str) else None,
+                            direct=profile.kind != "host-redirect"
+                            and action.effective_strategy != "degraded-fallback",
+                        )
+                    except (OSError, RuntimeError, ValueError):
+                        verified = False
+                    if not verified:
+                        deferred[action.profile] = "endpoint-unverified"
+                        continue
+                    try:
+                        clear = backend.ports_clear(
+                            scope, profile, apple_dns=installation.allow_apple_dns_coexistence
+                        )
+                    except (OSError, RuntimeError, ValueError):
+                        clear = False
+                    if not clear:
+                        deferred[action.profile] = "ports-unverified"
+                        continue
+                    # From here on a failure is a write in doubt, not a deferral:
+                    # the enable reference and the rule load change the kernel.
                     backend.ensure_reference()
                     acquired = True
                     update = dict(records)
@@ -1696,7 +1861,19 @@ def reconcile(
                     # killing all host-IP states would disrupt unrelated services.
                     retiring = records.get(action.profile)
                     if retiring is None or retiring["kind"] != "host-redirect":
-                        backend.drain(target)
+                        # The rule is retired and was read back. While a state
+                        # of it remains, or cannot be read back as gone, the
+                        # retired record stays: the plan keeps this profile at
+                        # "drain only" and no target is activated for it.
+                        try:
+                            gone = _own_states_gone(
+                                backend, config, action.profile, target, retiring
+                            )
+                        except (OSError, RuntimeError, ValueError):
+                            gone = False
+                        if not gone:
+                            deferred[action.profile] = "states-retained"
+                            continue
                     update = dict(records)
                     if action.profile in update and not update[action.profile]["active"]:
                         del update[action.profile]
@@ -1724,7 +1901,23 @@ def reconcile(
                 records = update
                 root.write("live.json", {"schema_version": 1, "records": records})
                 changed.append(f"{action.profile}:{action.operation}")
-            final_runtime = observer(config, installation.observer)
+            try:
+                final_runtime = observer(config, installation.observer)
+            except (OSError, RuntimeError, ValueError):
+                # No write is in doubt: every service is unknown, as when the
+                # first observation of a pass fails. Nothing can then be
+                # verified or reported ready, and the next pass decides from
+                # its own observation what to retire.
+                unobserved_at = now()
+                final_runtime = Snapshot(
+                    unobserved_at,
+                    None,
+                    {
+                        service.id: Observation("unknown", "unavailable", unobserved_at, None)
+                        for service in config.services
+                    },
+                    {},
+                )
             if backend.inspect() != backend.normalize(compose_rules(records)):
                 raise PFError("owned rules changed before final readback")
             final = _snapshot(config, final_runtime, records, backend, now(), installation.owner)
@@ -1742,6 +1935,7 @@ def reconcile(
                 for action in status.actions
                 if action.operation == "noop" and action.reason == "verified"
             }
+            deferred = _deferrals(deferred)
             # Read on every pass that leaves a rule loaded, not only at an
             # activation: another tool can disable PF at any time, which also
             # drops every enable reference.
@@ -1778,6 +1972,7 @@ def reconcile(
                 else (
                     "committed"
                     if reference_verified
+                    and not deferred
                     and all(
                         action.operation == "noop"
                         for action in status.actions
@@ -1794,6 +1989,7 @@ def reconcile(
                     "actions": [asdict(action) for action in actions],
                     "finished_at": now(),
                     **({} if reference_verified else {"reason": "enable-reference-unverified"}),
+                    **({"deferred": deferred} if deferred else {}),
                     **boot,
                 },
             )
@@ -1828,11 +2024,14 @@ def reconcile(
                     and not final_intent.blocked
                     and key in verified_profiles
                     and reference_verified
+                    and key not in deferred
                 )
                 data["admission_digest"] = (
                     admitted_digest(config, profile, installation) if valid_approval else None
                 )
                 data["policy_digest"] = profile_digest(config, config.profile(key))
+                if key in deferred:
+                    data["deferred"] = deferred[key]
                 published[key] = Observation(
                     observed_profile.state,
                     observed_profile.reason,
@@ -1843,15 +2042,18 @@ def reconcile(
             report(
                 installation, Snapshot(final.observed_at, final.network_generation, {}, published)
             )
+            pending = [
+                action.profile
+                for action in status.actions
+                if action.profile in owned and action.operation in {"pending", "blocked"}
+            ]
+            pending.extend(key for key in deferred if key not in pending)
             return {
                 "schema_version": 1,
                 "phase": phase,
                 "changed": changed,
-                "pending": [
-                    action.profile
-                    for action in status.actions
-                    if action.profile in owned and action.operation in {"pending", "blocked"}
-                ],
+                "pending": pending,
+                **({"deferred": deferred} if deferred else {}),
                 # Enabling PF again is never silent: the result says so, and the
                 # scheduled job writes such a result to its log.
                 **({"reference": "reacquired"} if reacquired else {}),
@@ -1944,9 +2146,12 @@ def withdraw(
                 raise PFError("withdrawal rules remain")
             root.write("live.json", {"schema_version": 1, "records": retired})
             if not cold:
-                for record in retired.values():
-                    if record["kind"] != "host-redirect":
-                        backend.drain(record["target_ipv4"])
+                policy = _installed_policy(root)
+                for key, record in retired.items():
+                    if record["kind"] != "host-redirect" and not _own_states_gone(
+                        backend, policy, key, record["target_ipv4"], record
+                    ):
+                        raise PFError("scoped PF states remain after invalidation")
             root.write("live.json", {"schema_version": 1, "records": {}})
             root.write(
                 "journal.json",

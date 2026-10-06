@@ -50,9 +50,10 @@ conditions for a subsequent qualified release.
 ## Planned stop: bounded target or runtime-wide stop
 
 Take the operation's own durable suspension, keeping operator pause independent.
-The existing root owner withdraws only its owned rules and kills states for the
-old guest in both directions. Complete kernel readback must confirm retirement
-before a workload/runtime stop. Stop/start remains with the existing lifecycle
+The existing root owner withdraws only its owned rules and, while a state of a
+withdrawn rule remains, kills states for the old guest in both directions.
+Complete kernel readback must confirm retirement before a workload/runtime
+stop. Stop/start remains with the existing lifecycle
 owner. Obtain fresh network and workload generations, exact preserved contracts
 and current admission. Reapply only allowed admitted content, verify it, and let
 discovery require the subsequent verified transport cycle. Release only this
@@ -60,7 +61,11 @@ operation's suspension; never clear another holder or operator pause.
 
 Unknown withdrawal, an unavailable reader, an unexpected API all-stopped result
 or a failed stop causes an explicit partial state. It cannot authorize recovery,
-new exposure, a wider range or speculative rollback. The finite withdrawal bound
+new exposure, a wider range or speculative rollback. In the root owner the
+partial state is a write in doubt, which needs an acknowledgement; a
+precondition that is not met before anything was written defers only that
+profile to the next pass, with its reason in the owner's journal and report.
+The finite withdrawal bound
 needs measured scheduling/read/apply bounds; a nominal launchd interval is no
 upper bound. Shared-pool direct targets retain signed address-reuse risk.
 
