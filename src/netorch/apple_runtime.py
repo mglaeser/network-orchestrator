@@ -487,6 +487,21 @@ def _check_contract(
                     raise RuntimeReadError("identity-mismatch")
 
 
+def _hardware_address(attachment: dict[str, Any]) -> str | None:
+    """The guest's link address in the one form the vendor encodes, else nothing.
+
+    The independent root owner compares this address with its own neighbour
+    read before it accepts a direct guest target. At every accepted version the
+    attachment carries an optional `macAddress`, written as six two-digit
+    lower-case hexadecimal groups joined by colons. A missing value, or one in
+    any other spelling or type, is unknown: it is neither repaired nor replaced.
+    """
+    value = attachment.get("macAddress")
+    if isinstance(value, str) and re.fullmatch(r"[0-9a-f]{2}(?::[0-9a-f]{2}){5}", value):
+        return value
+    return None
+
+
 def _service(
     config: Config,
     contract: RuntimeContract,
@@ -551,6 +566,7 @@ def _service(
             "ipv4": str(interface.ip),
         }
     )
+    mac = _hardware_address(attachment)
     return Observation(
         "present",
         "verified",
@@ -561,6 +577,7 @@ def _service(
             "contract_sha256": service.contract_sha256,
             "runtime_state": "running",
             "configuration_sha256": contract.configuration_sha256,
+            **({} if mac is None else {"mac": mac}),
         },
     )
 
