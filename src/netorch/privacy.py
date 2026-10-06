@@ -19,11 +19,13 @@ from typing import Any
 from .legacy_import import ImportError, read_static
 
 _KINDS = {"private-address", "interface", "home", "namespace", "name", "port"}
-_IP = re.compile(r"(?<![\w.])(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?:/[0-9]{1,2})?(?![\w.])")
+# A value may end a sentence. Only a dot that continues into another component
+# makes it part of a longer token.
+_IP = re.compile(r"(?<![\w.])(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?:/[0-9]{1,2})?(?!\w)(?!\.\w)")
 _IF = re.compile(r"(?<![\w])(?:en[0-9]+|bridge[0-9]+|utun[0-9]+|vmenet[0-9]+)(?![\w])")
 _HOME = re.compile(r"/(?:Users|home)/[A-Za-z0-9_.-]+(?:/[^\s\"'<>]*)?")
 _NAMESPACE = re.compile(
-    r"(?<![\w.])(?:me|com|net|org|io|dev|app)\.[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*(?![\w.])"
+    r"(?<![\w.])(?:me|com|net|org|io|dev|app)\.[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*(?!\w)(?!\.\w)"
 )
 _SKIP = {
     ".git",
@@ -95,7 +97,9 @@ def _validate_literals(literals: Iterable[HostLiteral]) -> tuple[HostLiteral, ..
 
 def _literal_pattern(literal: HostLiteral) -> re.Pattern[str]:
     edge = r"[A-Za-z0-9_.-]"
-    return re.compile(rf"(?<!{edge}){re.escape(literal.value)}(?!{edge})")
+    inner = r"[A-Za-z0-9_-]"
+    # As above, a final dot that starts no further component does not hide the value.
+    return re.compile(rf"(?<!{edge}){re.escape(literal.value)}(?!{inner})(?!\.{inner})")
 
 
 def _generic(text: str) -> Iterable[tuple[str, re.Match[str]]]:
