@@ -248,6 +248,10 @@ def parse_host_evidence(raw: bytes | str | dict[str, Any]) -> HostEvidence:
                 not isinstance(item.value, str) or item.value not in {"on", "off"}
             ):
                 raise InstanceError("FileVault value has the wrong declared type")
+            if item.key == "local_network_identity" and (
+                not isinstance(item.value, str) or not item.value.strip()
+            ):
+                raise InstanceError("Local Network identity must be nonblank text")
     return HostEvidence(
         data["schema_version"],
         data["observed_at"],
@@ -736,6 +740,8 @@ def _deviation(instance: Instance, identifier: str, now: float) -> tuple[str, st
     if not named:
         return None
     for item in named:
+        if not item.statement.strip():
+            return "not-fulfilled", "A recorded deviation has no nonblank statement to accept."
         if (
             item.accepted_by is None
             or not item.accepted_by.strip()

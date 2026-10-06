@@ -340,6 +340,14 @@ def test_one_unaccepted_deviation_outweighs_an_accepted_one(data: dict[str, Any]
     assert status(report(data), "NAMES-PRESERVED") == "not-fulfilled"
 
 
+@pytest.mark.parametrize("blank", [" ", "\u00a0"])
+def test_signed_deviation_requires_a_nonblank_statement(data: dict[str, Any], blank: str) -> None:
+    data["deviations"].append(deviation("NAMES-PRESERVED"))
+    assert status(report(data), "NAMES-PRESERVED") == "accepted-residual"
+    data["deviations"][0]["statement"] = blank
+    assert status(report(data), "NAMES-PRESERVED") == "not-fulfilled"
+
+
 def test_deviation_changes_only_its_own_applicable_row(data: dict[str, Any]) -> None:
     before = {item["id"]: item["status"] for item in report(data)["requirements"]}
     assert before["DNS-CLIENT-IDENTITY"] == "not-applicable"

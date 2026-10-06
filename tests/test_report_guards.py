@@ -212,6 +212,32 @@ def test_consent_acceptance_needs_the_launch_agent_context(
     assert status(result, "CONSENT-IDENTITY") == expected
 
 
+@pytest.mark.parametrize("value", [True, 42, [], " ", "\u00a0"])
+def test_matching_consent_artifacts_cannot_supply_a_missing_identity_value(
+    tmp_path: Path, data: dict[str, Any], value: Any
+) -> None:
+    for selection in data["discovery"]:
+        attest(
+            data,
+            tmp_path,
+            "CONSENT-IDENTITY",
+            "local-network-consent",
+            3,
+            selection["id"],
+            context="user-launchagent",
+        )
+    valid = [*platform(), fact("local_network_identity", "example-identity")]
+    assert status(report(data, valid, evidence_directory=tmp_path), "CONSENT-IDENTITY") == (
+        "fulfilled-verified"
+    )
+    with pytest.raises(InstanceError):
+        report(
+            data,
+            [*platform(), fact("local_network_identity", value)],
+            evidence_directory=tmp_path,
+        )
+
+
 def test_platform_support_needs_apple_silicon(data: dict[str, Any]) -> None:
     facts = [*platform(), fact("macos_version", "27.0.1")]
     result = report(data, [*facts, fact("hardware_class", "apple-silicon")])
