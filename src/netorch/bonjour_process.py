@@ -64,20 +64,58 @@ def interface_index(interface: str, expected_ipv4: str, runner: Runner = command
     return index
 
 
+def _lines(raw: bytes) -> list[bytes]:
+    """Every format string of the client ends its line with a line feed only.
+
+    A carriage return or any other separator in the output is data: browse
+    replies carry the instance label unescaped.
+    """
+    lines = raw.split(b"\n")
+    if not lines[-1]:
+        lines.pop()
+    return lines
+
+
+def _refused(line: bytes, denial: bytes) -> DiscoveryFailure:
+    """A line that is neither a banner nor a well-formed reply of its operation.
+
+    It is the client's denial only in the form in which that operation prints
+    one after a timestamp; anything else is damage. Replies are data and are
+    never searched for the words of a diagnostic.
+    """
+    if re.fullmatch(_STAMP.encode() + b"  " + denial, line) is not None:
+        return DiscoveryFailure("local-network-denied")
+    return DiscoveryFailure()
+
+
 def confirmed_output(result: Result, index: int) -> bytes:
-    """An exit status alone never proves that the requested interface was used."""
-    joined = result.stdout + b"\n" + result.stderr
-    if b"No Authorization" in joined or b"-65570" in joined:
+    """An exit status alone never proves that the requested interface was used.
+
+    Replies belong to the parser of the operation that was run. Words of a
+    diagnostic are searched here only where no reply can be: in the error
+    stream and in what the client prints before its event loop, that is before
+    the first timestamp. There the two lines that echo the arguments
+    ("Browsing for %s%s%s", "Lookup %s.%s.%s") are not searched either.
+    """
+    lines = _lines(result.stdout)
+    replies = next(
+        (at for at, line in enumerate(lines) if re.match(_STAMP.encode(), line)), len(lines)
+    )
+    searched = b"\n".join(
+        [line for line in lines[:replies] if not line.startswith((b"Browsing for ", b"Lookup "))]
+        + [result.stderr]
+    )
+    if b"No Authorization" in searched or b"-65570" in searched:
         raise DiscoveryFailure("local-network-denied")
     if (
         result.returncode
         or result.stderr
         or index <= 0
-        or len(joined) > MAX_OUTPUT
-        or result.stdout.splitlines().count(f"Using interface {index}".encode()) != 1
+        or len(result.stdout) + 1 + len(result.stderr) > MAX_OUTPUT
+        or lines.count(f"Using interface {index}".encode()) != 1
         or re.search(
             rb"(?:DNSService[^\n]*(?:failed|error)|[Ee]rror code|No Such Record|Unknown interface)",
-            joined,
+            searched,
         )
     ):
         raise DiscoveryFailure("malformed")
@@ -91,19 +129,45 @@ def browse_names(raw: bytes, service_type: str, index: int, limit: int) -> tuple
         rf"{re.escape('local.'.ljust(20))} {re.escape((service_type + '.').ljust(20))} (.+)$"
     )
     active: set[str] = set()
+    replied = False  # a reply was read: the client's banners are all behind it
+    listed = False  # a row was read: a later line may be the rest of its name
+    clock = ""  # the last timestamp read
+    dated = False  # a date line after a timestamp: the day has to have changed
     # browse_reply uses fixed-width columns, then an unescaped instance label.
     # Splitting after Unicode decoding would treat valid U+0085/U+2028 labels
     # as new lines; greedy whitespace would merge distinct "Name"/" Name".
-    for raw_line in raw.splitlines():
+    for raw_line in _lines(raw):
         line = raw_line.decode("utf-8", errors="strict")
-        if re.fullmatch(_STARTING, line):
-            continue
-        if re.match(rf"^{_STAMP}\s", line):
+        stamped = re.match(rf"^{_STAMP}\s", line) is not None
+        # printtimestamp_F repeats "DATE: ---%s---" only when the day differs
+        # from the one it printed last, directly before that day's timestamp.
+        # The width of the timestamp is fixed, so its text orders like the time.
+        if dated and not (stamped and line[:12] < clock):
+            raise DiscoveryFailure()
+        dated = False
+        if stamped:
+            clock = line[:12]
+            if re.fullmatch(_STARTING, line):
+                if replied:
+                    raise DiscoveryFailure()
+                continue
+            replied = True
             match = pattern.fullmatch(line)
             if match is None or match[2] != f"{int(match[2], 16):8X}" or match[3] != f"{index:3d}":
-                raise DiscoveryFailure()
+                # browse_reply prints "Error code %d" in place of a row. After a
+                # row the same bytes can be the rest of a name that holds a line
+                # feed, so they are the client's denial only before any row.
+                raise DiscoveryFailure() if listed else _refused(raw_line, b"Error code -65570")
+            listed = True
             name = match[4]
-            if not name or len(name.encode()) > 63 or any(ord(char) < 32 for char in name):
+            # RegisterService reads the name "." as the empty one and registers
+            # the computer's own name, so that label can never be passed on.
+            if (
+                not name
+                or name == "."
+                or len(name.encode()) > 63
+                or any(ord(char) < 32 for char in name)
+            ):
                 raise DiscoveryFailure()
             if match[1] == "Add":
                 active.add(name)
@@ -111,13 +175,18 @@ def browse_names(raw: bytes, service_type: str, index: int, limit: int) -> tuple
                 active.discard(name)
             if len(active) > limit:
                 raise DiscoveryFailure("incomplete")
-        elif not (
+        elif line.startswith("DATE: ---") and line.endswith("---"):
+            dated = bool(clock)
+        elif replied or not (
             line == f"Using interface {index}"
             or line == f"Browsing for {service_type}.local."
-            or (line.startswith("DATE: ---") and line.endswith("---"))
             or " ".join(line.split()) == "Timestamp A/R Flags if Domain Service Type Instance Name"
         ):
+            # main() and the first browse_reply print these before any reply; a
+            # line after a row that is no reply is the rest of that row's name.
             raise DiscoveryFailure()
+    if dated:
+        raise DiscoveryFailure()
     return tuple(sorted(active))
 
 
@@ -144,7 +213,7 @@ def resolve_endpoint(raw: bytes, index: int) -> tuple[str, str, int]:
     )
     unique = set()
     continuation = False
-    for line in raw.splitlines():
+    for line in _lines(raw):
         match = pattern.fullmatch(line)
         if match is not None:
             try:
@@ -174,7 +243,10 @@ def resolve_endpoint(raw: bytes, index: int) -> tuple[str, str, int]:
             # -Q's hexadecimal RDATA, not this shell-friendly display.
             continuation = False
         else:
-            raise DiscoveryFailure()
+            # resolve_reply prints "%s error code %d" in place of the row. An
+            # escaped full name holds no space, and an error reply may carry
+            # none at all; the TXT display never holds two adjacent spaces.
+            raise _refused(line, rb"[^ ]* error code -65570")
     if len(unique) != 1:
         raise DiscoveryFailure()
     fullname, host, port, actual = unique.pop()
@@ -189,7 +261,7 @@ def resolve_ipv4(raw: bytes, hostname: str, index: int) -> str:
         rf"{re.escape(hostname)}\s+([0-9.]+)\s+\d+$"
     )
     active: set[str] = set()
-    for raw_line in raw.splitlines():
+    for raw_line in _lines(raw):
         if _banner(raw_line, index, b"Timestamp A/R Flags IF Hostname Address TTL"):
             continue
         try:
@@ -198,7 +270,8 @@ def resolve_ipv4(raw: bytes, hostname: str, index: int) -> str:
             raise DiscoveryFailure() from exc
         match = pattern.fullmatch(line)
         if match is None or int(match[2]) != index:
-            raise DiscoveryFailure()
+            # addrinfo_reply appends "   Error code %d" to its row.
+            raise _refused(raw_line, rb"(?:Add|Rmv) .*   Error code -65570")
         address = str(ipaddress.IPv4Address(match[3]))
         if match[1] == "Add":
             active.add(address)
@@ -215,7 +288,7 @@ def resolve_txt(raw: bytes, fullname: str, index: int) -> tuple[bytes, ...]:
         rf"{re.escape(fullname)}\s+TXT\s+IN\s+(\d+) bytes:?((?: [0-9A-Fa-f]{{2}})*)$"
     )
     active: set[bytes] = set()
-    for raw_line in raw.splitlines():
+    for raw_line in _lines(raw):
         if _banner(raw_line, index, b"Timestamp A/R Flags IF Name Type Class Rdata"):
             continue
         try:
@@ -224,7 +297,8 @@ def resolve_txt(raw: bytes, fullname: str, index: int) -> tuple[bytes, ...]:
             raise DiscoveryFailure() from exc
         match = pattern.fullmatch(line)
         if match is None or int(match[2]) != index:
-            raise DiscoveryFailure()
+            # qr_reply appends "    No Authorization" to its row.
+            raise _refused(raw_line, rb"(?:Add|Rmv) .*    No Authorization")
         data = bytes.fromhex(match[4])
         if len(data) != int(match[3]) or len(data) > 8900:
             raise DiscoveryFailure()
@@ -286,6 +360,10 @@ def registration_argv(record: Record, lifetime_seconds: int = 120) -> list[str]:
         raise DiscoveryFailure("incomplete")
     if sum(1 + len(item) for item in record.txt) > 8900:
         raise DiscoveryFailure("incomplete")
+    if record.name == ".":
+        # RegisterService: "." is a synonym for the empty name, which registers
+        # the computer's own name instead of this record's.
+        raise DiscoveryFailure("identity-mismatch")
     return [
         DNS_SD,
         "-i",
@@ -342,16 +420,9 @@ class Registration:
         if len(self.output) > MAX_OUTPUT:
             raise DiscoveryFailure("incomplete")
         text = bytes(self.output)
-        if b"-65570" in text or b"No Authorization" in text:
-            raise DiscoveryFailure("local-network-denied")
-        if re.search(
-            rb"(?:DNSService[^\n]*(?:returned|failed)|[Ee]rror code|Unknown interface)",
-            text,
-        ):
-            raise DiscoveryFailure()
         # Pipe reads can split a native callback anywhere. A partial final
         # line is not a conflicting registration; retain it until its newline.
-        lines = text[: text.rfind(b"\n") + 1].splitlines()
+        lines = _lines(text[: text.rfind(b"\n") + 1])
         expected_service = (
             f"Got a reply for service {self.record.name}."
             f"{self.record.service_type}.local.: Name now registered and active"
@@ -360,13 +431,32 @@ class Registration:
             f"Got a reply for record {self.record.hostname}: Name now registered and active"
         ).encode()
         callbacks = []
+        searched = []
         pattern = re.compile(rf"^{_STAMP}  (Got a reply for (?:service|record) .+)$".encode())
         for line in lines:
+            if line.startswith(b"Registering Service "):
+                # RegisterService echoes the name, host, port and TXT on this one
+                # line. Like a reply, it is data and holds no diagnostic.
+                continue
             if b"Got a reply for service " in line or b"Got a reply for record " in line:
                 callback = pattern.fullmatch(line)
                 if callback is None:
                     raise DiscoveryFailure("malformed")
+                # reg_reply and MyRegisterRecordCallback end the line with
+                # "Error %d"; the name is never the end of a reply.
+                if callback[1].endswith(b": Error -65570"):
+                    raise DiscoveryFailure("local-network-denied")
                 callbacks.append(callback[1])
+            else:
+                searched.append(line)
+        diagnostics = b"\n".join(searched)
+        if b"-65570" in diagnostics or b"No Authorization" in diagnostics:
+            raise DiscoveryFailure("local-network-denied")
+        if re.search(
+            rb"(?:DNSService[^\n]*(?:returned|failed)|[Ee]rror code|Unknown interface)",
+            diagnostics,
+        ):
+            raise DiscoveryFailure()
         if any(line not in {expected_service, expected_address} for line in callbacks):
             raise DiscoveryFailure("identity-mismatch")
         self.active = (

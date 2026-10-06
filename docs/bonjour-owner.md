@@ -82,6 +82,11 @@ unchanged policy cannot retain an older implementation's discovery authority.
 Fresh planning and observation are required. Transport policy digests are
 unchanged. This does not open the current native qualification gate.
 
+Discovery digest version 4 binds the changes to record reading, selection and
+leasing made after 0.3.2; each is described where this document covers that
+behavior. Version 1 to 3 requests, candidates and cached readbacks are
+rejected at the owner boundary in the same way.
+
 Discovery does not supply the audio/video return path. A verified UDP-return
 dependency is required by the canonical import policy. The forwarding owner
 remains its sole writer and its independent safety/approval boundary is retained.
@@ -111,7 +116,9 @@ including the timestamped `...STARTING...` line that `dns-sd` prints once before
 its event loop for every operation; a near-miss of that line stays malformed.
 Browse callbacks use Apple's exact fixed-width columns before the unescaped
 instance label. Leading/trailing spaces and Unicode separators remain part of
-that label; only byte line endings split native output. Distinct labels such as
+that label; only a line feed ends a line of native output, so a carriage return
+is part of the label too and such a label is refused like any other control
+character. Distinct labels such as
 `Speaker` and ` Speaker` cannot collapse or remove one another. SRV's
 single optional shell-friendly TXT continuation stays opaque bytes because that
 native display can contain non-UTF-8 data; only `-Q` provides authoritative TXT.
@@ -119,6 +126,52 @@ Browse/register instance labels remain unescaped, while native escaped
 resolve/query fullnames pass through unchanged. This follows Apple's
 [reply construction](https://github.com/apple-oss-distributions/mDNSResponder/blob/mDNSResponder-2881.120.11/mDNSShared/uds_daemon.c)
 and [fullname API](https://github.com/apple-oss-distributions/mDNSResponder/blob/mDNSResponder-2881.120.11/mDNSShared/dnssd_clientlib.c).
+
+Replies are data. The words of a diagnostic are not searched in them, so a
+device whose name, host name or TXT reads like one (`Error code display`, a
+serial number ending in `-65570`) is read like any other. A diagnostic is read
+where the client prints one. The lines are those of `Clients/dns-sd.c` at the
+revision linked below, with their line numbers:
+
+| Operation | Banners | Reply (data) | Diagnostic |
+| --- | --- | --- | --- |
+| every | `Using interface N` (2135), `DATE: ---…---` (515), `...STARTING...` (2396-2397) | | on the error stream: `Unknown interface …` (2104), `… failed <code>` (2392), `Error code <code>` (246) |
+| `-B` | `Browsing for <type>.local.` (2157), table heading (763) | `Add`/`Rmv` row ending in the unescaped name (768-769) | `Error code <code>` in place of a row (766) |
+| `-L` | `Lookup <name>.<type>.local.` (2181), which echoes the name | `<full name> can be reached at …` (828-834), then at most one line of TXT display (837, 781-813) | `<full name> No Such Record` (830) or `<full name> error code <code>` (831) in place of the reply |
+| `-G` | table heading (1253) | `Add`/`Rmv` row (1276) | `No Such Record` (1281) or `Error code <code>` (1283) appended to the row |
+| `-Q` | table heading (1115) | `Add`/`Rmv` row with hexadecimal data (1182-1188) | `No Such Record` (1193) or `No Authorization` (1195) appended to the row; `Query Timed Out` (1199) |
+| `-P` | `Registering Service …` (1501-1527), which echoes name, host, port and TXT | `Got a reply for service …` (918-923), `Got a reply for record …` (1435-1441) | a reply that ends in `Error <code>` (940, 1441) or `Name in use, please choose another` (936, 1440) |
+
+Any content of the error stream fails a scan command. On the output stream
+every line has to be a banner, a well-formed reply of the operation that was
+run or, directly after a resolve reply, its one line of TXT display; any other
+line fails the command. The reason is `local-network-denied` only for that
+operation's own error line with code -65570 (for a query: `No Authorization`),
+and `malformed` otherwise. The TXT display cannot pose as such a line: every
+reply starts with a timestamp and two spaces, and the display never holds two
+adjacent spaces. The words of a diagnostic are searched as text only in the
+error stream and in what the client prints before its event loop, that is
+before the first timestamp, and there not in the two lines that echo the
+arguments. The registration reader follows the same rule: the echo line and
+the replies are data, a reply that ends in `Error -65570` is a denial, and
+every other complete line is searched as before.
+
+A browse reply carries the instance name unescaped (`mDNSShared/uds_daemon.c`
+line 624 at the same revision), so a name can hold a line feed and continue on
+lines of its own. A browse therefore accepts the client's banners only where
+the source prints them, before the first reply. After a reply it accepts
+replies only. A date line that follows a timestamp is accepted for a change of
+day alone, that is directly before a timestamp with an earlier time of day
+(`printtimestamp_F`, lines 512-518). Anything else is the rest of a name and
+fails the browse: a name cannot pose as a banner, and an `Error code` line that
+follows a row is reported as `malformed`, never as a denial. Nor can it pose as
+a row: the shortest row the client prints has 74 bytes, a label at most 63. One
+device can thus no longer remove another from the result by naming itself
+`<name>`, a line end and a banner.
+
+The name `.` is refused as a browse row and is never passed to `-P`: the client
+reads it as the empty name and would register the computer's own name instead
+(line 1498). These reading rules are part of discovery digest version 4.
 
 Each `-P` registration must independently confirm both the exact unchanged
 service name and its own A-record hostname. Auto-renaming, conflict, removal,
