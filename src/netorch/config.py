@@ -21,6 +21,12 @@ class ConfigError(ValueError):
     """Schema or cross-owner invariants are not satisfied."""
 
 
+# The independent root owner names its anchor after its own identifier and keys
+# its protected admission and rule records by the identifiers of its profiles.
+# Those stores accept one character fewer than the schema's 64.
+ROOT_IDENTIFIER_LENGTH = 63
+
+
 @lru_cache(maxsize=1)
 def _validator() -> Draft202012Validator:
     schema_file = resources.files("netorch").joinpath("network.schema.json")
@@ -137,6 +143,23 @@ def _check_references(config: Config) -> None:
                 config.profile(dependency)
     except KeyError as exc:
         raise ConfigError(str(exc)) from exc
+    # Refuse here what a root owner could install and admit once but never read
+    # back: nothing is stored for a policy that does not pass this validation.
+    for owner in config.owners:
+        if owner.privilege == "external-root" and len(owner.id) > ROOT_IDENTIFIER_LENGTH:
+            raise ConfigError(
+                f"Owner {owner.id}: an external-root owner's identifier is limited to "
+                f"{ROOT_IDENTIFIER_LENGTH} characters"
+            )
+    for profile in config.profiles:
+        if (
+            config.profile_owner(profile).privilege == "external-root"
+            and len(profile.id) > ROOT_IDENTIFIER_LENGTH
+        ):
+            raise ConfigError(
+                f"Profile {profile.id}: an external-root owner's profile identifier is limited "
+                f"to {ROOT_IDENTIFIER_LENGTH} characters"
+            )
 
 
 def _check_scopes(config: Config) -> None:
