@@ -66,6 +66,8 @@ class RuntimeSettings:
     intent: str | None = None
     state_dir: str | None = None
     legacy_risk_acknowledged: bool = False
+    # Bound of the vendor `start` call in recovery; unset keeps the reader's own.
+    start_timeout_seconds: int | None = None
 
     @classmethod
     def from_dict(cls, value: Any) -> RuntimeSettings:
@@ -145,7 +147,14 @@ def parse_settings(value: Any) -> RuntimeSettings:
             "networks",
             "contracts",
         },
-        {"policy", "admissions", "intent", "state_dir", "legacy_risk_acknowledged"},
+        {
+            "policy",
+            "admissions",
+            "intent",
+            "state_dir",
+            "legacy_risk_acknowledged",
+            "start_timeout_seconds",
+        },
     )
     if (
         type(data["schema_version"]) is not int
@@ -159,6 +168,12 @@ def parse_settings(value: Any) -> RuntimeSettings:
     legacy = data.get("legacy_risk_acknowledged", False)
     if type(legacy) is not bool or (data["accepted_version"] == "1.2.0" and not legacy):
         raise ValueError("legacy runtime requires explicit risk acknowledgment")
+    # One spelling per meaning: the key is left out when unused, never null.
+    start_timeout = data.get("start_timeout_seconds")
+    if "start_timeout_seconds" in data and (
+        type(start_timeout) is not int or not 1 <= start_timeout <= 120
+    ):
+        raise ValueError("start timeout must be a whole number of seconds from 1 to 120")
     account = _object(data["account"], {"uid", "gid", "home"})
     if (
         type(account["uid"]) is not int
@@ -262,6 +277,7 @@ def parse_settings(value: Any) -> RuntimeSettings:
         tuple(contracts),
         **paths,
         legacy_risk_acknowledged=legacy,
+        start_timeout_seconds=start_timeout,
     )
 
 
@@ -270,5 +286,9 @@ def load_settings(path: Path | str) -> RuntimeSettings:
 
 
 def settings_to_dict(settings: RuntimeSettings) -> dict[str, Any]:
-    result: dict[str, Any] = strict_loads(canonical_bytes(asdict(settings)))
+    value = asdict(settings)
+    if value["start_timeout_seconds"] is None:
+        # Left out while unset: settings stored before the key existed keep their bytes.
+        del value["start_timeout_seconds"]
+    result: dict[str, Any] = strict_loads(canonical_bytes(value))
     return result
