@@ -21,7 +21,7 @@ loader. Operator data supplies:
 | Table | Fields and purpose |
 |---|---|
 | Account | UID, GID, HOME of the genuine vendor runtime user |
-| Runtime | Absolute CLI path, exact accepted version, legacy-risk acknowledgement |
+| Runtime | Absolute CLI path, exact accepted version, legacy-risk acknowledgement, optional `start_timeout_seconds` |
 | Networks | Scope, native network name/gateway, launchd helper domain/label, expected program and UID |
 | Service contracts | Service/name/scope, full native configuration fingerprint, persistent mount identities, hashed file receipts, optional tolerated stopped peer names |
 | Paths | Private generated policy, user admissions, durable intent and state directory |
@@ -196,6 +196,21 @@ nothing. Running but
 unhealthy guests, unknown observations and all-stopped inventories never cause
 automatic restart. Initial all-stopped provisioning is a distinct explicitly
 approved operator operation in [workloads.md](workloads.md).
+
+The vendor `start` call of that sequence is cut off after four seconds, like
+every other vendor call, unless the runtime settings carry
+`start_timeout_seconds`: a whole number from 1 to 120, left out by default and
+never written as `null`. The setting bounds that one call. The observations
+before and after it keep the eight-second pass and its smaller limits, and the
+running readback stays the only statement that the workload started. A call
+that is cut off ends recovery as unknown; the vendor service may still complete
+the start, which a later probe then reports. Recovery holds the user operation
+lock for the whole sequence, three passes and the start call: about 28 seconds
+at most without the setting and about 144 with its largest value. Until it ends, the
+coordinator's pass, `pause` and every other command that takes that lock report
+busy and have to be repeated. The probe takes no lock, and the supervisor's
+check timeout (`monitors[].timeout_seconds`) is written on the probe's check,
+not on the recovery command. Initial provisioning does not read the setting.
 
 Networking jobs and Monit do not replace the site's initial application startup
 chain after login. Preserve that existing maintained owner during migration;

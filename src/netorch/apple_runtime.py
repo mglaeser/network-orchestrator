@@ -88,10 +88,12 @@ class Reader:
             raise ProcessTimeout("runtime pass deadline exhausted")
         return remaining
 
-    def native(self, arguments: list[str]) -> bytes:
+    def native(self, arguments: list[str], *, timeout: float | None = None) -> bytes:
         result = self.runner(
             [self.settings.executable, *arguments],
-            timeout=self.remaining(4),
+            # A caller's own bound replaces both the per-call cap and the pass
+            # deadline; recovery alone names one, for its single `start` call.
+            timeout=self.remaining(4) if timeout is None else timeout,
             run_uid=self.settings.account.uid,
             run_gid=self.settings.account.gid,
             account_home=self.settings.account.home,
@@ -906,7 +908,11 @@ def recover_service(
         ):
             raise RuntimeReadError("generation-mismatch")
         contract = settings.contract(service_id)
-        Reader(settings, runner).native(["start", contract.name])
+        # Only this call may take longer than a read, and only when the settings
+        # say how long. Its result is checked like every other vendor call.
+        Reader(settings, runner).native(
+            ["start", contract.name], timeout=settings.start_timeout_seconds
+        )
         # A successful CLI exit is never the final readiness assertion.
         result = observe_runtime(config, settings, runner)
         if result.services[service_id].state != "present":
