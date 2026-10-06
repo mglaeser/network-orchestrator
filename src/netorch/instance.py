@@ -80,10 +80,11 @@ _CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
 _OPTIONAL_SUPERVISION = ("component_exit_code", "restart_budget", "action_timeout_seconds")
 _DEADLINES = ("probe_seconds", "action_seconds")
 # What the retained supervisor can be told. Its Monit rule matches the reserved start
-# status only, a monitor's check timeout is at most 120 seconds, and no setting bounds
-# a start action: the vendor start call is cut off after a fixed four seconds.
+# status only, a monitor's check timeout is at most 120 seconds, and the runtime
+# settings bound the vendor start call with one value for the installation, at most
+# 120 seconds (`start_timeout_seconds`).
 RETAINED_PROBE_DEADLINE_MAXIMUM = 120
-RETAINED_ACTION_DEADLINE_MAXIMUM: int | None = None
+RETAINED_ACTION_DEADLINE_MAXIMUM: int | None = 120
 
 
 class InstanceError(ValueError):
@@ -875,7 +876,8 @@ def retained_supervision_gaps(instance: Instance) -> tuple[str, ...]:
     An instance describes the supervisor of its site. The retained supervisor
     implements part of that vocabulary: the reserved start status, no second
     status, no in-guest ensure, no restart budget, a probe deadline up to its
-    monitor timeout, and no deadline for a start action. Each result is a JSON
+    monitor timeout, and one deadline for a start action per installation. Each
+    result is a JSON
     pointer into the canonical instance, in document order. A renderer for the
     retained supervisor must refuse an instance for which the result is not
     empty. Nothing is read, rendered or run here.
@@ -898,7 +900,12 @@ def retained_supervision_gaps(instance: Instance) -> tuple[str, ...]:
         )
         deadlines = workload.deadlines
         if deadlines is not None:
-            if _beyond(deadlines.action_seconds, RETAINED_ACTION_DEADLINE_MAXIMUM):
+            if _beyond(deadlines.action_seconds, RETAINED_ACTION_DEADLINE_MAXIMUM) or (
+                # One start bound for the installation: a workload's own value is
+                # honoured only where it is the site's.
+                deadlines.action_seconds is not None
+                and deadlines.action_seconds != supervision.action_timeout_seconds
+            ):
                 gaps.append(f"/workloads/{index}/deadlines/action_seconds")
             if _beyond(deadlines.probe_seconds, RETAINED_PROBE_DEADLINE_MAXIMUM):
                 gaps.append(f"/workloads/{index}/deadlines/probe_seconds")

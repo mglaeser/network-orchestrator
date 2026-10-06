@@ -56,7 +56,7 @@ STARTED = "Mon Oct  5 08:00:00 2026"
 # Taken from the tree before the declaration existed: the same inputs must keep them.
 AUTHORED_SETTINGS_DIGEST = "6dd79016779aa6e1ef2a82ce99dd40e315faffbd13cb71c1f65ae2df72d1bde9"
 EXAMPLE_SETTINGS_DIGEST = "d1307ffc7cb45fb28b71c4cd190e57a4f8548b76b28a66fad9c4eec52cc28ab8"
-UNDECLARED_GENERATION = "network-029aaad30a0fef5a38015a88b0486bb23fdd53ad37fcdb881332b8c25954832b"
+UNDECLARED_GENERATION = "network-c4339c5f1af8b87bc98c7f91a88cbff5e9d2aef359c054252331bd709567b4e5"
 NOT_LOADED = Result(113, b"", b"Could not find service\n")
 
 

@@ -25,6 +25,7 @@ from netorch.instance import (
     resolved_profile_digest,
     validate_instance,
 )
+from netorch.runtime_settings import parse_settings
 from netorch.safety_contract import RECOVERY_FAILURE_EXIT_CODE
 from tests.test_report_truthfulness import (
     EXAMPLES,
@@ -456,7 +457,9 @@ def test_profile_evidence_does_not_survive_a_changed_workload_deadline(
         ),
         ("budget", ("/supervision/restart_budget",)),
         ("action", ("/supervision/action_timeout_seconds",)),
+        ("action-within", ()),
         ("workload-action", ("/workloads/0/deadlines/action_seconds",)),
+        ("workload-action-of-the-site", ()),
         ("workload-probe", ("/workloads/1/deadlines/probe_seconds",)),
         ("workload-probe-within", ()),
         ("supervisor-tool", ()),
@@ -473,9 +476,15 @@ def test_retained_supervision_gaps_names_every_describe_only_member(
     elif change == "budget":
         data["supervision"]["restart_budget"] = {"starts": 4, "window_seconds": 1200}
     elif change == "action":
-        data["supervision"]["action_timeout_seconds"] = 1
+        data["supervision"]["action_timeout_seconds"] = 121
+    elif change == "action-within":
+        data["supervision"]["action_timeout_seconds"] = 120
     elif change == "workload-action":
+        # One start bound for the installation: a value of its own is not honoured.
         data["workloads"][0]["deadlines"] = {"action_seconds": 1}
+    elif change == "workload-action-of-the-site":
+        data["supervision"]["action_timeout_seconds"] = 30
+        data["workloads"][0]["deadlines"] = {"action_seconds": 30}
     elif change == "workload-probe":
         data["workloads"][1]["deadlines"] = {"probe_seconds": 121}
     elif change == "workload-probe-within":
@@ -495,7 +504,7 @@ def test_retained_supervision_gaps_are_listed_in_document_order(data: dict[str, 
     data["supervision"].update(
         failure_exit_code=43,
         restart_budget={"starts": 4, "window_seconds": 1200},
-        action_timeout_seconds=40,
+        action_timeout_seconds=121,
     )
     data["workloads"][0]["deadlines"] = {"action_seconds": 70}
     data["workloads"][1]["deadlines"] = {"action_seconds": 80, "probe_seconds": 300}
@@ -535,21 +544,22 @@ def test_retained_bounds_are_those_of_the_retained_supervisor() -> None:
         "recovery_code",
         "recovery_repeat_cycles",
     }
-    assert instance_module.RETAINED_ACTION_DEADLINE_MAXIMUM is None
+    # The runtime settings bound the start call of recovery, once per installation.
+    assert instance_module.RETAINED_ACTION_DEADLINE_MAXIMUM == 120
+    settings = strict_loads((ROOT / "examples/runtime-settings.json").read_bytes())
+    parse_settings({**settings, "start_timeout_seconds": 120})
+    with pytest.raises(ValueError, match="start timeout"):
+        parse_settings({**settings, "start_timeout_seconds": 121})
 
 
-def test_action_deadlines_within_a_start_bound_would_not_be_gaps(
-    monkeypatch: pytest.MonkeyPatch, data: dict[str, Any]
-) -> None:
-    """With a start deadline the retained supervisor could be given, only longer ones remain."""
+def test_action_deadlines_within_the_start_bound_are_not_gaps(data: dict[str, Any]) -> None:
+    """The retained supervisor has one start bound: longer ones and differing ones remain."""
     data["supervision"]["action_timeout_seconds"] = 120
     data["workloads"][0]["deadlines"] = {"action_seconds": 121}
+    data["workloads"][1]["deadlines"] = {"action_seconds": 120}
+    assert gaps(parsed(data)) == ("/workloads/0/deadlines/action_seconds",)
     data["workloads"][1]["deadlines"] = {"action_seconds": 40}
-    instance = parsed(data)
-    assert gaps(instance) == (
-        "/supervision/action_timeout_seconds",
+    assert gaps(parsed(data)) == (
         "/workloads/0/deadlines/action_seconds",
         "/workloads/1/deadlines/action_seconds",
     )
-    monkeypatch.setattr(instance_module, "RETAINED_ACTION_DEADLINE_MAXIMUM", 120)
-    assert gaps(instance) == ("/workloads/0/deadlines/action_seconds",)
