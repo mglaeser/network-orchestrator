@@ -653,7 +653,8 @@ def old_discovery_digest(config, item, version):
         {
             "digest_version": version,
             "schema_version": config.schema_version,
-            "discovery": asdict(item),
+            # No prior envelope had the later optional member.
+            "discovery": {k: v for k, v in asdict(item).items() if k != "return_path"},
             "scope": asdict(config.scope(item.scope)),
             "service": asdict(service),
             "service_owner": asdict(config.owner(service.owner)),

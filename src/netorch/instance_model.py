@@ -135,6 +135,7 @@ class DiscoverySelection:
     version: int
     direction: str
     dependencies: tuple[str, ...]
+    return_path: str = "required"
 
 
 @dataclass(frozen=True, slots=True)

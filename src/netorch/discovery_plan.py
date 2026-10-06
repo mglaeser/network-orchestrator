@@ -92,11 +92,17 @@ def discovery_digest(config: Config, item: Discovery) -> str:
     cannot enable this corrected grammar.
     """
     service = config.service(item.service)
+    resolved = asdict(item)
+    if item.return_path == "required":
+        # As a profile without a fallback: the member is hashed only when it is
+        # set, so an entry written before it existed keeps its digest, and an
+        # independent entry can never hash to that of the same entry without it.
+        del resolved["return_path"]
     return digest(
         {
             "digest_version": 3,
             "schema_version": config.schema_version,
-            "discovery": asdict(item),
+            "discovery": resolved,
             "scope": asdict(config.scope(item.scope)),
             "service": asdict(service),
             "service_owner": asdict(config.owner(service.owner)),

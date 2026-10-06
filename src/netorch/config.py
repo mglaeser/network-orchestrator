@@ -90,6 +90,7 @@ def _construct(data: dict[str, Any]) -> Config:
                 tuple(item["dependencies"]),
                 item["max_age_seconds"],
                 item["max_records"],
+                item.get("return_path", "required"),
             )
             for item in data["discovery"]
         ),
@@ -269,7 +270,17 @@ def _check_discovery(config: Config) -> None:
             raise ConfigError(
                 f"Discovery {item.id}: export requires its own publication dependency"
             )
-        if (
+        if item.return_path != "required":
+            # The setting lifts the requirement below and nothing else. An entry
+            # that lists a return path depends on it and cannot say otherwise.
+            if item.direction != "import" or any(
+                profile.kind == "udp-return" for profile in dependencies
+            ):
+                raise ConfigError(
+                    f"Discovery {item.id}: only an import that lists no UDP return "
+                    "dependency is independent of the return path"
+                )
+        elif (
             item.direction == "import"
             and {"_airplay._tcp", "_raop._tcp"}.intersection(item.types)
             and not any(profile.kind == "udp-return" for profile in matching)
@@ -323,6 +334,11 @@ def to_dict(config: Config) -> dict[str, Any]:
     for profile in result["profiles"]:
         if profile["fallback_publication"] is None:
             del profile["fallback_publication"]
+    for item in result["discovery"]:
+        # The default has no place in the canonical form, so a policy written
+        # before the member existed keeps its form and its digests.
+        if item["return_path"] == "required":
+            del item["return_path"]
     return result
 
 

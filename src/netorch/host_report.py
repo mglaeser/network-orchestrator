@@ -25,7 +25,7 @@ from .instance import (
     resolved_names,
     resolved_profile_digest,
 )
-from .instance_model import Instance
+from .instance_model import DiscoverySelection, Instance
 from .platform_contract import ACCEPTED_PLATFORMS, FACTS, candidate_matches
 from .profile_library import STRATEGIES, discovery_profile, strategy
 from .requirements import REQUIREMENTS, Requirement
@@ -366,6 +366,18 @@ def verify_contracts(instance: Instance, data_directory: Path) -> list[dict[str,
     return results
 
 
+def _has_return_path(instance: Instance, selection: DiscoverySelection) -> bool:
+    """Whether audible playback can be asked of an import at all.
+
+    It can where the importing workload also declares a UDP return profile,
+    listed by the selection or admitted on its own.
+    """
+    return selection.direction == "import" and any(
+        item.service == selection.service and item.strategy == "guest-udp-range-forward"
+        for item in instance.transport
+    )
+
+
 def _applicable(instance: Instance, requirement: Requirement) -> bool:
     strategies = {item.strategy for item in instance.transport}
     condition = requirement.applicability
@@ -381,6 +393,7 @@ def _applicable(instance: Instance, requirement: Requirement) -> bool:
         "bounded-udp": "guest-udp-range-forward" in strategies,
         "exports": any(item.direction == "export" for item in instance.discovery),
         "imports": any(item.direction == "import" for item in instance.discovery),
+        "media-audio": any(_has_return_path(instance, item) for item in instance.discovery),
         "discovery": bool(instance.discovery),
         "resolver": any(item.application_profile == "resolver" for item in instance.workloads),
         "api-writers": any(item.container_api_access for item in instance.lifecycle_tools),
@@ -401,6 +414,7 @@ def _acceptance(
         for item in instance.discovery
         if requirement.applicability == "discovery"
         or (requirement.applicability == "imports" and item.direction == "import")
+        or (requirement.applicability == "media-audio" and _has_return_path(instance, item))
         or (requirement.applicability == "exports" and item.direction == "export")
     }
     if requirement.applicability in {"transport", "root-transport", "bounded", "bounded-udp"}:
@@ -934,7 +948,10 @@ def build_report(
                 + layers["discovery"]["state"]
                 + ", dependencies-"
                 + (
-                    "present"
+                    # An independent import may list none; nothing is then present.
+                    "none"
+                    if not dependencies
+                    else "present"
                     if all(value["transport"]["state"] == "present" for value in dependencies)
                     else "unknown"
                 ),

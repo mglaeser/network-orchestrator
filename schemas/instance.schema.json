@@ -802,6 +802,11 @@
               "export"
             ]
           },
+          "return_path": {
+            "enum": [
+              "independent"
+            ]
+          },
           "dependencies": {
             "type": "array",
             "maxItems": 64,

@@ -23,7 +23,7 @@ public checkout. This release models IPv4; it does not silently derive IPv6 rule
 | `owners` | `id`, `privilege`, `capabilities` | Runtime/transport/discovery responsibilities; `user` or `external-root` |
 | `services` | `id`, `owner`, `contract_sha256`, optional `automatic_ports` | Service observation owner and independently verified runtime contract |
 | `profiles` | `id`, `service`, `scope`, `kind`, `protocol`, `ports`, optional `target_ports`, `safety`, optional `owner` | An independently admitted transport behavior |
-| `discovery` | `id`, `owner`, `service`, `scope`, `direction`, `types`, `dependencies`, `max_age_seconds`, `max_records` | Bounded genuine-record import/export tied to verified transport |
+| `discovery` | `id`, `owner`, `service`, `scope`, `direction`, `types`, `dependencies`, `max_age_seconds`, `max_records`, optional `return_path` | Bounded genuine-record import/export tied to verified transport |
 
 Top-level fields are `schema_version` (currently `1`), `site` (an operator label)
 and these five collections. IDs are stable lowercase names. Transport and
@@ -85,6 +85,18 @@ guest address, port and generation. Imports select genuine eligible endpoints
 within the configured LAN/interface, then related records from the same endpoint.
 Apple-media import declares a UDP-return dependency. Selection has wall-clock age,
 record-count and loop/provenance bounds. Binary TXT fields remain lossless.
+
+That dependency is the default, not a necessity. `return_path` is `"required"`
+unless it is stated, and an import of `_airplay._tcp` or `_raop._tcp` records
+then lists a UDP-return profile of its own service and scope. `"independent"`
+lifts that one requirement, for a site that imports receivers for discovery
+only or admits the return path as a separate decision. Such an entry lists no
+UDP-return profile at all, and the setting is refused on an export. Nothing
+else changes: the owner still waits for every dependency the entry does list,
+for its consuming service, and for pause and suspension. The default is left
+out of the canonical policy and of the entry's digest, so an existing policy
+keeps its digests. An independent entry has a digest of its own; an approval
+given for the same entry without the setting does not apply to it.
 
 The shipped Bonjour owner implements native scanning, registration and independent
 expiration. Netorch coordinates its fixed operation; it does not fabricate records, pair

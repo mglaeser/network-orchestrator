@@ -29,6 +29,7 @@ APPLICABILITY = frozenset(
         "bounded-udp",
         "exports",
         "imports",
+        "media-audio",
         "discovery",
         "resolver",
         "api-writers",

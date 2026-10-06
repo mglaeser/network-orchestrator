@@ -6,7 +6,7 @@ import hashlib
 import os
 import re
 import stat
-from dataclasses import asdict
+from dataclasses import MISSING, asdict, fields
 from datetime import datetime
 from functools import lru_cache
 from importlib import resources
@@ -206,7 +206,26 @@ def instance_to_dict(instance: Instance) -> dict[str, Any]:
                     if value["range"] is not None
                     else {"first": value["first"], "last": value["last"]}
                 )
+    for item in data["discovery"]:
+        _selection_data(item)
     return data
+
+
+_SELECTION_DEFAULTS = {
+    item.name: item.default for item in fields(DiscoverySelection) if item.default is not MISSING
+}
+
+
+def _selection_data(selection: dict[str, Any]) -> dict[str, Any]:
+    """Leave out each optional member of a discovery selection that has its default.
+
+    A default has no spelling. A selection written before a member existed
+    therefore keeps its canonical bytes and its resolved digest.
+    """
+    for key, default in _SELECTION_DEFAULTS.items():
+        if selection[key] == default:
+            del selection[key]
+    return selection
 
 
 def canonical_instance_bytes(instance: Instance) -> bytes:
@@ -303,7 +322,7 @@ def resolved_discovery_digest(instance: Instance, selection: DiscoverySelection)
     return digest(
         {
             "resolved_discovery_version": 2,
-            "selection": asdict(selection),
+            "selection": _selection_data(asdict(selection)),
             "lan": asdict(instance.host.lan),
             "names": resolved_names(instance),
             "workload_contract": instance.workload(selection.service).contract.sha256,
@@ -313,8 +332,32 @@ def resolved_discovery_digest(instance: Instance, selection: DiscoverySelection)
                 )
                 for identifier in selection.dependencies
             },
+            **_independent_context(instance, selection),
         }
     )
+
+
+def _independent_context(instance: Instance, selection: DiscoverySelection) -> dict[str, Any]:
+    """What a selection otherwise binds through its required transport dependency.
+
+    The resolved digest of that dependency carries the target workload's
+    container name, the release pin, the supervision settings and the account,
+    runtime and platform context. An independent import may list no dependency
+    at all, so its envelope carries the same members itself. A selection without
+    the setting gets nothing here and keeps its digest.
+    """
+    if selection.return_path == "required":
+        return {}
+    return {
+        "context": {
+            "workload_name": instance.workload(selection.service).name,
+            "framework": asdict(instance.framework),
+            "supervision": asdict(instance.supervision),
+            "account": asdict(instance.host.account),
+            "runtime": asdict(instance.host.runtime),
+            "platform": asdict(instance.host.platform),
+        }
+    }
 
 
 def resolved_names(instance: Instance) -> dict[str, str]:
@@ -539,7 +582,14 @@ def validate_instance(instance: Instance) -> None:
             required = (
                 "published-port" if selection.direction == "export" else "guest-udp-range-forward"
             )
-            if not any(value.strategy == required for value in matching):
+            if selection.return_path != "required":
+                # The setting lifts the requirement below and nothing else. A selection
+                # that lists a return path depends on it and cannot say otherwise.
+                if selection.direction != "import":
+                    raise InstanceError("only an import can be independent of the return path")
+                if any(value.strategy == "guest-udp-range-forward" for value in dependencies):
+                    raise InstanceError("an independent import lists no return-path dependency")
+            elif not any(value.strategy == required for value in matching):
                 raise InstanceError("discovery requires its own service's transport dependency")
             if selection.direction == "export" and not any(
                 value.strategy == "published-port" and value.protocol == "tcp" for value in matching

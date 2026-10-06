@@ -78,6 +78,7 @@ class Discovery:
     dependencies: tuple[str, ...]
     max_age_seconds: int
     max_records: int
+    return_path: str = "required"
 
 
 @dataclass(frozen=True, slots=True)
