@@ -21,12 +21,29 @@ class DeriveError(ConfigError):
     """An owner input cannot be derived without execution or ambiguity."""
 
 
+# Every control character except tab and line feed, plus the Unicode line and
+# paragraph separators. Readers disagree about which of these end a line.
+_LINE_AMBIGUITY = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f\u2028\u2029]")
+
+
+def literal_lines(text: str) -> list[str]:
+    """Split literal owner text exactly as a line-feed-delimited reader does.
+
+    Only a line feed ends a line and only spaces and tabs are trimmed. A
+    carriage return, form feed, NEL or similar character is refused instead of
+    being treated as a line break: otherwise text that the owner reads as part
+    of a comment or of a value could be imported as a separate setting.
+    """
+    if _LINE_AMBIGUITY.search(text):
+        raise DeriveError("Literal owner input contains a control or line-separator character")
+    return [line.strip(" \t") for line in text.split("\n")]
+
+
 def literal_assignments(text: str) -> dict[str, str]:
     if len(text.encode("utf-8")) > MAX_JSON_BYTES:
         raise DeriveError("Literal owner input exceeds the byte limit")
     result: dict[str, str] = {}
-    for number, line in enumerate(text.splitlines(), 1):
-        line = line.strip()
+    for number, line in enumerate(literal_lines(text), 1):
         if not line or line.startswith("#"):
             continue
         match = re.fullmatch(r"([A-Z][A-Z0-9_]*)=(.*)", line)
@@ -42,7 +59,8 @@ def literal_assignments(text: str) -> dict[str, str]:
             value = expression[1:-1]
             if quote in value:
                 raise DeriveError(f"Underivable owner expression on line {number}")
-        elif re.fullmatch(r"[A-Za-z0-9:/._-]+", expression):
+        elif re.fullmatch(r"[A-Za-z0-9:/._@-]+", expression):
+            # "@" is no shell metacharacter; a digest-pinned image reference needs it.
             value = expression
         else:
             raise DeriveError(f"Underivable owner expression on line {number}")

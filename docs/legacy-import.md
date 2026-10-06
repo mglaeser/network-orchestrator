@@ -23,6 +23,15 @@ unsupported types, oversized/deep input, malformed text and unavailable mappings
 are refused or represented as underivable. The pointer subset deliberately
 excludes escaping, empty segments and ambiguous array indices.
 
+Assignment files and data lists are read the way a line-feed-delimited reader
+reads them: only a line feed ends a line and only spaces and tabs are trimmed.
+A carriage return, form feed, NEL or any other control or line-separator
+character makes the whole file underivable. If such a character were treated as
+a line break, text that the owner reads as part of a comment could be imported
+as a setting. A bare literal consists of letters, digits and `: / . _ - @`, so a
+digest-pinned image reference needs no quotes. A property list must contain
+exactly one root object; a second one is refused, not silently preferred.
+
 Literal assignment data contains only comments, blank lines and standalone
 uppercase assignments with quoted or bare literals. Variable substitution,
 command substitution, sourcing, function bodies, conditionals, executable
