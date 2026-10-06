@@ -111,6 +111,14 @@ automatic socket ranges and inspection races. Tests reject wrong mounts/contract
 unknown resource shapes, duplicate attachments/publications, other guest writers,
 all-stopped outage ambiguity, timeout and successful incomplete output.
 
+The volume-bound identity makes no native call in these tests: its decoder is
+given constructed replies, its entry point a stand-in library that records the
+one request, and the reader a provider that answers from the descriptor. Three
+`darwin` tests make the real call on hosted macOS: a directory and a file in it
+report one identifier, that identifier is the one `diskutil` reports for the
+data volume, and a pipe is refused. They are evidence for the runner image that
+ran them.
+
 Recovery rechecks independently proven stopped state, pause and admission before
 starting. It never recreates running/unknown definitions. Only the workload probe
 can return reserved status 42, and only for a proven stopped enrolled workload

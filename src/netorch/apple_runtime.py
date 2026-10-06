@@ -22,6 +22,7 @@ from typing import Any
 
 from .codec import canonical_bytes, canonical_json, digest, strict_load, strict_loads
 from .config import config_digest, load_config, parse_config, profile_digest, to_dict
+from .darwin_volume import volume_uuid
 from .model import Config, Profile
 from .pf_owner import reject_acl as reject_privileged_acl
 from .process import OutputLimit, ProcessTimeout, Result, run
@@ -323,6 +324,31 @@ def _identity_acl(
         checked_acls.add(key)
 
 
+def _volume_of(path: Path, kind: str, meta: os.stat_result) -> str:
+    """Identifier of the volume that holds the directory or file `meta` describes.
+
+    The device number still ties the descriptor to that `lstat` inside this call.
+    """
+    flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
+    fd = os.open(path, flags | (os.O_DIRECTORY if kind == "directory" else 0))
+    try:
+        opened = os.fstat(fd)
+        if (opened.st_dev, opened.st_ino) != (meta.st_dev, meta.st_ino):
+            raise RuntimeReadError("identity-mismatch")
+        return volume_uuid(fd)
+    finally:
+        os.close(fd)
+
+
+def _volume_bound(identity: FileIdentity) -> FileIdentity:
+    """A verified device-bound identity with its device replaced by its volume."""
+    path = Path(identity.path)
+    meta = path.lstat()
+    if (meta.st_dev, meta.st_ino) != (identity.device, identity.inode):
+        raise RuntimeReadError("identity-mismatch")
+    return replace(identity, device=None, volume_uuid=_volume_of(path, identity.kind, meta))
+
+
 def check_identity(
     identity: FileIdentity,
     *,
@@ -367,7 +393,23 @@ def check_identity(
         raise RuntimeReadError("identity-mismatch")
     _identity_acl(path, deadline=expires, checked_acls=checked_acls)
     within_budget()
-    if identity.kind != "socket" and (
+    if identity.volume_uuid is not None:
+        # A device number is assigned when a volume is mounted and can differ
+        # after a restart. This binding names the volume and the inode instead.
+        try:
+            verified = (
+                identity.kind in {"directory", "file"}
+                and identity.device is None
+                and meta.st_ino == identity.inode
+                and _volume_of(path, identity.kind, meta) == identity.volume_uuid
+            )
+        except (OSError, ValueError) as exc:
+            # Not opened, not answered or not decoded: nothing was verified.
+            raise RuntimeReadError("identity-mismatch") from exc
+        if not verified:
+            raise RuntimeReadError("identity-mismatch")
+        within_budget()
+    elif identity.kind != "socket" and (
         meta.st_dev != identity.device or meta.st_ino != identity.inode
     ):
         raise RuntimeReadError("identity-mismatch")
@@ -705,8 +747,12 @@ def _intent(settings: RuntimeSettings) -> Intent:
         return Intent(damaged=True)
 
 
-def capture_enrollment(settings: RuntimeSettings, runner: Runner = run) -> RuntimeSettings:
+def capture_enrollment(
+    settings: RuntimeSettings, runner: Runner = run, *, identity_binding: str = "device"
+) -> RuntimeSettings:
     """Explicit read-only capture; does not approve policy or edit workloads."""
+    if identity_binding not in {"device", "volume-uuid"}:
+        raise ValueError("unknown identity binding")
     reader = Reader(settings, runner)
     reader.version()
     inventory = reader.inventory()
@@ -736,14 +782,27 @@ def capture_enrollment(settings: RuntimeSettings, runner: Runner = run) -> Runti
                 meta.st_ino if kind != "socket" else None,
             )
             check_identity(identity, deadline=reader.deadline, checked_acls=reader.checked_acls)
+            if identity_binding == "volume-uuid" and kind in {"directory", "file"}:
+                identity = _volume_bound(identity)
             mounts.append(identity)
+        receipts = []
         for receipt in contract.receipts:
             check_identity(receipt, deadline=reader.deadline, checked_acls=reader.checked_acls)
+            # A receipt stays as authored. Only when the volume binding is asked
+            # for is the device number that was just verified replaced.
+            if (
+                identity_binding == "volume-uuid"
+                and receipt.kind in {"directory", "file"}
+                and receipt.volume_uuid is None
+            ):
+                receipt = _volume_bound(receipt)
+            receipts.append(receipt)
         contracts.append(
             replace(
                 contract,
                 configuration_sha256=digest(current["configuration"]),
                 mounts=tuple(mounts),
+                receipts=tuple(receipts),
             )
         )
     return replace(settings, contracts=tuple(contracts))
@@ -879,6 +938,7 @@ def main(argv: list[str] | None = None) -> int:
     commands.add_parser("observe")
     item = commands.add_parser("enroll")
     item.add_argument("--output", type=Path, required=True)
+    item.add_argument("--identity", choices=("device", "volume-uuid"), default="device")
     item = commands.add_parser("derive-policy")
     item.add_argument("--source", type=Path, required=True)
     item.add_argument("--output", type=Path, required=True)
@@ -907,7 +967,11 @@ def main(argv: list[str] | None = None) -> int:
             print(canonical_json({"derived": True, "admitted": False}))
             return 0
         if args.command == "enroll":
-            enrolled = capture_enrollment(settings)
+            enrolled = (
+                capture_enrollment(settings)
+                if args.identity == "device"
+                else capture_enrollment(settings, identity_binding=args.identity)
+            )
             payload = (canonical_json(settings_to_dict(enrolled)) + "\n").encode()
             fd = os.open(args.output, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
             try:

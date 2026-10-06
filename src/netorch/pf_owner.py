@@ -25,6 +25,10 @@ from importlib.metadata import version
 from pathlib import Path
 from typing import Any, Protocol
 
+# The runtime reader is imported at the live boundary, after protected_code() has
+# listed the imported files. Its volume provider is the one part that loads code
+# from outside this package (ctypes), so it is imported here and listed as well.
+from . import darwin_volume  # noqa: F401
 from .codec import MAX_JSON_BYTES, canonical_bytes, digest, strict_loads
 from .config import parse_config, profile_digest, to_dict
 from .model import Config, Profile, Scope

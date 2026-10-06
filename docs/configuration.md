@@ -40,7 +40,9 @@ framework does not invent a universal runtime contract or authorize recreation.
 The shipped Apple Container reader provides a versioned enrollment contract:
 complete native configuration fingerprint, protected persistent identities and
 hashed startup receipts. `enroll` captures it and `derive-policy` generates the
-service hash; see [Apple runtime](apple-runtime.md). Other observation owners
+service hash; see [Apple runtime](apple-runtime.md). An enrollment that binds a
+volume identifier instead of a device number is hashed under a second strategy
+name, so the two forms never share a hash. Other observation owners
 must supply equally explicit contracts rather than copy desired hashes.
 
 ## Transport strategies

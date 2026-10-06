@@ -12,6 +12,7 @@ from .codec import canonical_bytes, digest, strict_load, strict_loads
 _ID = re.compile(r"[a-z][a-z0-9-]*\Z")
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
 _VERSIONS = {"1.2.0", "1.4.1", "1.5.0"}
+_UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\Z")
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,6 +30,8 @@ class FileIdentity:
     device: int | None = None
     inode: int | None = None
     sha256: str | None = None
+    # Binds the volume itself instead of `device`, which is assigned at mount time.
+    volume_uuid: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,9 +78,24 @@ class RuntimeSettings:
         return next(contract for contract in self.contracts if contract.service == service)
 
 
+def _contract_dict(contract: RuntimeContract) -> dict[str, Any]:
+    """Canonical form; an identity without a volume binding keeps its earlier shape."""
+    value = asdict(contract)
+    for identity in (*value["mounts"], *value["receipts"]):
+        if identity["volume_uuid"] is None:
+            del identity["volume_uuid"]
+    return value
+
+
 def contract_digest(contract: RuntimeContract) -> str:
     """No raw application configuration or credentials enter the network policy."""
-    return digest({"strategy": "apple-runtime-enrollment-v1", "contract": asdict(contract)})
+    # A device-bound contract hashes exactly as before. One that binds a volume
+    # is a second form of the enrollment and can never share a digest with it.
+    volume_bound = any(
+        identity.volume_uuid is not None for identity in (*contract.mounts, *contract.receipts)
+    )
+    strategy = "apple-runtime-enrollment-v2" if volume_bound else "apple-runtime-enrollment-v1"
+    return digest({"strategy": strategy, "contract": _contract_dict(contract)})
 
 
 def _object(value: Any, required: set[str], optional: set[str] | None = None) -> dict[str, Any]:
@@ -102,7 +120,7 @@ def _path(value: Any) -> str:
 
 
 def _identity(value: Any) -> FileIdentity:
-    data = _object(value, {"path", "kind", "uid"}, {"device", "inode", "sha256"})
+    data = _object(value, {"path", "kind", "uid"}, {"device", "inode", "sha256", "volume_uuid"})
     if (
         not isinstance(data["kind"], str)
         or data["kind"] not in {"directory", "file", "socket"}
@@ -110,10 +128,23 @@ def _identity(value: Any) -> FileIdentity:
         or data["uid"] < 0
     ):
         raise ValueError("invalid runtime file identity")
+    volume = None
+    if "volume_uuid" in data:
+        # One spelling per meaning: the key is left out when unused, never null.
+        volume = data["volume_uuid"]
+        if (
+            not isinstance(volume, str)
+            or not _UUID.fullmatch(volume)
+            or volume == "00000000-0000-0000-0000-000000000000"
+            or data["kind"] == "socket"
+            or data.get("device") is not None
+        ):
+            raise ValueError("a volume-bound identity names one volume and no device")
+    bound = ("inode",) if volume is not None else ("device", "inode")
     if data["kind"] != "socket" and any(
-        type(data.get(key)) is not int or data[key] < 0 for key in ("device", "inode")
+        type(data.get(key)) is not int or data[key] < 0 for key in bound
     ):
-        raise ValueError("persistent identities must bind device and inode")
+        raise ValueError("persistent identities must bind an inode and a device or a volume")
     if any(
         data.get(key) is not None and (type(data[key]) is not int or data[key] < 0)
         for key in ("device", "inode")
@@ -130,6 +161,7 @@ def _identity(value: Any) -> FileIdentity:
         data.get("device"),
         data.get("inode"),
         data.get("sha256"),
+        volume,
     )
 
 
@@ -270,5 +302,7 @@ def load_settings(path: Path | str) -> RuntimeSettings:
 
 
 def settings_to_dict(settings: RuntimeSettings) -> dict[str, Any]:
-    result: dict[str, Any] = strict_loads(canonical_bytes(asdict(settings)))
+    value = asdict(settings)
+    value["contracts"] = [_contract_dict(item) for item in settings.contracts]
+    result: dict[str, Any] = strict_loads(canonical_bytes(value))
     return result
