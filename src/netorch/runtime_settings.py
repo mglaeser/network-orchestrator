@@ -12,6 +12,9 @@ from .codec import canonical_bytes, digest, strict_load, strict_loads
 _ID = re.compile(r"[a-z][a-z0-9-]*\Z")
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
 _VERSIONS = {"1.2.0", "1.4.1", "1.5.0"}
+# The vendor's own container-name rule (apple/container `ManagedContainer.nameValid`,
+# the same at tags 1.2.0, 1.4.1 and 1.5.0): any name its inventory can hold.
+_PEER = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{1,62}\Z")
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,6 +42,9 @@ class RuntimeContract:
     configuration_sha256: str
     mounts: tuple[FileIdentity, ...]
     receipts: tuple[FileIdentity, ...] = ()
+    # Other definitions over the same writable path that are accepted while the
+    # inventory reports them exactly stopped. Empty unless a site enrolls one.
+    tolerated_stopped_peers: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,9 +81,17 @@ class RuntimeSettings:
         return next(contract for contract in self.contracts if contract.service == service)
 
 
+def _contract_dict(contract: RuntimeContract) -> dict[str, Any]:
+    """Canonical form; an empty tolerance list is left out, so earlier digests hold."""
+    value = asdict(contract)
+    if not value["tolerated_stopped_peers"]:
+        del value["tolerated_stopped_peers"]
+    return value
+
+
 def contract_digest(contract: RuntimeContract) -> str:
     """No raw application configuration or credentials enter the network policy."""
-    return digest({"strategy": "apple-runtime-enrollment-v1", "contract": asdict(contract)})
+    return digest({"strategy": "apple-runtime-enrollment-v1", "contract": _contract_dict(contract)})
 
 
 def _object(value: Any, required: set[str], optional: set[str] | None = None) -> dict[str, Any]:
@@ -213,7 +227,9 @@ def parse_settings(value: Any) -> RuntimeSettings:
         raise ValueError("invalid runtime contracts")
     for raw in data["contracts"]:
         item = _object(
-            raw, {"service", "name", "scope", "configuration_sha256", "mounts"}, {"receipts"}
+            raw,
+            {"service", "name", "scope", "configuration_sha256", "mounts"},
+            {"receipts", "tolerated_stopped_peers"},
         )
         if (
             any(
@@ -229,6 +245,14 @@ def parse_settings(value: Any) -> RuntimeSettings:
             for key in ("mounts", "receipts")
         ):
             raise ValueError("invalid runtime identities")
+        peers = item.get("tolerated_stopped_peers", [])
+        if (
+            not isinstance(peers, list)
+            or len(peers) > 16
+            or any(not isinstance(peer, str) or not _PEER.fullmatch(peer) for peer in peers)
+            or peers != sorted(set(peers))
+        ):
+            raise ValueError("invalid tolerated stopped peers")
         contracts.append(
             RuntimeContract(
                 item["service"],
@@ -237,6 +261,7 @@ def parse_settings(value: Any) -> RuntimeSettings:
                 item["configuration_sha256"],
                 tuple(_identity(entry) for entry in item["mounts"]),
                 tuple(_identity(entry) for entry in item.get("receipts", [])),
+                tuple(peers),
             )
         )
     for values in (
@@ -248,6 +273,12 @@ def parse_settings(value: Any) -> RuntimeSettings:
             raise ValueError("duplicate runtime identities")
     if any(contract.scope not in {item.scope for item in networks} for contract in contracts):
         raise ValueError("runtime contract has no network")
+    # A tolerated peer is a definition this installation does not manage: an
+    # enrolled workload can be started by recovery and is never tolerated.
+    if {peer for item in contracts for peer in item.tolerated_stopped_peers} & {
+        item.name for item in contracts
+    }:
+        raise ValueError("a tolerated stopped peer cannot be an enrolled workload")
     paths = {
         key: _path(data[key]) if data.get(key) is not None else None
         for key in ("policy", "admissions", "intent", "state_dir")
@@ -270,5 +301,7 @@ def load_settings(path: Path | str) -> RuntimeSettings:
 
 
 def settings_to_dict(settings: RuntimeSettings) -> dict[str, Any]:
-    result: dict[str, Any] = strict_loads(canonical_bytes(asdict(settings)))
+    value = asdict(settings)
+    value["contracts"] = [_contract_dict(item) for item in settings.contracts]
+    result: dict[str, Any] = strict_loads(canonical_bytes(value))
     return result

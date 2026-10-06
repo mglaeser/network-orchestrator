@@ -470,6 +470,10 @@ def _check_contract(
         for peer in inventory:
             if peer["id"] == current["id"]:
                 continue
+            # An enrolled exception for a retained definition: while it is exactly
+            # stopped it writes nothing. Running, stopping or unknown is refused.
+            if peer["id"] in contract.tolerated_stopped_peers and peer["state"] == "stopped":
+                continue
             for other, other_writable in _mounts(peer["configuration"]):
                 if other_writable and (
                     source == other
