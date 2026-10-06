@@ -57,7 +57,7 @@ review reproducible.
 | [#10](https://github.com/mglaeser/network-orchestrator/pull/10) | `bb3f33dd5e780c2820fd9ec2e29335c47744ad7b` | Accept with supplement: literal import must preserve meaning or report underivable. Fifty-two proposed failures plus thirteen malformed XML topology cases. |
 | [#11](https://github.com/mglaeser/network-orchestrator/pull/11) | `92249525d1a54f53ad9cbceb02c9263d32d0d0f5` | Accept with narrower waiver semantics: stale/negative facts, unaccepted deviations and unscoped evidence must not improve reports. Thirty-six proposed failures; additional report counterexamples below. |
 | [#12](https://github.com/mglaeser/network-orchestrator/pull/12) | `0c2bfad2ab858db26e84a928f1b104433e71f8a7` | Accept: strict number/text types, distinct names, registered requirements and assessable decisions. Seventy-four proposed failures; add target/supervision digest binding. |
-| [#13](https://github.com/mglaeser/network-orchestrator/pull/13) | `77560d05a89b36055b1050924d7caf0a367e7a64` | Accept: twelve new failing-before report guards and more relevant proving-test references. References are source/test coverage, not hardware acceptance. |
+| [#13](https://github.com/mglaeser/network-orchestrator/pull/13) | `77560d05a89b36055b1050924d7caf0a367e7a64` | Accept: twelve failing-before proving-test reference checks, plus report guard coverage. Three representative guard mutations were independently detected; the original full 24-mutation aggregate was not replayed. References are source/test coverage, not hardware acceptance. |
 | [#14](https://github.com/mglaeser/network-orchestrator/pull/14) | `bad386ca8061a10ab5f6397a625488588553e40e` | Accept: punctuation-aware private literal boundaries. Nineteen proposed failures; longer distinct tokens remain controls. Finite generic framework exceptions were inspected. |
 | [#15](https://github.com/mglaeser/network-orchestrator/pull/15) | `b0e6d8d0b031f3ea856929b7a820e7ef9e5c601e` | Accept: ten cases prove static import could fill human-authored authority/provenance/release sections. All are refused. |
 | [#16](https://github.com/mglaeser/network-orchestrator/pull/16) | `c9ee3fd223279982b4d412792d37866c5731c356` | Accept with parser/version supplement: four failures reproduce rejection of the native timestamped STARTING banner. Exact native row identity must also be preserved. |
@@ -158,11 +158,18 @@ admission. Whole-instance contract digest version 2 from 0.3.1 is unchanged.
 
 ## Final verification and remaining gates
 
-Final revision-specific test and release evidence is recorded in the correction
-PR and release. The required matrix is macOS 26 with Python 3.12, 3.13 and 3.14,
-plus Ruff, formatting, strict typing and hash-locked dependency audit. Hosted
-jobs also validate synthetic examples, compile PF grammar without loading rules,
-build distributions and run installed-wheel smoke checks outside the checkout.
+The combined corrected source passed **2,645 local tests** with **94.30% combined
+line/branch coverage**. All four required checks passed on PR head
+`0d9d863762e59775191857a001b6bd6dc541bad9` in
+[CI run 37425669614](https://github.com/mglaeser/network-orchestrator/actions/runs/37425669614).
+Each macOS 26 / Python 3.12, 3.13 and 3.14 job passed 2,644 tests with one optional
+Monit grammar skip and the same coverage. Ruff, formatting, strict typing,
+hash-locked dependency audit, public privacy, synthetic examples, PF grammar-only
+compilation, package builds and installed-wheel smoke checks passed. Repeated
+local builds produced identical wheel and source bytes. Merge `c61964a7f6ec5773c3eb9faf11e290c3f560973d`
+has the exact tested tree. Subsequent documentation-only clarification and final
+release evidence are linked from [PR #22](https://github.com/mglaeser/network-orchestrator/pull/22)
+and the release; no weaker check is substituted for final required CI.
 
 The qualified native platform matrix remains empty. Installed/source conformance,
 protected input and explicit owner flips, valid recovery material and rehearsal,
