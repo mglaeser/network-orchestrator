@@ -304,10 +304,13 @@ def _monit(deployment: Deployment, release: Path) -> bytes:
             ]
         )
         if monitor.recovery_argv is not None:
-            lines.append(
-                f"  if status = 42 for {monitor.cycles} cycles then exec "
-                + _monit_command(monitor.recovery_argv, release, state)
+            rule = f"  if status = 42 for {monitor.cycles} cycles then exec " + _monit_command(
+                monitor.recovery_argv, release, state
             )
+            if monitor.recovery_repeat_cycles is not None:
+                # Without this Monit runs the command once per failure episode.
+                rule += f" repeat every {monitor.recovery_repeat_cycles} cycles"
+            lines.append(rule)
     return ("\n".join(lines) + "\n").encode()
 
 

@@ -35,6 +35,8 @@ class Monitor:
     timeout_seconds: int
     cycles: int
     recovery_code: int
+    # Optional. Absent: the recovery command runs once per failure episode.
+    recovery_repeat_cycles: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

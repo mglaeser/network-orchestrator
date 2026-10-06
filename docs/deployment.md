@@ -157,6 +157,17 @@ records. Heartbeat failure cannot restart a healthy container. Only the workload
 probe's reserved status 42 can permit a separately guarded proven-stopped start.
 Signals, timeouts, denial and unknown results do not meet that condition.
 
+Monit runs the recovery command once when that rule first matches. If the attempt
+starts nothing, Monit does not run it again while the probe keeps returning 42.
+A workload monitor may therefore set the optional integer
+`recovery_repeat_cycles` (1 to 360). Its rule is then rendered with
+`repeat every N cycles`, and Monit runs the command again every N cycles for as
+long as the probe returns 42. There is no attempt budget and no Monit restart
+action: every attempt is the same guarded start of a workload that two fresh
+observations prove stopped. A monitor without a recovery command cannot set it.
+Without the setting the generated file is byte-identical to what earlier
+versions rendered, and a manifest that does not use it keeps its digests.
+
 Local Network consent must be accepted in the actual LaunchAgent identity and
 launch context. Terminal/SSH success does not prove this context. Record consent
 and test after code identity changes; root is not the workaround.

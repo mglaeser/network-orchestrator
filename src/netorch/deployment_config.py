@@ -106,7 +106,13 @@ def load_deployment(path: Path) -> Deployment:
 
 
 def deployment_to_dict(deployment: Deployment) -> dict[str, Any]:
-    return asdict(deployment)
+    value = asdict(deployment)
+    for monitor in value["monitors"]:
+        # An optional setting at its default is not part of the canonical form:
+        # a manifest written before the setting existed keeps its digests.
+        if monitor["recovery_repeat_cycles"] is None:
+            del monitor["recovery_repeat_cycles"]
+    return value
 
 
 def validate_deployment(deployment: Deployment) -> None:
@@ -165,6 +171,12 @@ def validate_deployment(deployment: Deployment) -> None:
             _unprivileged(monitor.recovery_argv)
         if monitor.role != "workload" and monitor.recovery_argv is not None:
             raise DeploymentError("networking failure must not initiate workload recovery")
+        if monitor.recovery_repeat_cycles is not None and (
+            type(monitor.recovery_repeat_cycles) is not int or monitor.recovery_argv is None
+        ):
+            raise DeploymentError(
+                "recovery repeat needs a whole number of cycles and a recovery command"
+            )
     _path(deployment.launchctl)
     _path(deployment.monit)
     _path(deployment.forwarding.directory)
