@@ -774,6 +774,11 @@ def install_bundle(
                     raise DeploymentError(
                         "existing launchd file is not an unchanged owned artifact"
                     )
+        retained = target / "releases" / manifest["release_id"]
+        if retained.exists() or retained.is_symlink():
+            # A retained release is never overwritten. Refuse before the hold is
+            # taken and a journal is opened, so that the refusal needs no recovery.
+            raise DeploymentError("release already exists without matching committed receipt")
         if scope == "user":
             try:
                 intent = intent_from_dict(store.read("intent.json"))
