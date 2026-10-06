@@ -27,13 +27,13 @@ are single-link regular files mode `0600`:
 
 | File | Purpose |
 |---|---|
-| `installation.json` | Closed installation identity, independently observed runtime settings, owner/anchor, published report path, interval, optional inhibition path and the optional decision to take a lost PF enable reference again |
+| `installation.json` | Closed installation identity, independently observed runtime settings, owner/anchor, published report path, interval, optional inhibition path, the optional decision to take a lost PF enable reference again and the optional [cold-start decision](#after-a-reboot) |
 | `policy.json` | Strictly parsed desired catalog, copied by the administrator installer |
 | `admissions.json` | Root's independent resolved-content approvals; installation never broadens this set |
 | `operator-intent.json` | Durable operator pause and operation-owned suspensions, outside installed releases |
 | `backend.sh` | Administrator-owned bounded mutation script; SHA-256 must match the installation |
 | `live.json` | Exact known rule/target evidence for withdrawal and state invalidation, never authority to activate |
-| `journal.json` | Phase, actions and possible candidate state, sufficient to retire an interrupted known write |
+| `journal.json` | Phase, actions and possible candidate state, sufficient to retire an interrupted known write; each record names the boot session it was written in when that could be read |
 | `owner.lock` | Persistent non-stealable `flock` inode; no PID/age lock stealing |
 | `reference.json` | Only this owner's PF enable token |
 
@@ -125,9 +125,12 @@ An approval binds all resolved parameters included by `profile_digest`, plus:
 - Owned anchor and the explicit Apple DNS coexistence exception.
 - The decision to take a lost PF enable reference again, when the installation
   makes it. An installation without it has the digests it had before.
+- The [cold-start decision](#after-a-reboot), when the installation makes one.
+  An installation without it has the digests it had before.
 
 The administrator first runs `review-admission`. It returns the resolved
-profile, scope, service, prior approval and proposed digest. The subsequent
+profile, scope, service, prior approval, the installation's cold-start decision
+where it made one, and the proposed digest. The subsequent
 `admit` requires that exact digest and, for a shared guest address, explicit
 `--acknowledge-bounded-risk`. A profile declared with `source_scope: "any"`
 requires `--acknowledge-any-source`; the bounded-risk flag does not satisfy it,
@@ -264,9 +267,13 @@ activation resumes. Unknown foreign drift is never overwritten as recovery.
 Every pass first records phase `applying` with its planned actions, also when it
 will change nothing. A pass that stops while its journal still has exactly that
 first record, with no candidate, wrote no rule: the next pass needs no
-acknowledgement and plans from fresh evidence. A failure that awaits its
-acknowledgement is recorded as `failed` again by each later pass from its first
-record on, so stopping one of them cannot cancel the acknowledgement.
+acknowledgement and plans from fresh evidence. That first record may name its
+boot session, as every record of a pass does when the session is known. A
+failure that awaits its acknowledgement is recorded as `failed` again by each
+later pass, in every record it writes including those that carry a candidate, so
+neither stopping one of them nor a reboot at that moment can cancel the
+acknowledgement. What a pass does with its records after a reboot is described
+under [After a reboot](#after-a-reboot).
 
 Within one pass the owner applies every planned withdrawal before it invalidates
 any state, as the administrator withdrawal does. A state readback that fails
@@ -425,6 +432,83 @@ launchd program/account/PID and current process UID/parent/executable must agree
 An explicit LAN-address bind, another process with the same name, or an
 unrecognized socket schema is not exempt. This exception does not assert that
 port 53 is closed when the owner is paused.
+
+## After a reboot
+
+Packet rules and states are kernel memory; `live.json` is a file. After a reboot
+the owned anchor is empty while the records still describe the rules of the boot
+before. What the owner then does is the administrator's decision, stored in
+`installation.json`:
+
+| `cold_start` | After a proven reboot |
+|---|---|
+| absent (the default) | The administrator stays in charge. While a record is active, every pass stops with the drift error and writes nothing until the administrator runs `withdraw`. |
+| `"self-heal"` | The pass drops its records and goes on as an ordinary pass of an empty installation. |
+
+`"self-heal"` is the only value that can be written; `"administrator"` and `null`
+are refused, so an installation without the decision keeps its stored bytes and
+its admission digests. Choosing the value, or taking it back, changes the digest
+of every admission of that owner: each profile is pending until it is admitted
+again, and `review-admission` and `admit` show the decision where it was made;
+without it they print what they printed before. The value is the root owner's
+half of an instance's accepted unattended recovery. Nothing compares the two
+documents, so write it only for an instance that made that decision.
+
+A reboot is proven by three facts that root reads in the same pass:
+
+1. The kernel's boot session now: one bounded read of
+   `/usr/sbin/sysctl -n kern.bootsessionuuid`. Exactly one upper-case UUID is an
+   answer; anything else is a failed read.
+2. The boot session in the last journal record. Every record that a pass or a
+   `withdraw` writes carries `boot_session` when that read succeeded and no such
+   member when it did not.
+3. The owned anchor is verifiably empty: `inspect` succeeded and returned what
+   an empty rule file normalizes to.
+
+Both sessions must be well formed and differ. A journal without the member (an
+earlier release, or a pass whose read failed), a session that cannot be read
+now, an anchor that was emptied within one boot and an anchor that holds
+anything are not a cold start. They are handled as before, by the drift rule and
+by the administrator.
+
+On a cold start:
+
+- With `self-heal` the records are dropped and the journal is replaced by an
+  `inhibited` record with reason `cold-start`. The pass then continues and skips
+  no check: pause, suspensions, a damaged intent, a missing admission and
+  unknown runtime evidence stop it exactly as they stop the pass of a new
+  installation. A write that the previous boot cut short needs no
+  acknowledgement, because neither its rules nor its states exist any more. A
+  failure that a pass had recorded stays owed across any number of boots: the
+  journal is replaced by a `failed` record with the same reason and nothing is
+  activated before `acknowledge-journal`.
+- Without the decision, records of which none is active are dropped as well. A
+  journal that needed an acknowledgement still needs it, as a `failed` record
+  with reason `cold-start`. With an active record nothing is changed.
+- In both modes the remembered targets are dropped, never invalidated: after a
+  boot those addresses can belong to other guests. The candidate that a journal
+  kept from another boot is not adopted either.
+
+`withdraw` does not need the anchor to match the records, or the journal's
+candidate, when the anchor is verifiably empty: there is no rule to retire, so
+it loads nothing, still requires the empty readback and retires the records.
+That is the administrator's way out in the default mode: `withdraw`, then
+`resume`. Within one boot, where somebody emptied the anchor, it still
+invalidates the states of every remembered guest address and fails while one
+remains. After a proven reboot it invalidates nothing and reports
+`"guest_states_drained": false` and `"cold_start": true`. A withdrawal after a
+reboot that fails half-way keeps the earlier boot session in its journal record,
+so repeating it is still a withdrawal after a reboot.
+
+Limits. "Verifiably empty" rests on the read that a new installation already
+relies on. The backend script reports a missing anchor and an empty one alike,
+and a failed read of the anchor that ends with status 0 and no output is not
+told apart from either. A reboot is proven only when the last journal record
+before it was written by this release and its pass could read the boot session:
+a journal that an earlier release wrote last proves nothing. The boot-session
+read as root under launchd, and the anchor and the stock hooks right after a
+boot, are not established by fake or hosted runs; they need captures on a real
+host.
 
 ## Deployment, rollback and acceptance
 
