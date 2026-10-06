@@ -30,6 +30,8 @@ and these five collections. IDs are stable lowercase names. Transport and
 discovery IDs cannot collide. Port ranges have inclusive `first` and `last`.
 The service's owner observes its workload; a profile's owner can independently
 override the execution responsibility. Discovery owners must be user-level.
+A policy may carry one more top-level field, the optional `discovery_names`
+object described under [discovery strategies](#discovery-strategies).
 
 The service contract hash is a site-defined digest of reviewed workload identity
 and required runtime settings. The real observation owner must reconstruct and
@@ -90,6 +92,29 @@ The shipped Bonjour owner implements native scanning, registration and independe
 expiration. Netorch coordinates its fixed operation; it does not fabricate records, pair
 devices, publish arbitrary IPs or install a multicast reflector. An absent or
 unconfirmed interface is cleanup-only, never a wildcard interface fallback.
+
+Every projected record gets a host name of its own whose first label begins
+with a fixed prefix: one for a guest service published on the LAN, one for a
+LAN endpoint published on the guest network. The optional top-level object
+`discovery_names` names the pair for the whole policy:
+
+```json
+"discovery_names": {"export_prefix": "example-guest-", "import_prefix": "example-link-"}
+```
+
+Both members are required. A prefix is lower-case `[a-z][a-z0-9-]*` of at most
+47 bytes: the bundled owner appends 16 hexadecimal digits and one DNS label
+holds 63. The two differ and neither begins with the other. Without the
+object the pair is `netorch-container-` and `netorch-lan-`, and a policy that
+spells exactly that pair is the same policy, with the same canonical form and
+digests.
+
+The pair is site-wide on purpose. A record whose instance name or host name
+begins with either prefix, in any ASCII case, is never projected in either
+direction, by any declaration; that is the loop exclusion. Choose prefixes
+that no genuine name on either network begins with. A named pair is part of
+the policy digest and of every discovery digest, so discovery evidence made
+under another pair is refused; transport profile digests do not change.
 
 ## One authoring location
 

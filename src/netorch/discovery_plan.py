@@ -13,7 +13,7 @@ from dataclasses import asdict, dataclass, replace
 
 from .codec import digest
 from .config import config_digest, profile_digest, validate_config
-from .model import Config, Discovery
+from .model import Config, Discovery, DiscoveryNames
 from .planner import Plan
 from .state import Intent, Observation, Snapshot, snapshot_digest
 
@@ -105,6 +105,14 @@ def discovery_digest(config: Config, item: Discovery) -> str:
                 identifier: profile_digest(config, config.profile(identifier))
                 for identifier in sorted(item.dependencies)
             },
+            # The policy's prefix pair decides what the loop exclusion refuses.
+            # It is a member only when it differs from the default, so the
+            # digest of a policy that does not name its prefixes is unchanged.
+            **(
+                {}
+                if config.discovery_names == DiscoveryNames()
+                else {"names": asdict(config.discovery_names)}
+            ),
         }
     )
 

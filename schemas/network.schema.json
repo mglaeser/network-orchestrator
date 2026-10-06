@@ -12,10 +12,12 @@
     "owners": {"type": "array", "maxItems": 128, "items": {"$ref": "#/$defs/owner"}},
     "services": {"type": "array", "maxItems": 256, "items": {"$ref": "#/$defs/service"}},
     "profiles": {"type": "array", "maxItems": 1024, "items": {"$ref": "#/$defs/profile"}},
-    "discovery": {"type": "array", "maxItems": 256, "items": {"$ref": "#/$defs/discovery"}}
+    "discovery": {"type": "array", "maxItems": 256, "items": {"$ref": "#/$defs/discovery"}},
+    "discovery_names": {"$ref": "#/$defs/discovery_names"}
   },
   "$defs": {
     "id": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z][a-z0-9-]*$"},
+    "label_prefix": {"type": "string", "minLength": 1, "maxLength": 47, "pattern": "^[a-z][a-z0-9-]*$"},
     "ports": {
       "type": "object", "additionalProperties": false,
       "required": ["first", "last"],
@@ -85,6 +87,14 @@
         "target_ports": {"oneOf": [{"$ref": "#/$defs/ports"}, {"type": "null"}]},
         "fallback_publication": {"oneOf": [{"$ref": "#/$defs/id"}, {"type": "null"}]},
         "safety": {"$ref": "#/$defs/safety"}
+      }
+    },
+    "discovery_names": {
+      "type": "object", "additionalProperties": false,
+      "required": ["export_prefix", "import_prefix"],
+      "properties": {
+        "export_prefix": {"$ref": "#/$defs/label_prefix"},
+        "import_prefix": {"$ref": "#/$defs/label_prefix"}
       }
     },
     "discovery": {

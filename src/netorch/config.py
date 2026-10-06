@@ -14,7 +14,17 @@ from typing import Any, cast
 from jsonschema import Draft202012Validator, FormatChecker
 
 from .codec import CodecError, digest, read_bounded_file, strict_load, strict_loads
-from .model import Config, Discovery, Owner, PortRange, Profile, Safety, Scope, Service
+from .model import (
+    Config,
+    Discovery,
+    DiscoveryNames,
+    Owner,
+    PortRange,
+    Profile,
+    Safety,
+    Scope,
+    Service,
+)
 
 
 class ConfigError(ValueError):
@@ -92,6 +102,11 @@ def _construct(data: dict[str, Any]) -> Config:
                 item["max_records"],
             )
             for item in data["discovery"]
+        ),
+        discovery_names=(
+            DiscoveryNames(**data["discovery_names"])
+            if "discovery_names" in data
+            else DiscoveryNames()
         ),
     )
 
@@ -279,6 +294,26 @@ def _check_discovery(config: Config) -> None:
             )
 
 
+# One DNS label holds 63 bytes. The bundled discovery owner forms the first
+# label of a projected host name from a prefix and 16 hexadecimal digits
+# (bonjour_owner.project_records), which leaves 47 bytes for the prefix.
+_PREFIX_MAX = 63 - 16
+
+
+def _check_discovery_names(config: Config) -> None:
+    names = config.discovery_names
+    for prefix in (names.export_prefix, names.import_prefix):
+        # fullmatch: the schema's pattern would let one trailing line feed pass.
+        if re.fullmatch(r"[a-z][a-z0-9-]*", prefix) is None or len(prefix) > _PREFIX_MAX:
+            raise ConfigError("Discovery names: invalid host name prefix")
+    # A projected name must tell which direction made it; equal prefixes and a
+    # prefix that begins with the other one cannot.
+    if names.export_prefix.startswith(names.import_prefix) or names.import_prefix.startswith(
+        names.export_prefix
+    ):
+        raise ConfigError("Discovery names: one prefix begins with the other")
+
+
 def validate_config(config: Config) -> None:
     """Validate an already constructed model as rigorously as loaded input."""
     errors = sorted(
@@ -292,6 +327,7 @@ def validate_config(config: Config) -> None:
     _check_scopes(config)
     _check_profiles(config)
     _check_discovery(config)
+    _check_discovery_names(config)
 
 
 def parse_config(text: str | bytes) -> Config:
@@ -310,6 +346,7 @@ def parse_config(text: str | bytes) -> Config:
     _check_scopes(config)
     _check_profiles(config)
     _check_discovery(config)
+    _check_discovery_names(config)
     return config
 
 
@@ -320,6 +357,10 @@ def load_config(path: str | Path) -> Config:
 def to_dict(config: Config) -> dict[str, Any]:
     # JSON arrays, rather than internal tuples, also satisfy the external schema.
     result = cast(dict[str, Any], strict_loads(json.dumps(asdict(config))))
+    # The default pair is left out: canonical bytes and config_digest of a policy
+    # that does not name its prefixes stay those of every earlier release.
+    if config.discovery_names == DiscoveryNames():
+        del result["discovery_names"]
     for profile in result["profiles"]:
         if profile["fallback_publication"] is None:
             del profile["fallback_publication"]

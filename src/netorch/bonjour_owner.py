@@ -358,7 +358,7 @@ def project_records(
             and record.service_type in policy.types
             and record.seen_at <= now <= record.seen_at + policy.max_age_seconds
             and ipaddress.IPv4Address(record.ipv4) in ipaddress.IPv4Network(scope.lan_cidr)
-            and not is_own_projection(record)
+            and not is_own_projection(record, config.discovery_names)
         )
         eligible = {
             (dns_name_key(record.hostname), record.ipv4)
@@ -376,7 +376,7 @@ def project_records(
             replace(
                 record,
                 interface=guest.guest_interface,
-                hostname="netorch-lan-"
+                hostname=config.discovery_names.import_prefix
                 + digest(
                     {
                         "host": record.hostname,
@@ -412,7 +412,7 @@ def project_records(
                 replace(
                     projection.record,
                     txt=rewrite_endpoint_urls(record, projection.record),
-                    hostname="netorch-container-"
+                    hostname=config.discovery_names.export_prefix
                     + digest(
                         {"policy": policy.id, "name": record.name, "type": record.service_type}
                     )[:16]

@@ -81,6 +81,19 @@ class Discovery:
 
 
 @dataclass(frozen=True, slots=True)
+class DiscoveryNames:
+    """Prefixes of the first label of every host name a discovery owner projects.
+
+    One pair for the whole policy, not one per declaration: the loop exclusion
+    refuses both prefixes in both directions for every declaration, and each
+    declaration's discovery digest binds a pair that differs from this default.
+    """
+
+    export_prefix: str = "netorch-container-"
+    import_prefix: str = "netorch-lan-"
+
+
+@dataclass(frozen=True, slots=True)
 class Config:
     schema_version: int
     site: str
@@ -89,6 +102,7 @@ class Config:
     services: tuple[Service, ...]
     profiles: tuple[Profile, ...]
     discovery: tuple[Discovery, ...]
+    discovery_names: DiscoveryNames = DiscoveryNames()
 
     def scope(self, identifier: str) -> Scope:
         for item in self.scopes:
