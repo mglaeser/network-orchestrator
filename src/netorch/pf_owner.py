@@ -1297,6 +1297,14 @@ def reconcile(
                     ),
                 )
             )
+        # Retire every rule before invalidating any state, as the administrator
+        # withdrawal and the unknown-state path do. A state readback that fails
+        # for one profile must not leave a later profile's rule loaded, and a
+        # sibling rule that is still loaded must not keep creating states for
+        # the address being drained. Everything else keeps its planned order.
+        actions = [action for action in actions if action.operation == "withdraw"] + [
+            action for action in actions if action.operation != "withdraw"
+        ]
         root.write(
             "journal.json",
             {

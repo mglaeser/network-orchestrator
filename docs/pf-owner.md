@@ -189,6 +189,11 @@ pass accepts only the old or known candidate kernel view, withdraws it and drain
 its states. An explicit administrator journal acknowledgement is required before
 activation resumes. Unknown foreign drift is never overwritten as recovery.
 
+Within one pass the owner applies every planned withdrawal before it invalidates
+any state, as the administrator withdrawal does. A state readback that fails
+then fails the pass with all planned rules already retired; it cannot leave the
+rule of a later profile loaded. Drains and activations keep their planned order.
+
 The owner holds only its own PF enable reference and keeps it while paused or
 empty. It never globally disables PF or releases a token owned by another
 service. A reference is operational runtime coexistence, not evidence of packet
