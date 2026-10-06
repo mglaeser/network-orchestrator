@@ -62,7 +62,19 @@ follows [Apple's maintained `ls` source](https://github.com/apple-oss-distributi
 Unsupported names/output become unknown. Privileged PF code, settings and
 mutation boundaries retain their separate stricter no-ACL rule.
 
-Persistent paths bind kind, owner, device and inode. Hashed receipts also bind
+Persistent paths bind kind, owner and inode, and one of two things that say
+which file system the inode belongs to. The default is the device number. A
+device number is assigned when a volume is mounted and can be another number
+after a restart, while the volume and its inodes are the same; every pass after
+such a restart reads `identity-mismatch` until the host is enrolled again. The
+other binding is the volume's own identifier (`volume_uuid`, a lower-case UUID).
+For it the reader opens the directory or file without following a link, requires
+the descriptor to be the object it has just examined, and reads the identifier
+of the volume that holds it with one `fgetattrlist` call in its own process. A
+path that cannot be opened, a failed call, a volume without an identifier and
+any other reply are `identity-mismatch`; nothing falls back to the device
+number. A directory or file names exactly one of the two; a socket is bound by
+neither. Hashed receipts also bind
 contents. Socket leaves can change inode when their existing owner restarts;
 their protected path, parent, owner and type still have to agree. Symlink and
 shared-writer ambiguity produces unknown. Writable nested/aliased mounts belonging
@@ -95,6 +107,25 @@ statically fills generated service-contract hashes. Port/scope policy remains
 authored once in the input table. Neither command creates an admission, changes
 application configuration, resumes intent or invokes PF. Review the generated
 files and promote them through the separately guarded deployment procedure.
+
+`enroll` stores device numbers unless it is given `--identity volume-uuid`. With
+that option every mounted directory and file is stored with its volume
+identifier and without a device number, and so is every receipt that names a
+device number, after it has been verified as written. A receipt that already
+names a volume is verified and kept. The binding is chosen at each enrollment:
+one repeated without the option stores device numbers again. A contract with at
+least one volume-bound identity is hashed as `apple-runtime-enrollment-v2`,
+every other contract as `apple-runtime-enrollment-v1`, so an existing enrollment
+keeps its stored bytes and its service contract hashes. Moving to the volume
+binding is an enrollment like any other: derive the policy and admit again on
+both sides. The reader, and the root owner in its own process, must be able to
+open each volume-bound directory or file for reading; under the device binding
+only a hashed receipt is opened. Whether macOS privacy protection lets a
+background job do that for a given location, for example a removable volume or
+a protected folder of the account, is a native acceptance item; a refused open
+reads `identity-mismatch`. The call is covered by fake providers and by hosted
+macOS userspace checks; a restart that changes a device number has not been run
+under this binding.
 
 ## A complete live observation
 
