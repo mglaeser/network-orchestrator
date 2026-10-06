@@ -36,6 +36,11 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Explicit bounded local OS reads, never LAN/Bonjour probes.",
     )
+    parser.add_argument(
+        "--emit-evidence",
+        action="store_true",
+        help="With preflight --collect-local: print the collected evidence document.",
+    )
     return parser
 
 
@@ -49,6 +54,8 @@ def main(
         _parser().error(
             "--collect-local is separate from --evidence and only for preflight/status/report"
         )
+    if args.emit_evidence and not (args.command == "preflight" and args.collect_local):
+        _parser().error("--emit-evidence is only for preflight together with --collect-local")
     if os.geteuid() == 0:
         print(
             canonical_json(
@@ -59,6 +66,7 @@ def main(
     try:
         instance = load_instance(args.instance)
         clock = time.time() if now is None else now
+        collected: dict[str, Any] | None = None
         if args.collect_local:
             if collector is None:
                 # This collector has a fixed local-only command set. It is not
@@ -66,7 +74,8 @@ def main(
                 from .macos_preflight import collect_preflight
 
                 collector = collect_preflight
-            evidence = parse_host_evidence(collector(instance))
+            collected = collector(instance)
+            evidence = parse_host_evidence(collected)
             if now is None:
                 # The collector stamps each fact while it runs. A report clock
                 # read before collection sees every fresh fact as dated in the
@@ -108,6 +117,11 @@ def main(
                 "contracts": report["contracts"],
             }
             code = 0 if valid else 65
+        elif args.command == "preflight" and args.emit_evidence and collected is not None:
+            # The collector's own document, accepted above by the parser that
+            # --evidence uses. Nothing is written here; the operator redirects it.
+            result = collected
+            code = 0
         elif args.command == "preflight":
             result = {
                 key: report[key]
