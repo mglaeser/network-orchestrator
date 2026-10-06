@@ -85,7 +85,7 @@ to retained evidence; they are not authenticated root admissions.
 | Path | Mechanism | Classification and limits |
 |---|---|---|
 | LAN to published port | Workload-specific Apple Container forwarder | Vendor/native; publication identity must match the announcing service |
-| LAN ingress to an existing host publication | Owned scoped PF redirect | Native PF plus existing custom owner; structural same-service target |
+| LAN ingress to an existing host publication | Owned scoped PF redirect | Native PF plus existing custom owner; structural same-service target. Sources outside the LAN prefix only where the profile declares an unrestricted source and root acknowledges it separately |
 | Direct DNS ingress with client identity | Owned direct-to-guest PF redirect | Bounded shared-pool address risk; separate publication does not replace it |
 | Dynamic UDP return | Static-port outbound NAT and target-less inbound RDR | Existing custom PF shapes; LAN-wide, one admitted range, multiple receivers |
 | Application LAN alias | Existing workload setup, ordinary vendor NAT | Named application contract; preserve current behavior and deviations |

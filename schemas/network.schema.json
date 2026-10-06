@@ -84,6 +84,7 @@
         "ports": {"$ref": "#/$defs/ports"},
         "target_ports": {"oneOf": [{"$ref": "#/$defs/ports"}, {"type": "null"}]},
         "fallback_publication": {"oneOf": [{"$ref": "#/$defs/id"}, {"type": "null"}]},
+        "source_scope": {"enum": ["lan", "any"]},
         "safety": {"$ref": "#/$defs/safety"}
       }
     },

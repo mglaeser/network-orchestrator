@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from .codec import MAX_JSON_BYTES, canonical_bytes, digest, strict_loads
-from .config import parse_config, profile_digest, to_dict
+from .config import parse_config, profile_digest, profile_view, to_dict
 from .model import Config, Profile, Scope
 from .planner import Action, plan
 from .process import Result, run
@@ -417,6 +417,19 @@ def render_profile(
     ports = _ports(profile)
     if profile.kind == "publication":
         raise PFError("native publications are owned by the runtime, never PF")
+    if profile.source_scope != "lan":
+        # Do not rely on validation here. Only a structural rule whose translation
+        # target is the host's own address may match every source: never a guest
+        # address, a fallback in effect or the UDP return pair.
+        if (
+            profile.source_scope != "any"
+            or profile.kind != "host-redirect"
+            or profile.safety.kind != "structural"
+            or effective_strategy is not None
+            or target != scope.host_ipv4
+        ):
+            raise PFError("an unrestricted source is rendered only for a host redirect")
+        source = "any"
     if profile.kind == "udp-return":
         return (
             f"nat on {scope.interface} inet proto udp from {target} port {ports} "
@@ -1477,7 +1490,10 @@ def reconcile(
                 valid_approval = (
                     approval is not None
                     and approval.approved_at <= now()
-                    and (profile.safety.kind != "bounded" or approval.risk_acknowledged)
+                    and (
+                        (profile.safety.kind != "bounded" and profile.source_scope == "lan")
+                        or approval.risk_acknowledged
+                    )
                 )
                 data["admitted"] = valid_approval
                 # Approval and truthful kernel exposure are separate facts from
@@ -1690,6 +1706,7 @@ def admit(
     identifier: str,
     *,
     acknowledge_bounded_risk: bool,
+    acknowledge_any_source: bool = False,
     expected_digest: str | None = None,
     approved_by: str = "local-administrator",
     now: float | None = None,
@@ -1703,6 +1720,9 @@ def admit(
             raise PFError("profile is outside this PF owner's authority")
         if profile.safety.kind == "bounded" and not acknowledge_bounded_risk:
             raise PFError("bounded guest-reuse risk requires explicit acknowledgement")
+        if profile.source_scope != "lan" and not acknowledge_any_source:
+            # A different statement than the bounded one, which does not satisfy it.
+            raise PFError("an unrestricted source requires explicit acknowledgement")
         raw = root.read("admissions.json")
         records = _read_admissions(raw)
         resolved = admitted_digest(config, profile, installation)
@@ -1712,7 +1732,10 @@ def admit(
             "digest": resolved,
             "approved_at": time.time() if now is None else now,
             "approved_by": approved_by,
-            "risk_acknowledged": acknowledge_bounded_risk,
+            # One stored field, so the record format is unchanged. The digest binds
+            # the source scope and therefore which acknowledgement the field means.
+            "risk_acknowledged": acknowledge_bounded_risk
+            or (profile.source_scope != "lan" and acknowledge_any_source),
         }
         # Validate timestamps/labels through the public immutable admission type.
         Admission(
@@ -1849,6 +1872,7 @@ def main(argv: list[str] | None = None) -> int:
     command.add_argument("--profile", required=True)
     command.add_argument("--expected-digest", required=True)
     command.add_argument("--acknowledge-bounded-risk", action="store_true")
+    command.add_argument("--acknowledge-any-source", action="store_true")
     args = parser.parse_args(argv)
     try:
         if args.command in {
@@ -1878,6 +1902,7 @@ def main(argv: list[str] | None = None) -> int:
                     args.profile,
                     expected_digest=args.expected_digest,
                     acknowledge_bounded_risk=args.acknowledge_bounded_risk,
+                    acknowledge_any_source=args.acknowledge_any_source,
                 )
             elif args.command == "review-admission":
                 with root.lock():
@@ -1887,7 +1912,7 @@ def main(argv: list[str] | None = None) -> int:
                     if config.profile_owner(profile).id != installation.owner:
                         raise PFError("profile is outside installed owner")
                     result = {
-                        "profile": asdict(profile),
+                        "profile": profile_view(profile),
                         "scope": asdict(config.scope(profile.scope)),
                         "service": asdict(config.service(profile.service)),
                         "strategy": STRATEGY,
@@ -1895,6 +1920,11 @@ def main(argv: list[str] | None = None) -> int:
                         "expected_digest": admitted_digest(config, profile, installation),
                         "previous": _read_admissions(root.read("admissions.json")).get(profile.id),
                         "risk_acknowledgement_required": profile.safety.kind == "bounded",
+                        **(
+                            {"any_source_acknowledgement_required": True}
+                            if profile.source_scope != "lan"
+                            else {}
+                        ),
                     }
             elif args.command == "status":
                 result = {

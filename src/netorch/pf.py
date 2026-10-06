@@ -39,6 +39,17 @@ def render(
             lines.append(f"# {profile.id}: native runtime publication, not a PF rule")
             continue
         source = scope.lan_cidr
+        if profile.source_scope != "lan":
+            # The same refusal as the root owner's renderer, independent of validation.
+            if (
+                profile.source_scope != "any"
+                or profile.kind != "host-redirect"
+                or profile.safety.kind != "structural"
+                or action.effective_strategy is not None
+                or action.target_ipv4 != scope.host_ipv4
+            ):
+                raise ValueError("an unrestricted source is rendered only for a host redirect")
+            source = "any"
         ports = _range(profile.ports)
         if profile.kind == "udp-return":
             nat.append(

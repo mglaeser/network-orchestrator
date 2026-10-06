@@ -125,6 +125,8 @@ class Transport:
     target_ports: Ports | None
     dependencies: tuple[str, ...]
     fallback_publication: str | None
+    # The LAN prefix unless "any"; the default has no spelling in an instance.
+    source_scope: str = "lan"
 
 
 @dataclass(frozen=True, slots=True)

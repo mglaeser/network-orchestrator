@@ -752,6 +752,11 @@
                 "type": "null"
               }
             ]
+          },
+          "source_scope": {
+            "enum": [
+              "any"
+            ]
           }
         }
       }

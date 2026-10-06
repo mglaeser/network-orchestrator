@@ -76,6 +76,7 @@ def _construct(data: dict[str, Any]) -> Config:
                 ),
                 item.get("owner"),
                 item.get("fallback_publication"),
+                item.get("source_scope", "lan"),
             )
             for item in data["profiles"]
         ),
@@ -94,6 +95,25 @@ def _construct(data: dict[str, Any]) -> Config:
             for item in data["discovery"]
         ),
     )
+
+
+def backing_publication(config: Config, profile: Profile) -> Profile:
+    """The one native publication of the same service that a host redirect exposes."""
+    matching = [
+        publication
+        for publication in config.profiles
+        if publication.kind == "publication"
+        and publication.service == profile.service
+        and publication.scope == profile.scope
+        and publication.protocol == profile.protocol
+        and profile.target_ports is not None
+        and publication.ports.contains(profile.target_ports)
+    ]
+    if profile.kind != "host-redirect" or len(matching) != 1:
+        raise ConfigError(
+            f"Profile {profile.id}: host redirect requires its own publication target"
+        )
+    return matching[0]
 
 
 def _check_range(ports: PortRange | None, label: str) -> None:
@@ -199,21 +219,17 @@ def _check_profiles(config: Config) -> None:
                 raise ConfigError(
                     f"Profile {profile.id}: fallback requires its own exact native publication"
                 )
+        if profile.source_scope != "lan" and (
+            profile.kind != "host-redirect" or profile.safety.kind != "structural"
+        ):
+            # Only a rule that ends at the host's own published socket may match
+            # every source. A guest is reached through the translation alone, so
+            # there, and for the UDP return pair, the LAN prefix is the control.
+            raise ConfigError(
+                f"Profile {profile.id}: an unrestricted source needs a structural host redirect"
+            )
         if profile.kind == "host-redirect":
-            matching = [
-                publication
-                for publication in config.profiles
-                if publication.kind == "publication"
-                and publication.service == profile.service
-                and publication.scope == profile.scope
-                and publication.protocol == profile.protocol
-                and profile.target_ports is not None
-                and publication.ports.contains(profile.target_ports)
-            ]
-            if len(matching) != 1:
-                raise ConfigError(
-                    f"Profile {profile.id}: host redirect requires its own publication target"
-                )
+            backing_publication(config, profile)
         if profile.safety.kind == "bounded" and not (
             profile.safety.statement and profile.safety.statement.strip()
         ):
@@ -323,7 +339,17 @@ def to_dict(config: Config) -> dict[str, Any]:
     for profile in result["profiles"]:
         if profile["fallback_publication"] is None:
             del profile["fallback_publication"]
+        if profile["source_scope"] == "lan":
+            del profile["source_scope"]
     return result
+
+
+def profile_view(profile: Profile) -> dict[str, Any]:
+    """One profile as an admission review prints it; the default source scope is left out."""
+    view = asdict(profile)
+    if profile.source_scope == "lan":
+        del view["source_scope"]
+    return view
 
 
 def profile_digest(config: Config, profile: Profile) -> str:
@@ -332,6 +358,9 @@ def profile_digest(config: Config, profile: Profile) -> str:
     resolved = asdict(profile)
     if profile.fallback_publication is None:
         del resolved["fallback_publication"]
+    if profile.source_scope == "lan":
+        # Left out, so a digest issued before the field existed still matches.
+        del resolved["source_scope"]
     payload = {
         "digest_version": 2 if profile.fallback_publication is not None else 1,
         "schema_version": config.schema_version,
@@ -345,6 +374,13 @@ def profile_digest(config: Config, profile: Profile) -> str:
     if profile.fallback_publication is not None:
         payload["fallback_profile_digest"] = profile_digest(
             config, config.profile(profile.fallback_publication)
+        )
+    if profile.source_scope != "lan":
+        # An unrestricted source has its own digest version and is approved
+        # together with the one native publication it exposes.
+        payload["digest_version"] = 3
+        payload["publication_profile_digest"] = profile_digest(
+            config, backing_publication(config, profile)
         )
     return digest(payload)
 

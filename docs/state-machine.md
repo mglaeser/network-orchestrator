@@ -45,7 +45,9 @@ never constitute admission. Future approval timestamps inhibit activation.
 Direct guest targets require a bounded safety declaration and an explicit risk
 acknowledgement. They do not claim that periodic observation can eliminate the
 address-reuse race. A host redirect uses a structural host socket target, while
-still requiring its service identity to be verified.
+still requiring its service identity to be verified. A host redirect declared
+with an unrestricted source is planned only while its admission also carries
+the acknowledgement; without it the profile stays `risk-unacknowledged`.
 
 An external-root owner must obtain its own protected admission and observe its
 own target. Copying this user-space admission document into a root job is not a

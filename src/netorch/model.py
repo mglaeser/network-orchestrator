@@ -65,6 +65,9 @@ class Profile:
     safety: Safety
     owner: str | None = None
     fallback_publication: str | None = None
+    # "lan": the rule matches the scope's LAN prefix. "any": every source; only
+    # a structural host redirect behind its own publication may declare it.
+    source_scope: str = "lan"
 
 
 @dataclass(frozen=True, slots=True)

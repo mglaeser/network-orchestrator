@@ -163,7 +163,11 @@ def _profile_plan(
         return inhibit("not-admitted", "pending")
     if admission.approved_at > now:
         return inhibit("admission-future", "pending")
-    if profile.safety.kind == "bounded" and not admission.risk_acknowledged:
+    # Repeated on every pass: an approval record without the acknowledgement
+    # never activates a bounded target or a rule that matches every source.
+    if (
+        profile.safety.kind == "bounded" or profile.source_scope != "lan"
+    ) and not admission.risk_acknowledged:
         return inhibit("risk-unacknowledged", "pending")
     if snapshot.network_generation is None:
         return inhibit("network-unknown")
