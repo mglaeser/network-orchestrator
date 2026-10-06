@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import copy
+import importlib
+import sys
+from io import BytesIO, TextIOWrapper
 from pathlib import Path
 
 import pytest
@@ -89,11 +92,11 @@ def test_owner_starter_loads_only_user_processes_and_a_readonly_root_report(tmp_
     clients = load_bindings(config, path)
     assert set(clients) == {owner.id for owner in config.owners}
     assert isinstance(clients["site-forwarding"], RootReportOwner)
-    for identifier in ("camera-manager", "bonjour-manager"):
+    for identifier, command in (("camera-manager", "request"), ("bonjour-manager", "endpoint")):
         client = clients[identifier]
         assert isinstance(client, ProcessOwner)
         assert client.argv[0] == "/operator/runtime/bin/python3"
-        assert client.argv[-1] == "request"
+        assert client.argv[-1] == command
     changed = strict_load(path)
     changed["owners"][0] = {
         "id": "site-forwarding",
@@ -103,6 +106,25 @@ def test_owner_starter_loads_only_user_processes_and_a_readonly_root_report(tmp_
     path.write_bytes(canonical_bytes(changed))
     with pytest.raises(OwnerFailure):
         load_bindings(config, path)
+
+
+@pytest.mark.parametrize("identifier", ["camera-manager", "bonjour-manager"])
+def test_owner_starter_process_bindings_use_a_command_their_module_has(
+    identifier, monkeypatch, capsys
+):
+    bindings = strict_load(EXAMPLES / "owner-bindings.json")
+    argv = next(item for item in bindings["owners"] if item["id"] == identifier)["argv"]
+    assert argv[1] == "-m"
+    module = importlib.import_module(argv[2])
+    # The owner itself refuses an empty request. A command the module does not
+    # have never gets that far: its argument parser ends the process first.
+    monkeypatch.setattr(sys, "stdin", TextIOWrapper(BytesIO(b"")))
+    try:
+        status = module.main(argv[3:])
+    except SystemExit as error:
+        raise AssertionError(f"{argv[2]} does not accept its starter command line") from error
+    assert status not in {0, 2}
+    assert "usage:" not in capsys.readouterr().err
 
 
 def test_workload_starter_builds_exact_native_policy_publications_and_bounded_udp_range():
