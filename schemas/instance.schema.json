@@ -547,9 +547,27 @@
                 "recovery": {
                   "enum": [
                     "none",
-                    "component-owner"
+                    "component-owner",
+                    "supervisor-ensure"
                   ]
                 }
+              }
+            }
+          },
+          "deadlines": {
+            "type": "object",
+            "additionalProperties": false,
+            "minProperties": 1,
+            "properties": {
+              "probe_seconds": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 300
+              },
+              "action_seconds": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 300
               }
             }
           }
@@ -880,9 +898,39 @@
           "maximum": 30
         },
         "failure_exit_code": {
-          "enum": [
-            42
-          ]
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 125
+        },
+        "component_exit_code": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 125
+        },
+        "restart_budget": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "starts",
+            "window_seconds"
+          ],
+          "properties": {
+            "starts": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10
+            },
+            "window_seconds": {
+              "type": "integer",
+              "minimum": 60,
+              "maximum": 86400
+            }
+          }
+        },
+        "action_timeout_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 300
         }
       }
     },
@@ -912,7 +960,8 @@
               "api-bridge",
               "management-ui",
               "application-manager",
-              "installer"
+              "installer",
+              "supervisor"
             ]
           },
           "container_api_access": {

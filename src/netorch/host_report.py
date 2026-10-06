@@ -536,6 +536,16 @@ def _acceptance(
     return bool(relevant) and relevant <= matched
 
 
+def _unambiguous_start_status(code: int) -> bool:
+    """Whether only a completed probe produces this status.
+
+    1 to 31 is also how a probe ended by a signal can be reported, and holds the
+    generic failures 1 and 2. 64 to 78 holds the statuses the framework's own
+    tools return for unknown and for errors.
+    """
+    return 32 <= code <= 63 or 79 <= code <= 125
+
+
 def _base_assessment(
     instance: Instance,
     requirement: Requirement,
@@ -557,6 +567,17 @@ def _base_assessment(
         "EXIT-STRATEGIES",
         "CURRENT-OBSERVATIONS",
     }
+    if identifier == "UNKNOWN-NO-RECOVERY" and not all(
+        code is None or _unambiguous_start_status(code)
+        for code in (
+            instance.supervision.failure_exit_code,
+            instance.supervision.component_exit_code,
+        )
+    ):
+        return (
+            "not-fulfilled",
+            "A declared start status can also be produced by a signal or by a tool's own failure.",
+        )
     if identifier in pure:
         return (
             "fulfilled-verified",
