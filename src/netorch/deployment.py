@@ -958,16 +958,38 @@ def prepare_root_bundle(bundle: Path, output: Path) -> dict[str, Any]:
 def rollback_install(
     directory: Path, scope: str, *, expected_current_digest: str, runner: ToolRunner = run_tool
 ) -> dict[str, Any]:
-    """Explicit reversal of a committed file/job release; preserve current intent."""
+    """Explicit reversal of a committed file/job release; preserve current intent.
+
+    A rollback that failed or was stopped is repeated with the same digest. Any
+    other unfinished journal belongs to `recover` and is left untouched.
+    """
     store = _deployment_store(directory, scope)
     with store.lock():
+        unfinished: Any = None
+        with contextlib.suppress(FileNotFoundError):
+            unfinished = store.read("installation-journal.json")
+        resumed = _resumable_rollback(unfinished, scope, expected_current_digest)
+        if (
+            unfinished is not None
+            and not resumed
+            and not (
+                isinstance(unfinished, dict)
+                and unfinished.get("phase") in {"committed", "rolled-back"}
+            )
+        ):
+            # The rule install_bundle applies: never write over an open journal.
+            raise DeploymentError("unfinished installation needs phase-aware recovery")
         receipt = _receipt(store.read("installation-receipt.json"), scope)
+        if resumed and receipt["bundle_digest"] == unfinished.get("to_bundle_digest"):
+            return _finish_rollback(store, scope, unfinished, receipt, runner)
         if receipt["scope"] != scope or receipt["bundle_digest"] != expected_current_digest:
             raise DeploymentError("rollback does not match the current installed release")
         previous = receipt.get("previous")
         if previous is None:
             raise DeploymentError("first installation has no prior release to restore")
         previous = _receipt(previous, scope)
+        if resumed and previous["bundle_digest"] != unfinished.get("to_bundle_digest"):
+            raise DeploymentError("unfinished installation needs phase-aware recovery")
         deployment = parse_deployment(canonical_bytes(receipt["deployment"]))
         uid = _require_platform(scope, deployment)
         old_deployment = parse_deployment(canonical_bytes(previous["deployment"]))
@@ -1009,24 +1031,48 @@ def rollback_install(
         journal: dict[str, Any] = {
             "schema_version": 1,
             "phase": "rolling-back",
+            "scope": scope,
             "from": receipt["release_id"],
             "to": previous["release_id"],
+            "from_bundle_digest": receipt["bundle_digest"],
+            "to_bundle_digest": previous["bundle_digest"],
         }
         store.write("installation-journal.json", journal)
         root_held = False
         try:
             if scope == "root":
                 root_held = _root_hold(deployment, expected_current_digest, runner)
+            old_hashes = {item["label"]: item["sha256"] for item in previous["jobs"]}
+            old_labels = set(old_hashes)
             for record in receipt["jobs"]:
                 installed = Path(installation.launchd_directory) / f"{record['label']}.plist"
-                if _sha(_read_file(installed, privileged=privileged)) != record["sha256"]:
+                accepted = {record["sha256"]}
+                removed = False
+                if resumed:
+                    # The earlier attempt may already have restored this job, or
+                    # removed one the predecessor does not have.
+                    accepted.add(old_hashes.get(record["label"], record["sha256"]))
+                    removed = record["label"] not in old_labels and not (
+                        installed.exists() or installed.is_symlink()
+                    )
+                if (
+                    not removed
+                    and _sha(_read_file(installed, privileged=privileged)) not in accepted
+                ):
                     raise DeploymentError("current managed file changed; inspect before rollback")
                 _tool(
                     runner,
                     (deployment.launchctl, "bootout", f"{installation.domain}/{record['label']}"),
                     absent_ok=True,
                 )
-            old_labels = {item["label"] for item in previous["jobs"]}
+            if resumed:
+                # A job only the predecessor has may have been loaded again already.
+                for label in sorted(old_labels - {record["label"] for record in receipt["jobs"]}):
+                    _tool(
+                        runner,
+                        (deployment.launchctl, "bootout", f"{installation.domain}/{label}"),
+                        absent_ok=True,
+                    )
             if scope == "root":
                 settings = next(
                     item
@@ -1055,7 +1101,9 @@ def rollback_install(
                 )
             for record in receipt["jobs"]:
                 if record["label"] not in old_labels:
-                    (Path(installation.launchd_directory) / f"{record['label']}.plist").unlink()
+                    (Path(installation.launchd_directory) / f"{record['label']}.plist").unlink(
+                        missing_ok=True
+                    )
             for record in previous["jobs"]:
                 installed = Path(installation.launchd_directory) / f"{record['label']}.plist"
                 _atomic_record(
@@ -1090,11 +1138,66 @@ def rollback_install(
                 "release_id": previous["release_id"],
                 "preserved_intent": True,
             }
-        except Exception:
+        except BaseException:
+            # An interrupt is a failure too; the journal names the exact pair, so
+            # the same rollback can be repeated.
             journal["failed_phase"] = journal["phase"]
             journal["phase"] = "failed"
             store.write("installation-journal.json", journal)
             raise
+
+
+def _resumable_rollback(journal: Any, scope: str, current_digest: str) -> bool:
+    """A rollback of exactly this release that failed, or stopped without recording it.
+
+    The second case is sound because the journal is read under the lock every
+    rollback holds for its whole run: whoever left the open phase is gone.
+    """
+    return (
+        isinstance(journal, dict)
+        and (
+            journal.get("phase") == "rolling-back"
+            or (journal.get("phase") == "failed" and journal.get("failed_phase") == "rolling-back")
+        )
+        and journal.get("scope") == scope
+        and journal.get("from_bundle_digest") == current_digest
+    )
+
+
+def _finish_rollback(
+    store: Store, scope: str, journal: dict[str, Any], receipt: dict[str, Any], runner: ToolRunner
+) -> dict[str, Any]:
+    """Close a rollback that stopped after it had restored the predecessor's receipt.
+
+    The receipt is written only after every restored job was loaded and read
+    back. What can be missing is the release of this rollback's own hold and
+    the closing journal entry.
+    """
+    if receipt["release_id"] != journal.get("to"):
+        raise DeploymentError("unfinished installation needs phase-aware recovery")
+    holder = journal["from_bundle_digest"]
+    deployment = parse_deployment(canonical_bytes(receipt["deployment"]))
+    _require_platform(scope, deployment)
+    if scope == "user":
+        intent = intent_from_dict(store.read("intent.json"))
+        if intent.damaged:
+            raise DeploymentError("rollback requires readable durable intent")
+        if intent.suspensions.get("installation") == holder:
+            store.write("intent.json", intent_to_dict(intent.release("installation", holder)))
+    elif (Path(deployment.forwarding.directory) / "installation.json").exists():
+        owner_intent = intent_from_dict(
+            _deployment_store(Path(deployment.forwarding.directory), "root").read(
+                "operator-intent.json"
+            )
+        )
+        if owner_intent.suspensions.get("installation") == holder:
+            _tool(runner, _root_command(deployment, "release", holder))
+    store.write("installation-journal.json", {**journal, "phase": "rolled-back"})
+    return {
+        "phase": "rolled-back",
+        "release_id": receipt["release_id"],
+        "preserved_intent": True,
+    }
 
 
 def recover_install(

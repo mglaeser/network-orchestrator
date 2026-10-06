@@ -185,6 +185,18 @@ interpreter; relocating or replacing that runtime is a separate maintenance step
 
 A release rollback is not an application-data restore or kernel-state proof.
 
+Rollback reads the installation journal before it writes anything. A failed or
+unfinished installation or recovery belongs to `recover`: rollback refuses and
+leaves that journal unchanged. Its own journal records the scope and the bundle
+digests of both releases, so a rollback that failed or was stopped is repeated
+with the same command and digest. The repeat accepts a job file of either of
+the two releases, tolerates a job it had already removed, boots out the jobs of
+both releases before it loads the predecessor's, and only releases its hold and
+closes the journal if the predecessor's receipt is already in place. A first
+attempt still requires the current release's exact job bytes. A journal left
+by a failed rollback of an earlier version has no scope or digests and is not
+resumed.
+
 An interrupted rollback also stops and retains its phase. An unexpected foreign
 file, changed boundary, damaged intent, replaced release, unavailable restore
 material or ambiguous state inhibits recovery instead of inventing a repair.
