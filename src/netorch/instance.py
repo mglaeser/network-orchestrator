@@ -6,7 +6,7 @@ import hashlib
 import os
 import re
 import stat
-from dataclasses import asdict
+from dataclasses import MISSING, asdict, fields
 from datetime import datetime
 from functools import lru_cache
 from importlib import resources
@@ -214,7 +214,26 @@ def instance_to_dict(instance: Instance) -> dict[str, Any]:
                     if value["range"] is not None
                     else {"first": value["first"], "last": value["last"]}
                 )
+    for item in data["discovery"]:
+        _selection_data(item)
     return data
+
+
+_SELECTION_DEFAULTS = {
+    item.name: item.default for item in fields(DiscoverySelection) if item.default is not MISSING
+}
+
+
+def _selection_data(selection: dict[str, Any]) -> dict[str, Any]:
+    """Leave out each optional member of a discovery selection that has its default.
+
+    A default has no spelling. A selection written before a member existed
+    therefore keeps its canonical bytes and its resolved digest.
+    """
+    for key, default in _SELECTION_DEFAULTS.items():
+        if selection[key] == default:
+            del selection[key]
+    return selection
 
 
 def canonical_instance_bytes(instance: Instance) -> bytes:
@@ -311,7 +330,7 @@ def resolved_discovery_digest(instance: Instance, selection: DiscoverySelection)
     return digest(
         {
             "resolved_discovery_version": 2,
-            "selection": asdict(selection),
+            "selection": _selection_data(asdict(selection)),
             "lan": asdict(instance.host.lan),
             "names": resolved_names(instance),
             "workload_contract": instance.workload(selection.service).contract.sha256,
@@ -575,6 +594,11 @@ def validate_instance(instance: Instance) -> None:
                 # Every supported export profile emits TCP DNS-SD services.
                 # A UDP socket on the same numeric port is a different endpoint.
                 raise InstanceError("discovery export requires its own TCP publication")
+            if selection.misses == instance.supervision.discovery_misses:
+                # The instance-wide tolerance is said by leaving the member out.
+                raise InstanceError(
+                    "a selection's own miss tolerance differs from the instance-wide one"
+                )
         decision_ids = [item.profile for item in instance.decisions.bounded]
         if len(set(decision_ids)) != len(decision_ids):
             raise InstanceError("duplicate bounded decision")
