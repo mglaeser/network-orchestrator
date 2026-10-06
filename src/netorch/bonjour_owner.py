@@ -156,6 +156,16 @@ def load_settings(path: Path) -> BonjourSettings:
         item.id for item in scopes
     }:
         raise ValueError("every owned discovery policy needs a guest interface")
+    # This owner decides import eligibility on a device's _airplay._tcp record
+    # and lets related types follow that record's host. An owned import policy
+    # that does not list the type could never import anything, yet it would
+    # read present for as long as it is active.
+    if any(
+        item.direction == "import" and "_airplay._tcp" not in item.types
+        for item in config.discovery
+        if item.owner == owner.id
+    ):
+        raise ValueError("an owned import policy needs the _airplay._tcp type")
     for key, default, maximum in (("scan_seconds", 2, 5), ("poll_seconds", 5, 10)):
         value = raw.get(key, default)
         if type(value) is not int or not 1 <= value <= maximum:

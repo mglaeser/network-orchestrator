@@ -168,6 +168,13 @@ cannot invoke root or expand its scope.
 
 Fresh complete absence with verified interfaces is observable at cold start;
 it permits the coordinator to request activation after transport is verified.
+An active declaration whose registrations are all confirmed reads `present`
+even when there are none: a guest that advertises nothing on a published port,
+or a link without an eligible device, is "active, nothing to publish". The
+observation's `record_count` tells the two apart. An import declaration without
+`_airplay._tcp` could only ever be in that state, because eligibility is decided
+on a device's `_airplay._tcp` record; this owner refuses to load settings whose
+policy gives it such a declaration.
 A fixed endpoint request waits at most seven seconds for matching readback,
 then returns actual evidence. It never reports success from process launch alone.
 
