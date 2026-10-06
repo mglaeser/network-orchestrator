@@ -207,7 +207,11 @@ def _check_tree(path: Path, uid: int, *, create: bool = False, privileged: bool 
 
 
 def _write_new(path: Path, payload: bytes, mode: int = 0o600, *, privileged: bool = False) -> None:
-    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    # mkdir(parents=True) gives its mode to the last directory only; every
+    # directory created here is private.
+    for directory in reversed((path.parent, *path.parent.parents)):
+        if not directory.is_dir():
+            directory.mkdir(mode=0o700, exist_ok=True)
     if privileged:
         _check_tree(path.parent, os.geteuid(), privileged=True)
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode)
