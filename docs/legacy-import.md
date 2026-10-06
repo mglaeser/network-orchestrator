@@ -170,6 +170,16 @@ addresses, stable adapter identity, home path, network/name pins, namespace,
 workload names and range endpoints. Low-entropy chosen port literals require
 careful, narrow exceptions; they are not automatically ignored.
 
+A chosen name and the namespace are found in any letter case and as a label of
+a longer dotted name: `<namespace>.forwarding`, `<workload>.local`,
+`host.<workload>` and `www.<workload>.example` are findings. Further letters,
+digits, hyphens or underscores make another name, so `<workload>2` is not a
+finding. A name that lies inside a longer chosen value at the same place, such
+as an instance name that is a label of its own namespace, is reported once, as
+the longer value. Addresses, ports, the adapter identity and the home path keep
+exact boundaries and letter case. A finding carries the hash of the text as it
+was found; an exception therefore exempts one exact spelling.
+
 Provide the VCS tracked-file inventory for CI. The fallback tree walk prunes only
 tool/build state and refuses unchecked symlinks, oversized/non-UTF8 files,
 excessive files/findings or more than 64 MiB of aggregate text. Exceptions name
