@@ -51,7 +51,8 @@ ownership conflicts.
 
 For `_home-assistant._tcp` only, `internal_url` and `base_url` values that point
 exactly to the resolved guest hostname/address are projected to the reachable
-LAN address and mapped port. Scheme, path, query and fragment are preserved.
+LAN address and mapped port. The host name compares by ASCII DNS case
+equivalence, like every other name here. Scheme, path, query and fragment are preserved.
 External URLs, credentials-bearing URLs and opaque/binary TXT data are untouched.
 
 ## Import: genuine Apple media endpoints into the guest network
@@ -81,6 +82,11 @@ requests, candidates and cached readbacks are rejected at the owner boundary;
 unchanged policy cannot retain an older implementation's discovery authority.
 Fresh planning and observation are required. Transport policy digests are
 unchanged. This does not open the current native qualification gate.
+
+Discovery digest version 4 binds the changes to record reading, selection and
+leasing made after 0.3.2; each is described where this document covers that
+behavior. Version 1 to 3 requests, candidates and cached readbacks are
+rejected at the owner boundary in the same way.
 
 Discovery does not supply the audio/video return path. A verified UDP-return
 dependency is required by the canonical import policy. The forwarding owner
