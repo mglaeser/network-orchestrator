@@ -141,7 +141,11 @@ explicit application maintenance operation.
 read**, and 69 for unknown or inhibited recovery. Only 42 triggers Monit's start
 rule. Recovery takes the shared user operation lock, rereads durable intent,
 performs two complete stopped observations in the same network generation,
-starts the existing enrolled name, then requires running readback. Running but
+starts the existing enrolled name, then requires running readback. The
+coordinator holds that lock for each of its passes, so `start` waits for it: at
+most 5 seconds, trying every 0.25 seconds. If the lock is still held it exits
+75 with `{"error":"busy"}` on standard error and has observed and started
+nothing. Running but
 unhealthy guests, unknown observations and all-stopped inventories never cause
 automatic restart. Initial all-stopped provisioning is a distinct explicitly
 approved operator operation in [workloads.md](workloads.md).

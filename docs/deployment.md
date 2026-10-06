@@ -266,7 +266,12 @@ Operator pause and holder suspension are separate and never expire. A transactio
 releases only its own hold. `acknowledge-journal` acknowledges an exact inspected
 reconciliation journal; it does not repair, approve or resume. Receipts are history,
 not kernel truth. A kernel lock reporting busy is a retry condition, not permission
-to delete its inode.
+to delete its inode. Root installation, rollback and recovery apply that to the
+forwarding owner: an owner command that exits 75 has done nothing and is repeated
+every 0.5 seconds for at most 5 seconds, because the scheduled pass, and the job
+an installation has just loaded, hold the owner's lock while they run. An owner
+that is still busy after that fails the operation in its recorded phase, as any
+other status does at once. Status 75 from `launchctl` or Monit is never repeated.
 
 Retain required recovery material outside immutable releases. Clean up only after
 checking installed jobs, settings, release receipts and rollback references. Never

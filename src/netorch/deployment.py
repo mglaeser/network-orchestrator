@@ -15,6 +15,7 @@ import re
 import shlex
 import stat
 import sys
+import time
 from collections.abc import Callable, Iterator
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -37,6 +38,13 @@ from .storage import Store
 
 ToolRunner = Callable[[tuple[str, ...]], Result]
 MAX_ARTIFACT_BYTES = 1_048_576
+# The forwarding owner exits 75 when it could not take its own lock; it has then
+# done nothing. Its scheduled pass holds that lock, and the job an installation
+# loads starts such a pass at once. Half of the 10-second example schedule is
+# long enough for one pass to end and too short to wait across two.
+OWNER_BUSY = 75
+OWNER_BUSY_WAIT_SECONDS = 5.0
+OWNER_BUSY_RETRY_SECONDS = 0.5
 
 
 def _sha(payload: bytes) -> str:
@@ -538,6 +546,28 @@ def _protected_executable(path: Path) -> None:
         os.close(descriptor)
 
 
+def _owner_busy_retry(
+    runner: ToolRunner, clock: Callable[[], float], sleep: Callable[[float], None]
+) -> ToolRunner:
+    """Repeat a forwarding-owner command that reports its lock busy, for a bounded time.
+
+    Only the owner's own commands are repeated, and only on exit 75. Every
+    other command and every other status passes through once, unchanged.
+    """
+
+    def repeated(argv: tuple[str, ...]) -> Result:
+        result = runner(argv)
+        if argv[1:4] != ("-I", "-m", "netorch.pf_owner"):
+            return result
+        deadline = clock() + OWNER_BUSY_WAIT_SECONDS
+        while result.returncode == OWNER_BUSY and clock() < deadline:
+            sleep(OWNER_BUSY_RETRY_SECONDS)
+            result = runner(argv)
+        return result
+
+    return repeated
+
+
 def _tool(runner: ToolRunner, argv: tuple[str, ...], *, absent_ok: bool = False) -> None:
     result = runner(argv)
     if result.returncode != 0 and not (absent_ok and result.returncode in {3, 113}):
@@ -704,9 +734,16 @@ def _root_hold(deployment: Deployment, holder: str, runner: ToolRunner) -> bool:
 
 
 def install_bundle(
-    bundle: Path, scope: str, *, expected_digest: str, runner: ToolRunner = run_tool
+    bundle: Path,
+    scope: str,
+    *,
+    expected_digest: str,
+    runner: ToolRunner = run_tool,
+    clock: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
 ) -> dict[str, Any]:
     """Install the explicitly named scope; an unexpected failure never auto-rolls back."""
+    runner = _owner_busy_retry(runner, clock, sleep)
     manifest = validate_bundle(bundle, expected_digest)
     deployment = parse_deployment(canonical_bytes(manifest["deployment"]))
     uid = _require_platform(scope, deployment)
@@ -956,9 +993,16 @@ def prepare_root_bundle(bundle: Path, output: Path) -> dict[str, Any]:
 
 
 def rollback_install(
-    directory: Path, scope: str, *, expected_current_digest: str, runner: ToolRunner = run_tool
+    directory: Path,
+    scope: str,
+    *,
+    expected_current_digest: str,
+    runner: ToolRunner = run_tool,
+    clock: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
 ) -> dict[str, Any]:
     """Explicit reversal of a committed file/job release; preserve current intent."""
+    runner = _owner_busy_retry(runner, clock, sleep)
     store = _deployment_store(directory, scope)
     with store.lock():
         receipt = _receipt(store.read("installation-receipt.json"), scope)
@@ -1103,6 +1147,8 @@ def recover_install(
     *,
     expected_failed_digest: str,
     runner: ToolRunner = run_tool,
+    clock: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
 ) -> dict[str, Any]:
     """Recover an inspected failed upgrade, without replaying the failed operation.
 
@@ -1110,6 +1156,7 @@ def recover_install(
     evidence, removes only verified generated user jobs, and never deletes data.
     The next install must use a new bundle/release or explicit evidence cleanup.
     """
+    runner = _owner_busy_retry(runner, clock, sleep)
     store = _deployment_store(directory, scope)
     with store.lock():
         journal = store.read("installation-journal.json")
