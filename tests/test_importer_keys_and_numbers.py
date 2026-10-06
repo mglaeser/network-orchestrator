@@ -425,6 +425,7 @@ def test_integer_slot_needs_every_alternative_to_exclude_other_members():
     assert slot({"anyOf": [{"oneOf": [named, numbered]}, {"type": "null"}]}, "/first")
     assert not slot({"oneOf": [unclosed, numbered]}, "/first")
     assert slot({"type": "array", "items": numbered}, "/3/first")
-    assert not slot({"type": "array", "items": numbered}, "/x/first")
+    # A member can be named by its identifier as well as by its position.
+    assert slot({"type": "array", "items": numbered}, "/x/first")
     assert not slot(numbered, "/missing")
     assert not slot(numbered, "/first/deeper")

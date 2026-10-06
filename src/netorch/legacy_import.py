@@ -39,6 +39,10 @@ _AUTHORED_SECTIONS = frozenset({"decisions", "acceptance", "deviations", "author
 # The one spelling of a number that an integer slot takes from text: no sign,
 # no leading zero, at most ten digits.
 _INTEGER_TEXT = re.compile(r"0|[1-9][0-9]{0,9}")
+# Entry keys that only ``netorch.render`` reads; an import neither copies nor evaluates them.
+_RENDER_KEYS = frozenset({"composed", "translated", "constants", "unexamined", "independent"})
+# A program is recorded by hash and supplies no value; it is not an unread data input.
+INVENTORY_ONLY = "executable-source-not-evaluated"
 
 
 class ImportError(ValueError):
@@ -205,6 +209,14 @@ def _claim(claimed: dict[str, Any], pointer: str) -> None:
     node[last] = None
 
 
+def _member(node: list[Any], part: str) -> Any:
+    """The one list member whose ``id`` is the pointer segment, if every member carries one."""
+    if not node or any(not isinstance(item, dict) or "id" not in item for item in node):
+        return None
+    matches = [item for item in node if item["id"] == part]
+    return matches[0] if len(matches) == 1 else None
+
+
 def _fill(data: dict[str, Any], pointer: str, value: Any) -> None:
     parts = _pointer(pointer)
     node: Any = data
@@ -213,6 +225,9 @@ def _fill(data: dict[str, Any], pointer: str, value: Any) -> None:
             node = node.setdefault(part, {})
         elif isinstance(node, list) and part.isdecimal() and int(part) < len(node):
             node = node[int(part)]
+        elif isinstance(node, list) and (member := _member(node, part)) is not None:
+            # The member a renderer addresses; a position names another one after an insertion.
+            node = member
         else:
             raise ImportError("Mapping container is unavailable")
     last = parts[-1]
@@ -348,7 +363,7 @@ def import_sources(manifest: str | Path) -> ImportResult:
     issues: list[Issue] = []
     seen: set[str] = set()
     for entry in entries:
-        if not isinstance(entry, dict) or set(entry) != {
+        if not isinstance(entry, dict) or set(entry) - _RENDER_KEYS != {
             "id",
             "owner",
             "path",
@@ -380,7 +395,7 @@ def import_sources(manifest: str | Path) -> ImportResult:
             if any(_secret_key(part) for part in _pointer(selector) + _pointer(pointer)):
                 raise ImportError("Credential and environment values are not instance data")
             _claim(claimed, pointer)
-        if fmt == "source-inventory" and mapping:
+        if fmt == "source-inventory" and (mapping or _RENDER_KEYS & set(entry)):
             raise ImportError("Executable owner sources cannot provide desired settings")
         capture = Path(source_path)
         if not capture.is_absolute():
@@ -391,7 +406,7 @@ def import_sources(manifest: str | Path) -> ImportResult:
             raise ImportError("Static source digest changed; capture requires explicit review")
         receipts.append(SourceReceipt(sid, owner, sha, fmt))
         if fmt == "source-inventory":
-            issues.append(Issue(sid, "executable-source-not-evaluated"))
+            issues.append(Issue(sid, INVENTORY_ONLY))
             continue
         try:
             source = _decode(raw, fmt)
@@ -455,7 +470,9 @@ def _integer_slot(schema: Any, pointer: str) -> bool:
         for node in nodes:
             if part in node.get("properties", {}):
                 members.append(node["properties"][part])
-            elif "items" in node and re.fullmatch(r"0|[1-9][0-9]*", part):
+            elif "items" in node:
+                # A list member is named by its position or, where every member
+                # carries one, by its `id`.
                 members.append(node["items"])
             elif node.get("type") != "null" and node.get("additionalProperties") is not False:
                 return False
@@ -484,6 +501,8 @@ def project_instance(result: ImportResult, template: dict[str, Any]) -> bytes:
 
     A literal file holds text only. Text mapped to a slot that the instance
     schema types as an integer is converted from its plain decimal form.
+    A program receipt does not block: the program is recorded by hash and
+    supplies no value. Data that could not be read still does.
     """
     from .instance import canonical_instance_bytes, instance_validator, parse_instance
 
@@ -504,6 +523,10 @@ def project_instance(result: ImportResult, template: dict[str, Any]) -> bytes:
             raise ImportError("Generated projection must be an object")
 
     apply(result.values, "")
-    if result.underivable:
+    programs = {receipt.id for receipt in result.receipts if receipt.format == "source-inventory"}
+    if any(
+        issue.reason != INVENTORY_ONLY or issue.source not in programs
+        for issue in result.underivable
+    ):
         raise ImportError("Unresolved owner inputs cannot become a complete instance")
     return canonical_instance_bytes(parse_instance(canonical_bytes(data) + b"\n"))

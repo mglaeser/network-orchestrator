@@ -53,7 +53,9 @@ contains fixed behavior names and versions; `platform_contract` keeps upstream
 facts and candidate versions separate from an empty hardware-qualified matrix.
 `requirements` provides stable requirement IDs, applicability and proving tests.
 `legacy_import` parses literal JSON/plist/TOML/environment/list data without
-sourcing it; code is inventoried by hash and otherwise underivable. `conformance`
+sourcing it; code is inventoried by hash and otherwise underivable. `render`
+produces the rendered side for literal inputs by replacing the mapped values
+inside the captured file; it writes nothing. `conformance`
 compares captured and rendered bytes, including whitespace and provenance.
 `host_report` joins declared data to typed retained evidence. `macos_preflight`
 uses bounded fixed local readers, not network probes. `workflow_gate` refuses

@@ -29,11 +29,24 @@ application reacceptance and recaptured version-labelled fixtures.
 2. Keep a generated view while old inputs are authoritative. A re-import check
    must reproduce the committed bytes. This is a view, not a second authority.
 3. Compare candidate rendered inputs to frozen installed inputs byte for byte,
-   including headers/newlines. Verify current hashes, authoring provenance and
-   installed names. No comparison of text establishes packet behavior.
+   including headers/newlines. The candidates are rendered from the instance by
+   `netorch.render`, which uses each frozen literal file as its own template and
+   replaces only the mapped values, or by the site's own generator. The
+   renderer yields a comparison only for a file whose every value is classified
+   as rendered or as the owner's own constant; identical bytes of a file in
+   which nothing was replaced prove nothing. Verify current hashes, authoring
+   provenance and installed names. No comparison of text establishes packet
+   behavior.
 4. Before a flip, name the old embedded constants and files it removes, establish
-   rules 1–6, and show the synthetic instances still validate. A flip is one owner
-   in one reviewed commit, with no intentional input difference.
+   rules 1–6, and show the synthetic instances still validate. A program is
+   hashed and searched, never rendered: one that still holds an address, name or
+   path of the instance blocks its owner until the value lives in a literal file
+   that the program reads. The search is a tripwire, not a proof. A program that
+   computes a name from parts, or holds a single-word name or a port number,
+   passes it; what is established is that the literal inputs are reproduced from
+   the instance byte for byte and that the program that reads them is exactly
+   the reviewed one. A flip is one owner in one reviewed commit, with no
+   intentional input difference.
 5. After eligibility and a separate approved window, use that owner's established
    suspend/withdraw/readback procedure. Preserve names, state locations, pause,
    unrelated holders, runtime startup, application configuration and one writer.
