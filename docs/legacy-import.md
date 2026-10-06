@@ -55,8 +55,11 @@ source receipt and therefore fails the re-import gate.
 `project_instance(result, template)` fills explicitly available null slots,
 rejects unresolved inputs, and invokes the independent closed instance parser.
 It cannot fill authored values, relax a schema, insert code, or create an
-accepted decision. A partial generated report is useful evidence; it is not a
-complete or approved deployable instance.
+accepted decision. Any mapped destination under `decisions`, `acceptance`,
+`deviations`, `authoring` or `framework` is refused, even where the template
+holds a null slot: signatures, acceptance records, provenance and the release
+pin are written by a person. A partial generated report is useful evidence; it
+is not a complete or approved deployable instance.
 
 ## Flip only one owner with exact parity
 

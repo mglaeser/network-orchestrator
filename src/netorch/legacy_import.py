@@ -30,6 +30,9 @@ _SECRET_KEY = re.compile(
     re.I,
 )
 _FORMATS = {"json", "plist", "toml", "literal-env", "text-list", "source-inventory"}
+# Decisions, acceptance records, deviations, provenance and the release pin are
+# written by a person; a static import never fills them.
+_AUTHORED_SECTIONS = frozenset({"decisions", "acceptance", "deviations", "authoring", "framework"})
 
 
 class ImportError(ValueError):
@@ -381,6 +384,8 @@ def project_instance(result: ImportResult, template: dict[str, Any]) -> bytes:
     """Fill explicit null slots and validate the independently closed instance model."""
     from .instance import canonical_instance_bytes, parse_instance
 
+    if not _AUTHORED_SECTIONS.isdisjoint(result.values):
+        raise ImportError("Authored instance sections cannot be filled by an import")
     data = copy.deepcopy(template)
 
     def apply(node: Any, prefix: str) -> None:
