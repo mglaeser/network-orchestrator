@@ -134,7 +134,7 @@ class NativeFleet:
                 raise AssertionError(argv)
             return Result(0, canonical_bytes(result), b"")
         if argv[0] == "/usr/sbin/sysctl":
-            return Result(0, b"{ sec = 100, usec = 0 }\n", b"")
+            return Result(0, b"0A1B2C3D-4E5F-4A6B-8C7D-9E0F1A2B3C4D\n", b"")
         if argv[0] == "/bin/launchctl":
             return Result(0, b"state = running\npid = 100\nprogram = /vendor/network-helper\n", b"")
         if argv[0] == "/bin/ps":
