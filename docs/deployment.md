@@ -256,7 +256,9 @@ netorch deploy rollback --state-dir /operator/state/netorch --scope user \
 
 Use root-owned execution and the manifest's root state directory for root scope.
 Recovery fences an interrupted installation and its verified predecessor;
-rollback fences a committed current release. They restore only verified owned job
+rollback fences a committed current release and refuses while an installation or
+recovery is unfinished. A rollback that failed is repeated with the same command
+and digest. They restore only verified owned job
 bytes, preserve current negative intent/admissions and do not replay stored guest
 addresses. Root replacement first suspends and withdraws through its independently
 owned boundary. Damaged intent, changed release/job bytes, unknown journals or
