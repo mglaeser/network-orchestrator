@@ -27,7 +27,7 @@ are single-link regular files mode `0600`:
 
 | File | Purpose |
 |---|---|
-| `installation.json` | Closed installation identity, independently observed runtime settings, owner/anchor, published report path, interval and optional inhibition path |
+| `installation.json` | Closed installation identity, independently observed runtime settings, owner/anchor, published report path, interval, optional inhibition path and the optional decision to take a lost PF enable reference again |
 | `policy.json` | Strictly parsed desired catalog, copied by the administrator installer |
 | `admissions.json` | Root's independent resolved-content approvals; installation never broadens this set |
 | `operator-intent.json` | Durable operator pause and operation-owned suspensions, outside installed releases |
@@ -123,6 +123,8 @@ An approval binds all resolved parameters included by `profile_digest`, plus:
 - Root-owned runtime-observation configuration (including accepted target
   contracts and runtime identity).
 - Owned anchor and the explicit Apple DNS coexistence exception.
+- The decision to take a lost PF enable reference again, when the installation
+  makes it. An installation without it has the digests it had before.
 
 The administrator first runs `review-admission`. It returns the resolved
 profile, scope, service, prior approval and proposed digest. The subsequent
@@ -285,6 +287,40 @@ loaded and no state is invalidated for this reason; the first pass that verifies
 again reports readiness again. A reference is acquired only as part of an
 activation, so a reference that another tool removed stays missing, and the
 profiles not ready, until a profile is next activated.
+
+An installation can decide otherwise with `"enable_reference": "reacquire"` in
+`installation.json`. A pass that then reads its reference back as not held takes
+it again, once, and reads it back a second time. Taking the reference enables
+PF and so puts every loaded rule back into effect; the pass therefore does it
+only under the conditions of an activation:
+
+- the readback was complete and did not list the saved token (a read that
+  failed, or a listed token while PF is not shown enabled, acquires nothing);
+- the pass is not inhibited by a pause, a suspension or a damaged intent, read
+  again immediately before, and owes no acknowledgement;
+- its final fresh evidence still verifies every rule it leaves loaded;
+- it did not already acquire a reference at an activation.
+
+If the second readback verifies, the pass reports readiness as usual. If it does
+not, the outcome is the one above: `inhibited`, reason
+`enable-reference-unverified`, no profile `root_ready`, rules untouched, and the
+next pass tries once more. Either way the result of that pass carries
+`"reference": "reacquired"` and the scheduled job writes it to its log, so
+enabling PF again is never silent. An acquisition that raises ends the pass like a
+failed activation, with a `failed` journal and an acknowledgement owed: a
+reference may then have been taken without being recorded, and another attempt
+on every pass would take another one each time.
+
+This decision overrides an administrator's `pfctl -d`. Disabling PF drops every
+enable reference, so while a rule of this owner is loaded the next pass enables
+PF again, within one interval. With `reacquire`, the way to keep this owner's
+forwarding off is its pause (`pause`, or `withdraw` before stopping the job),
+not disabling PF. `"reacquire"` is the only value that can be written; `"verify"`
+and `null` are refused, so an installation without the decision keeps its stored
+bytes. Choosing it, or taking it back, changes the digest of every admission of
+that owner: each profile is pending until it is admitted again, and `admit` and
+`review-admission` show the decision where it was made; without it they print
+what they printed before.
 
 ## Structural versus bounded profiles
 

@@ -70,6 +70,9 @@ class Installation:
     intent_path: str | None = None
     interval_seconds: int = 10
     allow_apple_dns_coexistence: bool = False
+    # What a pass does when it reads its PF enable reference back as not held.
+    # "verify": withhold readiness and acquire nothing, as before.
+    enable_reference: str = "verify"
 
     def __post_init__(self) -> None:
         if (
@@ -91,6 +94,11 @@ class Installation:
             raise PFError("invalid reconciliation interval")
         if type(self.allow_apple_dns_coexistence) is not bool:
             raise PFError("invalid coexistence admission")
+        if not isinstance(self.enable_reference, str) or self.enable_reference not in {
+            "verify",
+            "reacquire",
+        }:
+            raise PFError("invalid enable-reference decision")
         for value in (self.report_path, self.intent_path):
             if value is not None and (
                 not isinstance(value, str) or not os.path.isabs(value) or "\x00" in value
@@ -116,15 +124,23 @@ class Installation:
         }
         if (
             not isinstance(raw, dict)
-            or set(raw) != required
+            or set(raw) - {"enable_reference"} != required
             or type(raw["schema_version"]) is not int
             or raw["schema_version"] != 1
+            # One spelling per decision: the key exists only for the choice that
+            # is not the default, so "verify" and null are not input.
+            or ("enable_reference" in raw and raw["enable_reference"] != "reacquire")
         ):
             raise PFError("unsupported installation schema")
         return cls(**{key: value for key, value in raw.items() if key != "schema_version"})
 
     def to_dict(self) -> dict[str, Any]:
-        return {"schema_version": 1, **asdict(self)}
+        value = {"schema_version": 1, **asdict(self)}
+        if self.enable_reference == "verify":
+            # Left out while it is the default: an installation that never made
+            # the decision keeps the bytes it was stored with.
+            del value["enable_reference"]
+        return value
 
 
 @lru_cache(maxsize=1)
@@ -181,6 +197,13 @@ def admitted_digest(config: Config, profile: Profile, installation: Installation
             "observer": dict(installation.observer),
             "anchor": installation.anchor,
             "allow_apple_dns_coexistence": installation.allow_apple_dns_coexistence,
+            # No input while it is the default, so earlier digests stay valid.
+            # Choosing it voids every admission of this owner.
+            **(
+                {}
+                if installation.enable_reference == "verify"
+                else {"enable_reference": installation.enable_reference}
+            ),
         }
     )
 
@@ -757,8 +780,8 @@ class ShellBackend:
 
         Uses the backend's two existing reads, `references` and `enabled`. It
         never acquires or releases a reference; `ensure_reference` alone
-        acquires one, at an activation. It raises when a read fails or does
-        not show PF enabled.
+        acquires one, at an activation or where the installation chose
+        `reacquire`. It raises when a read fails or does not show PF enabled.
         """
         try:
             saved = self.root.read("reference.json")
@@ -1269,20 +1292,23 @@ def _write_report(installation: Installation, snapshot: Snapshot) -> None:
             temporary.unlink()
 
 
-def _reference_verified(backend: Backend, records: Mapping[str, Mapping[str, Any]]) -> bool:
+def _reference_held(backend: Backend, records: Mapping[str, Mapping[str, Any]]) -> bool | None:
     """Whether loaded rules can count on PF being enabled under this owner's reference.
 
     A loaded rule carries nothing while PF is disabled, and only the owner's own
     reference keeps PF enabled when another service releases its own. Without an
     active record there is no rule to carry anything and nothing to verify. A
     read that fails, or that does not list the reference, is not a verification.
+    The two are told apart: False is a complete read that does not list the
+    reference; None is a read that failed, after which nothing is known.
     """
     if not any(record["active"] for record in records.values()):
         return True
     try:
-        return backend.reference_held() is True
+        held = backend.reference_held()
     except (OSError, RuntimeError, ValueError):
-        return False
+        return None
+    return held if isinstance(held, bool) else None
 
 
 def reconcile(
@@ -1475,6 +1501,7 @@ def reconcile(
             },
         )
         changed: list[str] = []
+        acquired = False
         try:
             for action in actions:
                 if action.operation in {"blocked", "pending", "noop"}:
@@ -1520,6 +1547,7 @@ def reconcile(
                     ):
                         raise PFError("kernel target or socket coexistence is unverified")
                     backend.ensure_reference()
+                    acquired = True
                     update = dict(records)
                     update[action.profile] = {
                         "active": True,
@@ -1596,7 +1624,33 @@ def reconcile(
             # Read on every pass that leaves a rule loaded, not only at an
             # activation: another tool can disable PF at any time, which also
             # drops every enable reference.
-            reference_verified = _reference_verified(backend, records)
+            held = _reference_held(backend, records)
+            reacquired = False
+            if (
+                held is False
+                and installation.enable_reference == "reacquire"
+                and not acquired
+                and not needs_ack
+                and not final_intent.blocked
+                and all(
+                    key in verified_profiles for key, record in records.items() if record["active"]
+                )
+                and not _inhibition(root, installation).blocked
+            ):
+                # The administrator chose that a reference which a complete read
+                # shows as not held is taken again. Taking it enables PF, which
+                # puts every loaded rule back into effect, so it needs what an
+                # activation needs: no inhibition, nothing owed, and this pass's
+                # final fresh evidence still verifying each rule it leaves
+                # loaded. A read that failed is no evidence, and a pass that
+                # acquired at an activation does not acquire twice. An exception
+                # here ends the pass as it does at an activation: a reference may
+                # have been taken without being recorded, and trying again on
+                # every pass would take another one each time.
+                backend.ensure_reference()
+                reacquired = True
+                held = _reference_held(backend, records)
+            reference_verified = held is True
             phase = (
                 "failed"
                 if needs_ack
@@ -1676,6 +1730,9 @@ def reconcile(
                     for action in status.actions
                     if action.profile in owned and action.operation in {"pending", "blocked"}
                 ],
+                # Enabling PF again is never silent: the result says so, and the
+                # scheduled job writes such a result to its log.
+                **({"reference": "reacquired"} if reacquired else {}),
             }
         except BaseException:
             failed_journal = root.read("journal.json")
@@ -1915,6 +1972,12 @@ def admit(
                 "implementation_sha256": implementation_digest(),
                 "backend_sha256": installation.backend_sha256,
                 "observer_sha256": digest(dict(installation.observer)),
+                # Shown only where it was chosen; an admission without it covers the default.
+                **(
+                    {}
+                    if installation.enable_reference == "verify"
+                    else {"enable_reference": installation.enable_reference}
+                ),
             },
         }
 
@@ -2067,6 +2130,11 @@ def main(argv: list[str] | None = None) -> int:
                         "service": asdict(config.service(profile.service)),
                         "strategy": STRATEGY,
                         "implementation_sha256": implementation_digest(),
+                        **(
+                            {}
+                            if installation.enable_reference == "verify"
+                            else {"enable_reference": installation.enable_reference}
+                        ),
                         "expected_digest": admitted_digest(config, profile, installation),
                         "previous": _read_admissions(root.read("admissions.json")).get(profile.id),
                         "risk_acknowledgement_required": profile.safety.kind == "bounded",
@@ -2116,6 +2184,7 @@ def main(argv: list[str] | None = None) -> int:
             args.command != "reconcile"
             or result.get("changed")
             or result.get("phase") != "committed"
+            or result.get("reference")
         ):
             print(canonical_bytes(result).decode("utf-8"))
         return 0
