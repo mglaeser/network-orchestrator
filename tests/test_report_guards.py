@@ -151,7 +151,7 @@ def test_lan_identity_needs_the_declared_current_address_and_adapter(
     data: dict[str, Any],
 ) -> None:
     declared = lan_facts(data)
-    assert status(report(data, list(declared.values())), "LAN-IDENTITY") == "fulfilled-unverified"
+    assert status(report(data, list(declared.values())), "LAN-IDENTITY") == "unverified"
     for key, other in (("lan_ipv4", "198.51.100.99"), ("lan_hardware_id", "example-other")):
         differing = {**declared, key: fact(key, other)}
         assert status(report(data, list(differing.values())), "LAN-IDENTITY") == "not-fulfilled"
@@ -181,7 +181,7 @@ def test_consent_identity_needs_a_current_launch_agent_identity_fact(
     key = "local_network_identity"
     assert status(report(data), "CONSENT-IDENTITY") == "not-fulfilled"
     current = [fact(key, "example-identity")]
-    assert status(report(data, current), "CONSENT-IDENTITY") == "fulfilled-unverified"
+    assert status(report(data, current), "CONSENT-IDENTITY") == "unverified"
     for other in (
         fact(key, "example-identity", at=STALE),
         fact(key, None, state="unknown"),
@@ -192,7 +192,7 @@ def test_consent_identity_needs_a_current_launch_agent_identity_fact(
 
 @pytest.mark.parametrize(
     ("context", "expected"),
-    [("user-launchagent", "fulfilled-verified"), ("macos-userspace", "fulfilled-unverified")],
+    [("user-launchagent", "fulfilled-verified"), ("macos-userspace", "unverified")],
 )
 def test_consent_acceptance_needs_the_launch_agent_context(
     tmp_path: Path, data: dict[str, Any], context: str, expected: str
@@ -241,7 +241,7 @@ def test_matching_consent_artifacts_cannot_supply_a_missing_identity_value(
 def test_platform_support_needs_apple_silicon(data: dict[str, Any]) -> None:
     facts = [*platform(), fact("macos_version", "27.0.1")]
     result = report(data, [*facts, fact("hardware_class", "apple-silicon")])
-    assert status(result, "PLATFORM-SUPPORT") == "fulfilled-unverified"
+    assert status(result, "PLATFORM-SUPPORT") == "unverified"
     assert result["platform"]["candidate_parser_compatible"]
     result = report(data, [*facts, fact("hardware_class", "intel")])
     assert status(result, "PLATFORM-SUPPORT") == "not-fulfilled"
@@ -251,7 +251,7 @@ def test_platform_support_needs_apple_silicon(data: dict[str, Any]) -> None:
 def test_matching_record_verifies_an_instance_wide_requirement(
     tmp_path: Path, data: dict[str, Any]
 ) -> None:
-    assert status(report(data, platform()), "RESTORE-REHEARSAL") == "fulfilled-unverified"
+    assert status(report(data, platform()), "RESTORE-REHEARSAL") == "unverified"
     attest(data, tmp_path, "RESTORE-REHEARSAL", "restore-rehearsal", 4)
     result = report(data, platform(), evidence_directory=tmp_path)
     assert status(result, "RESTORE-REHEARSAL") == "fulfilled-verified"
@@ -272,7 +272,7 @@ def test_record_made_for_other_content_or_a_lower_tier_does_not_verify(
 ) -> None:
     attest(data, tmp_path, "RESTORE-REHEARSAL", "restore-rehearsal", tier, **changes)
     result = report(data, platform(runtime), evidence_directory=tmp_path)
-    assert status(result, "RESTORE-REHEARSAL") == "fulfilled-unverified"
+    assert status(result, "RESTORE-REHEARSAL") == "unverified"
 
 
 def test_record_does_not_survive_a_later_change_of_the_instance(
@@ -286,8 +286,8 @@ def test_record_does_not_survive_a_later_change_of_the_instance(
     )
     data["port_ranges"][0]["last"] += 1
     result = report(data, platform(), evidence_directory=tmp_path)
-    assert status(result, "RESTORE-REHEARSAL") == "fulfilled-unverified"
-    assert status(result, "PORT-BUDGET") == "fulfilled-unverified"
+    assert status(result, "RESTORE-REHEARSAL") == "unverified"
+    assert status(result, "PORT-BUDGET") == "unverified"
 
 
 @pytest.mark.parametrize("runtime", [None, "1.2.0"])
@@ -296,7 +296,7 @@ def test_record_needs_the_current_runtime_version_fact(
 ) -> None:
     attest(data, tmp_path, "RESTORE-REHEARSAL", "restore-rehearsal", 4)
     result = report(data, platform(runtime), evidence_directory=tmp_path)
-    assert status(result, "RESTORE-REHEARSAL") == "fulfilled-unverified"
+    assert status(result, "RESTORE-REHEARSAL") == "unverified"
 
 
 def test_retained_file_edited_after_signing_does_not_verify(
@@ -307,7 +307,7 @@ def test_retained_file_edited_after_signing_does_not_verify(
     edited["source_versions"] = ["container-1.5.0", "example-added-later"]
     target.write_bytes(canonical_bytes(edited) + b"\n")
     result = report(data, platform(), evidence_directory=tmp_path)
-    assert status(result, "RESTORE-REHEARSAL") == "fulfilled-unverified"
+    assert status(result, "RESTORE-REHEARSAL") == "unverified"
 
 
 def test_record_made_under_another_instance_schema_version_does_not_verify(
@@ -322,7 +322,7 @@ def test_record_made_under_another_instance_schema_version_does_not_verify(
     result = build_report(
         later, evidence(platform()), now=NOW, data_directory=EXAMPLES, evidence_directory=tmp_path
     )
-    assert status(result, "RESTORE-REHEARSAL") == "fulfilled-unverified"
+    assert status(result, "RESTORE-REHEARSAL") == "unverified"
 
 
 @pytest.mark.parametrize(
@@ -458,7 +458,7 @@ def test_content_matching_acceptance_still_requires_a_nonblank_signer(
 ) -> None:
     attest(data, tmp_path, "RESTORE-REHEARSAL", "restore-rehearsal", 4, signed_by=blank)
     result = report(data, platform(), evidence_directory=tmp_path)
-    assert status(result, "RESTORE-REHEARSAL") == "fulfilled-unverified"
+    assert status(result, "RESTORE-REHEARSAL") == "unverified"
 
 
 @pytest.mark.parametrize(
@@ -514,11 +514,7 @@ def test_profile_evidence_does_not_survive_changed_target_or_supervision(
         data["supervision"][setting] += 1
     after = report(data, platform(), members, evidence_directory=tmp_path)
     assert not after["current_ready"]
-    assert (
-        status(after, "PORT-BUDGET")
-        == status(after, "DISCOVERY-IMPORT")
-        == ("fulfilled-unverified")
-    )
+    assert status(after, "PORT-BUDGET") == status(after, "DISCOVERY-IMPORT") == ("unverified")
 
 
 def test_version_one_profile_attestations_cannot_verify_the_bound_target_context(
@@ -569,11 +565,7 @@ def test_version_one_profile_attestations_cannot_verify_the_bound_target_context
         contract_sha256=old_discovery,
     )
     result = report(data, platform(), evidence_directory=tmp_path)
-    assert (
-        status(result, "PORT-BUDGET")
-        == status(result, "DISCOVERY-IMPORT")
-        == ("fulfilled-unverified")
-    )
+    assert status(result, "PORT-BUDGET") == status(result, "DISCOVERY-IMPORT") == ("unverified")
 
 
 def resolver(data: dict[str, Any]) -> dict[str, Any]:
@@ -603,14 +595,14 @@ def test_resolver_requirements_apply_only_to_a_resolver_workload(
     assert status(plain, "RUNTIME-DNS") == status(plain, "DNS-CLIENT-IDENTITY") == "not-applicable"
     declared = resolver(data)
     result = report(declared, platform())
-    assert status(result, "RUNTIME-DNS") == "fulfilled-unverified"
-    assert status(result, "DNS-CLIENT-IDENTITY") == "fulfilled-unverified"
+    assert status(result, "RUNTIME-DNS") == "unverified"
+    assert status(result, "DNS-CLIENT-IDENTITY") == "unverified"
     preserved = {row["id"]: row["preserves_client_identity"] for row in result["profiles"]}
     assert preserved["example-direct"] is True and preserved["example-publication"] is False
     attest(declared, tmp_path, "DNS-CLIENT-IDENTITY", "dns-client-identity", 5)
     result = report(declared, platform(), evidence_directory=tmp_path)
     assert status(result, "DNS-CLIENT-IDENTITY") == "fulfilled-verified"
-    assert status(result, "RUNTIME-DNS") == "fulfilled-unverified"
+    assert status(result, "RUNTIME-DNS") == "unverified"
 
 
 def test_runtime_dns_settings_are_unknown_until_observed(
@@ -627,7 +619,7 @@ def test_runtime_dns_settings_are_unknown_until_observed(
     result = report(declared, [*platform(), *observed])
     assert views(result)["runtime_dns_domain"]["value"] == "example.test"
     assert views(result)["runtime_resolvers"]["value"] == ["192.0.2.53"]
-    assert status(result, "RUNTIME-DNS") == "fulfilled-unverified"
+    assert status(result, "RUNTIME-DNS") == "unverified"
     with pytest.raises(InstanceError):
         evidence([fact("runtime_resolvers", "192.0.2.53")])
     attest(declared, tmp_path, "RUNTIME-DNS", "darwin-cli", 2)
@@ -642,7 +634,7 @@ def test_port_budget_counts_are_typed_and_observed_independently(
     result = report(data, idle)
     assert views(result)["udp_sockets_idle"]["value"] == 4
     assert views(result)["udp_sockets_loaded"]["state"] == "unknown"
-    assert status(result, "PORT-BUDGET") == "fulfilled-unverified"
+    assert status(result, "PORT-BUDGET") == "unverified"
     for value in ("many", True, ["4"]):
         with pytest.raises(InstanceError):
             evidence([fact("udp_sockets_loaded", value)])

@@ -308,7 +308,7 @@ def test_any_bounded_decision_that_parses_can_be_reported(
     except InstanceError:
         return
     result = build_report(instance, empty_evidence(NOW), now=NOW, data_directory=EXAMPLES)
-    assert result["profiles"][1]["safety"]["status"] in {"not-fulfilled", "fulfilled-unverified"}
+    assert result["profiles"][1]["safety"]["status"] in {"not-fulfilled", "unverified"}
 
 
 @pytest.mark.parametrize("section", ["acceptance", "deviations"])
@@ -472,9 +472,9 @@ def test_prerequisite_facts_cannot_disguise_a_negative_as_another_type(
     ("member_name", "value", "expected"),
     [
         ("tier", 4, "fulfilled-verified"),
-        ("tier", 4.0, "fulfilled-unverified"),
-        ("schema_version", 1.0, "fulfilled-unverified"),
-        ("source_versions", ["container-1.5.0\n"], "fulfilled-unverified"),
+        ("tier", 4.0, "unverified"),
+        ("schema_version", 1.0, "unverified"),
+        ("source_versions", ["container-1.5.0\n"], "unverified"),
     ],
 )
 def test_retained_acceptance_file_must_hold_integers_and_single_line_text(
