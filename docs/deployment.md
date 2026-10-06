@@ -44,8 +44,31 @@ root-state/
   live.json and journal.json known exposure and interrupted phase evidence
 ```
 
-All owner inputs are bounded, strictly parsed, protected single-link regular
-files. Settings and mutable private state use mode 0600 and private directories.
+All owner inputs are bounded and strictly parsed. How far a reader also protects
+the file depends on the input:
+
+- The state store opens the records of a state directory (intent, journals,
+  receipts and the root owner's records) without following a final symbolic
+  link. They must be single-link regular files of mode 0600 owned by the calling
+  user, in a private mode 0700 directory of that user. The provider bindings and
+  the Bonjour settings, with the admissions and intent they name, are held to
+  the same file rule.
+- Bundle sources and bundle files are also opened without following a final
+  symbolic link and must be single-link regular files that group and others
+  cannot write. The PF owner's `install` reads its policy, settings and backend
+  inputs once, in the same way, as single-link regular files that must not
+  change while they are read; it does not check their mode.
+- `netorch` reads `--config`, `--admissions`, `--snapshot` and `--intent` as
+  general data through the bounded reader, which requires a regular file,
+  follows a final symbolic link and checks neither owner, mode nor link count.
+  The same reader serves a deployment `--manifest`, the `intent.json` of a
+  reconciliation preview, a `snapshot-file` binding, the policy path named in
+  Bonjour or runtime settings, and the Apple runtime and workload commands for
+  their settings file, the intent and admissions paths named in it and a recipe
+  file.
+
+Keep settings and mutable private state in mode 0600 files and private
+directories whichever reader applies.
 Root code, policy, admissions and ancestors must be administrator-owned and
 protected against user replacement. A separately protected read-only root report
 contains typed networking observations, not credentials or raw inspect output.
