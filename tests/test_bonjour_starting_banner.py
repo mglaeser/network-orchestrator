@@ -139,6 +139,7 @@ NEAR_MISSES = [
     stamp() + "...STARTING... Add 2 7 local. _airplay._tcp. Forged",
     "22:03:17  ...STARTING...",  # no milliseconds
     "24:03:17.123  ...STARTING...",  # no such hour
+    "22:03:17.١٢٣  ...STARTING...",  # native printf emits ASCII digits
 ]
 
 
@@ -161,3 +162,36 @@ def test_start_line_carries_no_record() -> None:
     """A start line alone is an empty, complete browse; it never invents a name."""
     only = f"Using interface {INDEX}\nBrowsing for _airplay._tcp.local.\n" + starting()
     assert native.browse_names(only.encode(), "_airplay._tcp", INDEX, 8) == ()
+
+
+@pytest.mark.parametrize(
+    "name",
+    [" Speaker", "  Speaker  ", "Speaker\u2028Room", "\u0085Speaker", "\u00a0Speaker"],
+)
+def test_native_browse_preserves_leading_spaces_and_unicode_separators(name: str) -> None:
+    # Apple's fixed-width columns end before the unescaped instance label.
+    row = stamp() + f"Add {2:8X} {INDEX:3d} {'local.':<20} {'_airplay._tcp.':<20} {name}\n"
+    assert native.browse_names(row.encode(), "_airplay._tcp", INDEX, 8) == (name,)
+
+
+def test_removing_unspaced_label_does_not_remove_distinct_spaced_label() -> None:
+    rows = [
+        stamp() + f"{op} {2:8X} {INDEX:3d} {'local.':<20} {'_airplay._tcp.':<20} {name}\n"
+        for op, name in [("Add", "Speaker"), ("Add", " Speaker"), ("Rmv", "Speaker")]
+    ]
+    assert native.browse_names("".join(rows).encode(), "_airplay._tcp", INDEX, 8) == (" Speaker",)
+
+
+@pytest.mark.parametrize(
+    "row",
+    [
+        stamp() + "Add 2 7 local. _airplay._tcp. Speaker\n",
+        stamp() + f"Add {'00000002'} {INDEX:3d} {'local.':<20} {'_airplay._tcp.':<20} Speaker\n",
+        stamp() + f"Add {'a':>8} {INDEX:3d} {'local.':<20} {'_airplay._tcp.':<20} Speaker\n",
+        stamp() + f"Add {2:8X} {'007'} {'local.':<20} {'_airplay._tcp.':<20} Speaker\n",
+        stamp() + f"Add {2:8X} {INDEX:3d} {'local.':<19} {'_airplay._tcp.':<20} Speaker\n",
+    ],
+)
+def test_native_browse_rejects_non_native_column_formats(row: str) -> None:
+    with pytest.raises(native.DiscoveryFailure):
+        native.browse_names(row.encode(), "_airplay._tcp", INDEX, 8)

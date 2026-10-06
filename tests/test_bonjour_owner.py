@@ -217,9 +217,10 @@ def test_browse_parser_preserves_names_and_removes_gone_records():
     raw = (
         b"Using interface 7\nBrowsing for _airplay._tcp.local.\n"
         b"Timestamp A/R Flags if Domain Service Type Instance Name\n"
-        b"12:34:56.000 Add 2 7 local. _airplay._tcp. Living room speaker\n"
-        b"12:34:57.000 Add 2 7 local. _airplay._tcp. Old speaker\n"
-        b"12:34:58.000 Rmv 0 7 local. _airplay._tcp. Old speaker\n"
+        b"12:34:56.000  Add        2   7 local.               _airplay._tcp.       "
+        b"Living room speaker\n"
+        b"12:34:57.000  Add        2   7 local.               _airplay._tcp.       Old speaker\n"
+        b"12:34:58.000  Rmv        0   7 local.               _airplay._tcp.       Old speaker\n"
     )
     assert native.browse_names(raw, "_airplay._tcp", 7, 8) == ("Living room speaker",)
 
@@ -234,7 +235,7 @@ def test_native_source_timestamp_format_in_all_discovery_parsers(stamp):
     browse = (
         "Using interface 7\nBrowsing for _airplay._tcp.local.\n"
         "Timestamp     A/R    Flags  if Domain               Service Type         Instance Name\n"
-        f"{stamp}  Add        2   7 local.               _airplay._tcp.        {name}\n"
+        f"{stamp}  Add {2:8X} {7:3d} {'local.':<20} {'_airplay._tcp.':<20} {name}\n"
     ).encode()
     resolved = (
         f"{stamp}  {fullname} can be reached at speaker.local.:7000 (interface 7) Flags: 2\n"
@@ -264,7 +265,10 @@ def test_native_source_timestamp_format_in_all_discovery_parsers(stamp):
 def test_discovery_parsers_reject_malformed_native_timestamp(stamp):
     with pytest.raises(native.DiscoveryFailure):
         native.browse_names(
-            f"{stamp}  Add 2 7 local. _airplay._tcp. Example speaker\n".encode(),
+            (
+                f"{stamp}  Add        2   7 local.               _airplay._tcp.       "
+                "Example speaker\n"
+            ).encode(),
             "_airplay._tcp",
             7,
             8,
@@ -299,7 +303,7 @@ def test_discovery_parsers_reject_malformed_native_timestamp(stamp):
 )
 def test_mixed_valid_and_malformed_native_callbacks_never_become_success(stamp):
     good = "12:34:56.000"
-    browse = "{stamp}  Add 2 7 local. _airplay._tcp. Example speaker\n"
+    browse = "{stamp}  Add        2   7 local.               _airplay._tcp.       Example speaker\n"
     endpoint = (
         "{stamp}  Example speaker._airplay._tcp.local. can be reached at "
         "speaker.local.:7000 (interface 7)\n"
@@ -410,11 +414,11 @@ def test_resolved_fullname_escaping_is_retained_for_txt_query(fullname):
 @pytest.mark.parametrize(
     "row",
     [
-        b"12:34:56.000 Add 2 0 local. _airplay._tcp. Speaker",
-        b"12:34:56.000 Add 2 8 local. _airplay._tcp. Speaker",
-        b"12:34:56.000 Add Z 7 local. _airplay._tcp. Speaker",
-        b"12:34:56.000 Add 2 7 foreign. _airplay._tcp. Speaker",
-        b"12:34:56.000 Add 2 7 local. _raop._tcp. Speaker",
+        b"12:34:56.000  Add        2   0 local.               _airplay._tcp.       Speaker",
+        b"12:34:56.000  Add        2   8 local.               _airplay._tcp.       Speaker",
+        b"12:34:56.000  Add        Z   7 local.               _airplay._tcp.       Speaker",
+        b"12:34:56.000  Add        2   7 foreign.             _airplay._tcp.       Speaker",
+        b"12:34:56.000  Add        2   7 local.               _raop._tcp.          Speaker",
         b"12:34:56.000 Add 2 7 local. _airplay._tcp.",
         b"garbage",
         b"12:34:56.000 Error code -1",
@@ -427,7 +431,10 @@ def test_browse_rejects_partial_or_wrong_scope_rows(row):
 
 def test_browse_flood_is_not_truncated_into_success():
     raw = b"\n".join(
-        f"12:34:56.000 Add 2 7 local. _airplay._tcp. speaker-{i}".encode() for i in range(3)
+        (
+            f"12:34:56.000  Add        2   7 local.               _airplay._tcp.       speaker-{i}"
+        ).encode()
+        for i in range(3)
     )
     with pytest.raises(native.DiscoveryFailure):
         native.browse_names(raw, "_airplay._tcp", 7, 2)
@@ -512,7 +519,8 @@ def test_full_native_scan_uses_only_fixed_argv_and_hex_txt():
         if "-B" in argv:
             payload = (
                 b"Browsing for _airplay._tcp.local.\n"
-                b"12:34:56.000 Add 2 7 local. _airplay._tcp. Example speaker\n"
+                b"12:34:56.000  Add        2   7 local.               _airplay._tcp.       "
+                b"Example speaker\n"
             )
         elif "-L" in argv:
             payload = (
@@ -638,12 +646,12 @@ def test_owner_import_rejects_own_projection_prefix_in_any_ascii_case(
     )
 
 
-def old_discovery_digest(config, item):
-    """Frozen v1 envelope: same policy must not approve v2 selector behavior."""
+def old_discovery_digest(config, item, version):
+    """Frozen prior envelope: unchanged policy cannot approve new native semantics."""
     service = config.service(item.service)
     return digest(
         {
-            "digest_version": 1,
+            "digest_version": version,
             "schema_version": config.schema_version,
             "discovery": asdict(item),
             "scope": asdict(config.scope(item.scope)),
@@ -658,8 +666,9 @@ def old_discovery_digest(config, item):
     )
 
 
+@pytest.mark.parametrize("old_version", [1, 2])
 @pytest.mark.parametrize("old_field", ["candidate", "request"])
-def test_discovery_owner_refuses_v1_lease_records(config, settings, old_field):
+def test_discovery_owner_refuses_prior_lease_records(config, settings, old_field, old_version):
     current = snapshot(config)
     request, candidate = candidate_request(config, settings, current, media_record())
     assert owner.lease_records(
@@ -673,7 +682,7 @@ def test_discovery_owner_refuses_v1_lease_records(config, settings, old_field):
         1000,
     )
     (candidate if old_field == "candidate" else request)["policy_digest"] = old_discovery_digest(
-        config, policy(config)
+        config, policy(config), old_version
     )
     assert (
         owner.lease_records(
@@ -690,8 +699,11 @@ def test_discovery_owner_refuses_v1_lease_records(config, settings, old_field):
     )
 
 
+@pytest.mark.parametrize("old_version", [1, 2])
 @pytest.mark.parametrize("boundary", ["readback", "endpoint"])
-def test_discovery_owner_refuses_v1_readback_and_endpoint(config, settings, monkeypatch, boundary):
+def test_discovery_owner_refuses_prior_readback_and_endpoint(
+    config, settings, monkeypatch, boundary, old_version
+):
     monkeypatch.setattr(owner.time, "time", lambda: 1000)
     current = snapshot(config)
     old_profiles = {
@@ -701,7 +713,7 @@ def test_discovery_owner_refuses_v1_readback_and_endpoint(config, settings, monk
             1000,
             current.services[item.service].generation,
             {
-                "policy_digest": old_discovery_digest(config, item),
+                "policy_digest": old_discovery_digest(config, item, old_version),
                 "network_generation": current.network_generation,
                 "service_generation": current.services[item.service].generation,
                 "interface_confirmed": True,
@@ -723,7 +735,7 @@ def test_discovery_owner_refuses_v1_readback_and_endpoint(config, settings, monk
             "operation": "reconcile-discovery",
             "owner": settings.owner,
             "policy_digest": config_digest(config),
-            "discovery_digest": old_discovery_digest(config, policy(config)),
+            "discovery_digest": old_discovery_digest(config, policy(config), old_version),
             "discovery": policy(config).id,
             "active": True,
             "config": to_dict(config),
