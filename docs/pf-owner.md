@@ -153,7 +153,8 @@ anchor.
    reload `/etc/pf.conf`, edit Apple anchors or flush global states.
 3. Independently inspect the running runtime as the admitted ordinary runtime
    account. Validate exact container definition, network helper generation,
-   current instance, address and MAC. Stored endpoint facts do not activate.
+   current instance and address, and read the guest's hardware address where
+   the runtime states one. Stored endpoint facts do not activate.
 4. Read owned rules and the complete kernel state table. A malformed, truncated,
    inaccessible, stale or changed-schema read is unknown, never absent.
 5. Apply pure planning to those fresh observations and the root's approvals.

@@ -104,6 +104,11 @@ Each pass has an eight-second aggregate deadline, with smaller process limits:
 6. Derive guest generations from configuration, current start time, current
    network generation and current address. Derive native publication only from
    that same service's exact host address/protocol/range/target declaration.
+   Report the attachment's hardware address as `mac` when the runtime states
+   one in the form its encoder writes (six two-digit lower-case hexadecimal
+   groups joined by colons). A missing value, or one in any other form, is left
+   out: the address is then unknown, and the independent root owner accepts no
+   direct guest target without it.
 7. Reread helper and native network evidence to detect a changed generation.
 
 Running state from the admitted version's native API plus the exact source
