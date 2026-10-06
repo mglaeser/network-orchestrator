@@ -205,7 +205,9 @@ network and service generations must represent actual runtime lifecycle changes.
 paused. This release refuses that command with status 78 before it creates
 anything. Operator pause and operation-owned suspensions form an activation block.
 Neither expires; only the operator resumes, and only the matching holder releases
-its suspension. Release installation and rollback preserve this directory.
+its suspension. A hold blocks one service in the same way and is released by its
+holder ([state contract](state-machine.md)). Release installation and rollback
+preserve this directory.
 
 Provider bindings are trusted local code, mode `0600`, separate from network
 policy. Read the [owner protocol](owner-protocol.md) before implementing them.

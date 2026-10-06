@@ -198,7 +198,7 @@ REQUIREMENTS = (
     ),
     _requirement(
         "PAUSE-PRESERVED",
-        "Pause and unrelated holder suspensions survive installation and rollback.",
+        "Pause, holds and unrelated holder suspensions survive installation and rollback.",
         "Rule5",
         "all",
         ("fixture-parity",),
@@ -206,6 +206,7 @@ REQUIREMENTS = (
         (
             "test_user_install_preserves_pause_and_definitions",
             "test_upgrade_and_explicit_rollback_preserves_current_pause",
+            "test_install_rollback_and_recovery_preserve_holds",
         ),
     ),
     _requirement(

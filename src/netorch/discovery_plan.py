@@ -15,7 +15,7 @@ from .codec import digest
 from .config import config_digest, profile_digest, validate_config
 from .model import Config, Discovery, DiscoveryNames
 from .planner import Plan
-from .state import Intent, Observation, Snapshot, snapshot_digest
+from .state import Intent, Observation, Snapshot, attribute_holds, snapshot_digest
 
 DISCOVERY_REASONS = frozenset(
     {
@@ -24,6 +24,7 @@ DISCOVERY_REASONS = frozenset(
         "intent-damaged",
         "paused",
         "suspended",
+        "held",
         "transport-plan-stale",
         "transport-unverified",
         "service-unknown",
@@ -205,6 +206,8 @@ def _reason(
         return "paused"
     if intent.suspensions:
         return "suspended"
+    if item.service in intent.holds:
+        return "held"
     if (
         transport.policy_digest != config_digest(config)
         or transport.snapshot_digest != snapshot_digest(snapshot)
@@ -274,6 +277,7 @@ def plan_discovery(
     ):
         raise ValueError("now must be a finite nonnegative timestamp")
     validate_config(config)
+    intent = attribute_holds(intent, {service.id for service in config.services})
     result = []
     for item in sorted(config.discovery, key=lambda policy: policy.id):
         policy_digest = discovery_digest(config, item)

@@ -69,7 +69,7 @@ omit `--start-initial` from both commands; approval of a stopped plan cannot
 authorize a start. No raw argument or secret value is returned with either hash.
 
 Provisioning must run as the enrolled unprivileged operator. It requires an
-existing durable operator pause and no competing maintenance suspension. It
+existing durable operator pause and no competing suspension or service hold. It
 first verifies the entire plan, actual vendor version/network/helper and all
 persistent identities. It takes its own holder-owned suspension and journal.
 Every write has a fresh target/inventory/identity check. Missing names are

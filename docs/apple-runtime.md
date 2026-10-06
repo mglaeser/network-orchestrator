@@ -203,9 +203,14 @@ the routine all-stopped guard deliberately cannot bootstrap the fleet. See the
 [site migration responsibility map](site-migration.md) before claiming unattended
 reboot availability.
 
-Operator pause inhibits custom networking and recovery. Vendor publications are
-part of existing application definitions; an operator pause is not permission
-to stop those applications. Missing native publication or a changed definition
+Operator pause inhibits custom networking and recovery. A hold on one service
+([state contract](state-machine.md)) does the same for that workload alone: its
+probe returns 69 whether it runs or not, its start refuses and its publication
+is not verified for networking, while a different stopped workload still
+returns 42 and is started. A hold on a service that is not enrolled here
+inhibits every workload. Vendor publications are part of existing application
+definitions; an operator pause or a hold is not permission to stop those
+applications. Missing native publication or a changed definition
 therefore reports a maintenance requirement rather than hidden recreation.
 
 ## Runtime and login gates

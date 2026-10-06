@@ -62,9 +62,11 @@ State/plan interfaces live in `netorch.state` and `netorch.planner`:
   `target_generation`, `network_generation` and actual `states` list.
 - `Admission(profile, digest, approved_by, approved_at, risk_acknowledged)`;
   admissions map IDs to entries and bind exact resolved content.
-- `Intent(revision, operator_paused, suspensions, damaged=False)` stores operator
-  pause independently from operation-ID -> holder records. Methods preserve pause,
-  enforce suspension ownership, and increment the revision on change.
+- `Intent(revision, operator_paused, suspensions, damaged=False, holds={})` stores
+  operator pause independently from operation-ID -> holder records and from
+  service -> operation-ID -> holder holds. Methods preserve pause, enforce
+  suspension and hold ownership, and increment the revision on change. `blocked`
+  is the site-wide inhibition; `blocks(service)` adds a hold on that service.
 - `Action(profile, owner, operation, reason, target_ipv4=None,
   target_generation=None, effective_strategy=None)`; operations are
   `activate`, `withdraw`, `drain`, `noop`, `pending`, `blocked`.

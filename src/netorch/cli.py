@@ -99,10 +99,24 @@ def _parser() -> argparse.ArgumentParser:
             item.add_argument("--state-dir", type=Path, required=True)
             item.add_argument("--execute-user-owners", action="store_true")
             item.add_argument("--quiet-unchanged", action="store_true")
-    for name in ("init-state", "pause", "resume", "suspend", "release", "acknowledge-journal"):
+    for name in (
+        "init-state",
+        "pause",
+        "resume",
+        "suspend",
+        "release",
+        "hold",
+        "unhold",
+        "acknowledge-journal",
+    ):
         item = commands.add_parser(name)
         item.add_argument("--state-dir", type=Path, required=True)
-        if name in {"suspend", "release"}:
+        if name == "hold":
+            # The policy names the services that can be held; a mistyped name is refused.
+            item.add_argument("--config", type=Path, required=True)
+        if name in {"hold", "unhold"}:
+            item.add_argument("--service", required=True)
+        if name in {"suspend", "release", "hold", "unhold"}:
             item.add_argument("--operation", required=True)
             item.add_argument("--holder", required=True)
         if name == "acknowledge-journal":
@@ -173,6 +187,12 @@ def _load_intent(store: Store) -> Intent:
 
 
 def _intent_operation(args: argparse.Namespace) -> int:
+    if args.command == "hold" and args.service not in {
+        service.id for service in load_config(args.config).services
+    }:
+        # Refused before any state is touched: a hold on a name that no reader
+        # can place would inhibit every service instead of one.
+        raise ValueError("the policy does not name this service")
     store = Store(args.state_dir)
     with store.lock():
         if args.command == "init-state":
@@ -210,6 +230,10 @@ def _intent_operation(args: argparse.Namespace) -> int:
                 intent = current.resume()
             elif args.command == "suspend":
                 intent = current.suspend(args.operation, args.holder)
+            elif args.command == "hold":
+                intent = current.hold(args.service, args.operation, args.holder)
+            elif args.command == "unhold":
+                intent = current.unhold(args.service, args.operation, args.holder)
             else:
                 intent = current.release(args.operation, args.holder)
         store.write("intent.json", intent_to_dict(intent))
@@ -227,7 +251,14 @@ def main(argv: list[str] | None = None) -> int:
             "rollback",
         }:
             require_mutation_qualified("deployment-mutation")
-        if args.command in {"admit", "init-state", "resume", "release", "acknowledge-journal"}:
+        if args.command in {
+            "admit",
+            "init-state",
+            "resume",
+            "release",
+            "unhold",
+            "acknowledge-journal",
+        }:
             require_mutation_qualified("authority-mutation")
         if args.command == "reconcile" and args.execute_user_owners:
             require_mutation_qualified("owner-execution")
@@ -239,6 +270,8 @@ def main(argv: list[str] | None = None) -> int:
             "resume",
             "suspend",
             "release",
+            "hold",
+            "unhold",
             "acknowledge-journal",
         }:
             return _intent_operation(args)

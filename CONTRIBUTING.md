@@ -41,7 +41,8 @@ property test when operation order can affect safety.
 - A changed resolved profile cannot reuse an old admission digest.
 - The user executor cannot invoke a root owner.
 - Only the operator can clear operator pause; only a suspension holder can
-  release its suspension.
+  release its suspension, and only the holder of a hold on a service can
+  release that hold.
 - Unknown state does not authorize recovery or imply absence.
 - A historical receipt cannot imply current applied state.
 - Stale instance or network generations cannot be treated as current ownership.

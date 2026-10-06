@@ -485,7 +485,8 @@ def provision_workloads(
     holder = "provision-" + expected_digest[:32]
     with store.lock():
         intent = intent_from_dict(store.read("intent.json"))
-        if not intent.operator_paused or intent.damaged or intent.suspensions:
+        # A hold on any service is maintenance in progress, like a suspension.
+        if not intent.operator_paused or intent.damaged or intent.suspensions or intent.holds:
             raise ValueError(
                 "initial provisioning requires operator pause and no competing maintenance"
             )

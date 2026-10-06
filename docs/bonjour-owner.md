@@ -265,7 +265,11 @@ independent proof collection runs separately. Record deadlines use monotonic
 time; a backwards wall-clock adjustment cannot extend an unchanged source
 lease. A stalled scan, stale owner evidence, failed interface check, removed
 admission, changed generation, changed policy or damaged intent withdraws owned
-registrations. The durable pause is checked directly each watchdog tick.
+registrations. The durable pause and the holds are read directly each watchdog
+tick. A hold on a policy's service withdraws that policy's registrations and
+stops its scans, and the other policies keep theirs unless they depend on a
+transport profile of the held service; a hold on a service that the installed
+policy does not name withdraws all of them.
 
 If the scanner dies, the watchdog detects the changed parent relationship,
 withdraws children and exits. It cannot adopt a replacement scanner's files.
