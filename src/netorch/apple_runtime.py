@@ -8,6 +8,7 @@ when an independently scheduled root owner calls the reader.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import ipaddress
 import os
@@ -15,7 +16,7 @@ import re
 import stat
 import sys
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -43,7 +44,7 @@ from .state import (
     observation_to_dict,
     snapshot_to_dict,
 )
-from .storage import Store
+from .storage import Busy, Store
 from .workflow_gate import (
     NOT_QUALIFIED,
     StageNotQualified,
@@ -55,6 +56,11 @@ Runner = Callable[..., Result]
 ACLKey = tuple[str, int, int, int, int, int]
 STOPPED = 42
 UNKNOWN = 69
+BUSY = 75
+# The coordinator holds the state lock for one whole pass of its 10-second
+# example schedule. A start waits at most half of that for the pass to end.
+START_LOCK_WAIT_SECONDS = 5.0
+START_LOCK_RETRY_SECONDS = 0.25
 
 
 class RuntimeReadError(RuntimeError):
@@ -794,14 +800,38 @@ def derive_policy(config: Config, settings: RuntimeSettings) -> Config:
     return parse_config(canonical_bytes(result))
 
 
+@contextlib.contextmanager
+def _state_lock(
+    store: Store, clock: Callable[[], float], sleep: Callable[[float], None]
+) -> Iterator[None]:
+    """Take the state lock, waiting a bounded time while another operation holds it."""
+    deadline = clock() + START_LOCK_WAIT_SECONDS
+    with contextlib.ExitStack() as held:
+        while True:
+            try:
+                held.enter_context(store.lock())
+                break
+            except Busy:
+                if clock() >= deadline:
+                    raise
+                sleep(START_LOCK_RETRY_SECONDS)
+        yield
+
+
 def recover_service(
-    config: Config, settings: RuntimeSettings, service_id: str, runner: Runner = run
+    config: Config,
+    settings: RuntimeSettings,
+    service_id: str,
+    runner: Runner = run,
+    *,
+    clock: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
 ) -> Snapshot:
     """Monit recovery is only a start of a twice-proven stopped enrolled guest."""
     if os.geteuid() == 0 or os.geteuid() != settings.account.uid or settings.state_dir is None:
         raise PermissionError("workload recovery belongs to the enrolled user")
     store = Store(Path(settings.state_dir))
-    with store.lock():
+    with _state_lock(store, clock, sleep):
         before = observe_runtime(config, settings, runner)
         service = before.services.get(service_id)
         if _intent(settings).blocked or service is None or service.state != "absent":
@@ -996,6 +1026,11 @@ def main(argv: list[str] | None = None) -> int:
             )
         )
         return 78
+    except Busy:
+        # Another operation kept the state lock for the whole bounded wait.
+        # Nothing was observed or started; the caller may try again.
+        print(canonical_json({"error": "busy"}), file=sys.stderr)
+        return BUSY
     except (ValueError, OSError, RuntimeReadError, ProcessTimeout, OutputLimit):
         print(
             canonical_json({"error": "runtime-evidence-or-authority-incomplete"}), file=sys.stderr

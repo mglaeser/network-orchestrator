@@ -227,7 +227,10 @@ live references. No timer clears an installation suspension.
 Before any privileged scheduler stop or policy replacement, the administrator
 installer takes a holder-specific root installation suspension and invokes the
 owner's verified withdrawal/state-draining operation. It releases that holder
-only after the restored/new scheduler is read back. A failed first root install
+only after the restored/new scheduler is read back. That scheduler starts a pass
+as soon as it is loaded and holds the owner's lock meanwhile; an owner command
+that reports the lock busy (exit 75, nothing done) is repeated for at most
+5 seconds before the operation fails. A failed first root install
 without a predecessor leaves this holder in place when no existing operator
 pause otherwise inhibits the owner; recovery reports `root_gate_retained`.
 Resolve that retained gate through the independent owner's reviewed lifecycle
