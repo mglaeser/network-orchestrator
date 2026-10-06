@@ -335,6 +335,7 @@ def instance_literals(instance: dict[str, Any]) -> tuple[HostLiteral, ...]:
         lan = host.get("lan", {})
         account = host.get("account", {})
         runtime = host.get("runtime", {})
+        baseline = host.get("baseline", {})
         for obj, keys, kind in (
             (lan, ("ipv4", "cidr"), "private-address"),
             (lan, ("hardware_id",), "interface"),
@@ -345,6 +346,14 @@ def instance_literals(instance: dict[str, Any]) -> tuple[HostLiteral, ...]:
                 for key in keys:
                     if isinstance(obj.get(key), str) and obj[key]:
                         values.add(HostLiteral(kind, obj[key]))
+        if isinstance(baseline, dict):
+            # A declared extension identifier or proxy or VPN service name is a
+            # chosen host value like the runtime network name.
+            for key in ("network_extensions", "proxies", "vpns"):
+                declared = baseline.get(key)
+                for entry in declared if isinstance(declared, list) else ():
+                    if isinstance(entry, str) and entry:
+                        values.add(HostLiteral("name", entry))
     if isinstance(instance.get("namespace"), str):
         values.add(HostLiteral("namespace", instance["namespace"]))
 
