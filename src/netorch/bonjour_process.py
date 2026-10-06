@@ -38,6 +38,13 @@ class DiscoveryFailure(RuntimeError):
         self.reason = reason
 
 
+class RegistrationExpired(DiscoveryFailure):
+    """One client ended on its own ``-t`` timer; every other exit is a failure."""
+
+    def __init__(self) -> None:
+        super().__init__("unavailable")
+
+
 def command(argv: list[str], timeout: float) -> Result:
     return run(argv, timeout=timeout, max_output=MAX_OUTPUT)
 
@@ -311,7 +318,11 @@ class Registration:
             raise DiscoveryFailure("identity-mismatch")
         self.record = record
         self.index = index
+        self.lifetime_seconds = lifetime_seconds
         self.closed = False
+        # Read before the spawn: the client arms its own timer later than this,
+        # so it cannot end on that timer earlier than its lifetime from here.
+        self.spawned = time.monotonic()
         self.process = subprocess.Popen(
             registration_argv(record, lifetime_seconds),
             stdin=subprocess.DEVNULL,
@@ -331,13 +342,26 @@ class Registration:
     def poll(self) -> bool:
         if self.closed:
             raise DiscoveryFailure("unavailable")
+        # Sampled before the read, so the last line of a client that has ended
+        # is in the buffer when its exit is judged.
+        status = self.process.poll()
         for key, _events in self.selector.select(0):
             chunk = os.read(key.fd, 65536)
             if chunk:
                 self.output.extend(chunk)
             else:
                 self.selector.unregister(key.fileobj)
-        if self.process.poll() is not None:
+        if status is not None:
+            # With -t the client arms dispatch_after(exitTimeout) { exit(0); } when
+            # it enters its event loop (Clients/dns-sd.c:1315-1320 at the tag the
+            # owner guide cites). Its other exit(0), a daemon that stopped, first
+            # prints "Error code %d" on a line of its own (dns-sd.c:245-246).
+            if (
+                status == 0
+                and time.monotonic() - self.spawned >= self.lifetime_seconds
+                and re.search(rb"(?m)^Error code -?[0-9]+$", self.output) is None
+            ):
+                raise RegistrationExpired()
             raise DiscoveryFailure("unavailable")
         if len(self.output) > MAX_OUTPUT:
             raise DiscoveryFailure("incomplete")

@@ -25,7 +25,13 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
-from .bonjour_process import DiscoveryFailure, Registration, interface_index, scan
+from .bonjour_process import (
+    DiscoveryFailure,
+    Registration,
+    RegistrationExpired,
+    interface_index,
+    scan,
+)
 from .codec import canonical_bytes, digest, strict_loads
 from .config import config_digest, load_config, profile_digest
 from .discovery import (
@@ -653,6 +659,9 @@ class Publisher:
         self.children: dict[str, Registration] = {}
         self.deadlines: dict[str, float] = {}
         self.sources_seen_at: dict[str, float] = {}
+        # Confirmed records whose client ended on its own timer and whose
+        # replacement has not confirmed yet.
+        self.renewing: set[str] = set()
 
     def reconcile(
         self, policy: Discovery, records: tuple[Record, ...], index: int, now: float
@@ -666,12 +675,11 @@ class Publisher:
                 self.children.pop(key).close()
                 self.deadlines.pop(key, None)
                 self.sources_seen_at.pop(key, None)
+                self.renewing.discard(key)
         confirmed = True
         for key, record in desired.items():
+            lifetime = min(120, max(1, math.ceil(record.seen_at + policy.max_age_seconds - now)))
             if key not in self.children:
-                lifetime = min(
-                    120, max(1, math.ceil(record.seen_at + policy.max_age_seconds - now))
-                )
                 # Native CLI self-expiry also bounds orphan registrations after
                 # SIGKILL of this watchdog. No daemon timer alone can do that.
                 self.children[key] = self.factory(record, index, lifetime)
@@ -682,13 +690,36 @@ class Publisher:
             else:
                 self.deadlines[key] = min(self.deadlines[key], deadline)
             try:
-                confirmed = self.children[key].poll() and confirmed
+                try:
+                    active = self.children[key].poll()
+                except RegistrationExpired:
+                    # Only this record's own native timer ended; nothing failed and
+                    # its siblings are not touched. The client has ended, so its
+                    # replacement never runs beside it. The lease deadline stays.
+                    ended = self.children[key]
+                    ended.close()
+                    self.children[key] = self.factory(record, index, lifetime)
+                    # A confirmed record keeps the policy's state while its
+                    # replacement confirms; Registration.poll bounds that wait.
+                    if ended.active:
+                        self.renewing.add(key)
+                    else:
+                        self.renewing.discard(key)
+                    active = False
             except DiscoveryFailure:
                 self.children.pop(key).close()
                 self.deadlines.pop(key, None)
                 self.sources_seen_at.pop(key, None)
+                self.renewing.discard(key)
                 raise
+            if active:
+                self.renewing.discard(key)
+            confirmed = (active or key in self.renewing) and confirmed
         return confirmed
+
+    def renewals(self, policy: Discovery) -> int:
+        """Records of this policy that are between two clients right now."""
+        return sum(key.startswith(policy.id + ":") for key in self.renewing)
 
     def expire(self, now: float) -> None:
         for key, deadline in tuple(self.deadlines.items()):
@@ -696,6 +727,7 @@ class Publisher:
                 self.children.pop(key).close()
                 self.deadlines.pop(key)
                 self.sources_seen_at.pop(key, None)
+                self.renewing.discard(key)
 
     def close(self) -> None:
         for child in self.children.values():
@@ -703,6 +735,7 @@ class Publisher:
         self.children.clear()
         self.deadlines.clear()
         self.sources_seen_at.clear()
+        self.renewing.clear()
 
 
 def _signal_stop(callback: Callable[[], None]) -> None:
@@ -828,7 +861,7 @@ def publisher_tick(
                     now,
                     proof[0],
                     interface=True,
-                    count=len(records),
+                    count=len(records) - publisher.renewals(policy),
                 )
     except Exception as exc:
         publisher.close()
