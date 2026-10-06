@@ -11,7 +11,7 @@ export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 export LC_ALL=C
 umask 077
 [[ "$EUID" == 0 && "$(/usr/bin/uname -s)" == Darwin ]] || exit 77
-[[ $# -ge 2 && "$2" =~ ^com\.apple/netorch\.[a-z][a-z0-9-]{0,62}$ ]] || exit 64
+[[ $# -ge 2 && "$2" =~ ^com\.apple/(netorch\.[a-z][a-z0-9-]{0,62}|[a-z][a-z0-9.-]{0,62})$ ]] || exit 64
 op="$1"; anchor="$2"; shift 2
 pf() { /sbin/pfctl "$@"; }
 normalize() { /usr/bin/awk '{$1=$1; if (NF) print}'; }
