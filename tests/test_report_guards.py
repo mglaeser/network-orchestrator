@@ -675,7 +675,7 @@ PROVED_IN = {
     "HOST-DATA": {"test_privacy.py"},
     "LAN-IDENTITY": {"test_instance.py", "test_report_guards.py"},
     "COMPONENT-HEALTH": {"test_report_guards.py"},
-    "PAUSE-PRESERVED": {"test_deployment.py"},
+    "PAUSE-PRESERVED": {"test_deployment.py", "test_service_holds_deployment.py"},
     "CONSENT-IDENTITY": {"test_report_guards.py"},
     "UDP-FIRST-PACKET": {"test_pf.py", "test_pf_owner.py"},
     "DNS-CLIENT-IDENTITY": {"test_pf_owner.py", "test_report_guards.py"},

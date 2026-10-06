@@ -27,10 +27,10 @@ are single-link regular files mode `0600`:
 
 | File | Purpose |
 |---|---|
-| `installation.json` | Closed installation identity, independently observed runtime settings, owner/anchor, published report path, interval and optional inhibition path |
+| `installation.json` | Closed installation identity, independently observed runtime settings, owner/anchor, published report path, interval and optional inhibition path: a user-side intent file that can only add inhibition |
 | `policy.json` | Strictly parsed desired catalog, copied by the administrator installer |
 | `admissions.json` | Root's independent resolved-content approvals; installation never broadens this set |
-| `operator-intent.json` | Durable operator pause and operation-owned suspensions, outside installed releases |
+| `operator-intent.json` | Durable operator pause, operation-owned suspensions and holds on single services, outside installed releases |
 | `backend.sh` | Administrator-owned bounded mutation script; SHA-256 must match the installation |
 | `live.json` | Exact known rule/target evidence for withdrawal and state invalidation, never authority to activate |
 | `journal.json` | Phase, actions and possible candidate state, sufficient to retire an interrupted known write |
@@ -47,6 +47,9 @@ kernel's state rows, which name peers and LAN clients, are not copied into it.
 requires that approval, unblocked final root intent and an exact verified final
 plan/readback. Downstream planning requires both flags; a truthful observation
 of rules awaiting withdrawal cannot grant discovery readiness during a pause.
+A hold on the profile's service blocks that profile in the same way. Two more
+keys, `held` and `gate_revision`, are described under
+[Holding one service](#holding-one-service).
 
 The scheduled Python interpreter, package and its dependency environment must
 be administrator-owned under protected ancestors. A root job must not import
@@ -260,6 +263,56 @@ launchd program/account/PID and current process UID/parent/executable must agree
 An explicit LAN-address bind, another process with the same name, or an
 unrecognized socket schema is not exempt. This exception does not assert that
 port 53 is closed when the owner is paused.
+
+## Holding one service
+
+A hold on one service ([state contract](state-machine.md)) retires that
+service's profiles and leaves the others loaded. Root keeps its own holds in
+`operator-intent.json`:
+
+```text
+python -I -m netorch.pf_owner hold --root-dir <root-dir> --service <service> \
+  --operation <operation> --holder <holder>
+python -I -m netorch.pf_owner unhold --root-dir <root-dir> --service <service> \
+  --operation <operation> --holder <holder>
+```
+
+`hold` is available like `pause` and `suspend` and refuses a service that the
+protected policy does not name. `unhold` is blocked in this stage like `release`.
+
+Root's own file and the inhibition path are merged as a union: pause, damage,
+suspensions and, per service, holds. Nothing in the user-side file clears a
+pause, suspension, hold or damage of root's own. The user's operation names are
+hashed into keys and never interpreted; its holder strings are validated
+identifiers that are never used as a path, a command or a rule. Root reads that
+file as before, one pinned regular file of bounded size that is strictly parsed,
+and an unreadable or malformed file is damage. A held service that the
+protected policy does not name makes the merged intent damaged for that pass;
+root does not guess which of its services was meant. Root writes nothing into
+the user's file and runs nothing that it names.
+
+A workload manager that stops a guest needs to know when forwarding to it is
+gone, and it may not ask root. The report therefore carries two more keys per
+profile, each present only as stated:
+
+| Key | Value | Present |
+|---|---|---|
+| `held` | `true` | Only when the profile's service is held in the intent the pass read last, the one `root_ready` is computed from. |
+| `gate_revision` | The `revision` of the inhibition-path file in that same read. | Only when an inhibition path is set, the file was read undamaged and the number is at most 2^53 - 1, which every JSON reader represents exactly. |
+
+A planned stop is then: place the hold and keep the printed revision R; wait,
+with a bound, for a fresh report in which every listed profile of the service
+has `state: absent`, `held: true`, an empty `states` and a `gate_revision` of
+at least R; stop the guest; do the work; start the guest; release the hold. No
+clock is compared and nothing is called. The comparison relies on the revision
+of one file only growing; a manager does not carry a revision over to a file
+that was replaced during a repair. A report with `held: true` and
+`state: present` comes from a pass that planned before the hold arrived; the
+next pass retires the rules. While a held service has profiles of this owner a
+pass ends `inhibited`, as during a pause, and prints its result. A hold that
+arrives between a pass's plan and its activation of a profile of that service
+stops that activation the way a pause does, with a failed pass that needs the
+administrator's acknowledgement.
 
 ## Deployment, rollback and acceptance
 

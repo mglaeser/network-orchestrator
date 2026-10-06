@@ -83,7 +83,7 @@ ranges, injected clocks, closed synthetic observations and fake owners.
 | Content | Canonical key ordering preserves digests; authority-relevant content changes invalidate admission |
 | Observation | Only complete fresh reads prove present/absent; timeout, denial, busy, malformed, stale and contradictory results stay unknown |
 | Planning | Unknown never starts recovery; stale generations cannot activate; no-op requires exact current readback |
-| Pause | Operator pause survives holder release, crash, reinstall and rollback; a holder cannot release another hold |
+| Pause | Operator pause survives holder release, crash, reinstall and rollback; a holder cannot release another hold; a hold on one service inhibits that service only and inhibits everything for a reader that cannot place it |
 | Execution | Every injected partial failure stops subsequent writes, preserves phase and requires fresh evidence |
 | Privilege | User execution cannot invoke external-root; a user admission cannot supply root authority |
 | Transport | NAT and target-less RDR remain separate; each rendered rule stays within admitted interface/protocol/port scope |
@@ -165,8 +165,8 @@ They verify byte/hash inventory, source capture races, no extra files, fixed roo
 job commands, separate user/root domains, private permissions, generated Monit
 syntax contracts and owned job protection. Fake launchctl/Monit/PF effects test
 installation, upgrade, no-op, first-install failure, predecessor recovery and
-committed rollback at each phase. Current pause and unrelated holder suspensions
-survive. Unknown journals, changed predecessors, foreign jobs and rewritten
+committed rollback at each phase. Current pause, holds and unrelated holder
+suspensions survive. Unknown journals, changed predecessors, foreign jobs and rewritten
 source artifacts inhibit recovery.
 
 Package tests validate wheels outside the checkout and exercise module/CLI entry

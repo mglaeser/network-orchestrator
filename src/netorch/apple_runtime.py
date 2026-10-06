@@ -39,6 +39,7 @@ from .state import (
     Observation,
     Snapshot,
     admissions_from_dict,
+    attribute_holds,
     intent_from_dict,
     observation_to_dict,
     snapshot_to_dict,
@@ -700,9 +701,11 @@ def _intent(settings: RuntimeSettings) -> Intent:
     if settings.intent is None:
         return Intent(damaged=True)
     try:
-        return intent_from_dict(strict_load(settings.intent))
+        intent = intent_from_dict(strict_load(settings.intent))
     except (ValueError, OSError):
         return Intent(damaged=True)
+    # A hold on a service that is not enrolled here inhibits every workload.
+    return attribute_holds(intent, {contract.service for contract in settings.contracts})
 
 
 def capture_enrollment(settings: RuntimeSettings, runner: Runner = run) -> RuntimeSettings:
@@ -769,13 +772,13 @@ def recover_service(
     with store.lock():
         before = observe_runtime(config, settings, runner)
         service = before.services.get(service_id)
-        if _intent(settings).blocked or service is None or service.state != "absent":
+        if _intent(settings).blocks(service_id) or service is None or service.state != "absent":
             raise RuntimeReadError("incomplete")
         fresh = observe_runtime(config, settings, runner)
         if (
             fresh.network_generation != before.network_generation
             or fresh.services[service_id].state != "absent"
-            or _intent(settings).blocked
+            or _intent(settings).blocks(service_id)
         ):
             raise RuntimeReadError("generation-mismatch")
         contract = settings.contract(service_id)
@@ -851,7 +854,7 @@ def handle_request(
             raise ValueError("unsupported native publication operation")
         admitted = admissions_from_dict(strict_load(settings.admissions)).get(profile.id)
         if (
-            _intent(settings).blocked
+            _intent(settings).blocks(profile.service)
             or admitted is None
             or admitted.digest != profile_digest(config, profile)
             or admitted.approved_at > time.time()
@@ -940,7 +943,11 @@ def main(argv: list[str] | None = None) -> int:
             snapshot = observe_runtime(config, settings)
             if args.command == "probe":
                 service = snapshot.services.get(args.service)
-                if service is None or _intent(settings).blocked or service.state == "unknown":
+                if (
+                    service is None
+                    or _intent(settings).blocks(args.service)
+                    or service.state == "unknown"
+                ):
                     return UNKNOWN
                 return STOPPED if service.state == "absent" else 0
             value = snapshot_to_dict(snapshot)

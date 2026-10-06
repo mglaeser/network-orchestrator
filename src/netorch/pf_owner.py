@@ -19,7 +19,7 @@ import stat
 import sys
 import time
 from collections.abc import Callable, Mapping
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from functools import lru_cache
 from importlib.metadata import version
 from pathlib import Path
@@ -35,6 +35,7 @@ from .state import (
     Intent,
     Observation,
     Snapshot,
+    attribute_holds,
     intent_from_dict,
     intent_to_dict,
     snapshot_to_dict,
@@ -46,6 +47,8 @@ STRATEGY = "darwin-pf-v1"
 _ID = re.compile(r"[a-z][a-z0-9-]{0,62}\Z")
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
 _REASON = "unobserved"
+# 2**53 - 1: every JSON reader of the published report represents it exactly.
+_MAX_GATE_REVISION = 9007199254740991
 
 
 class PFError(RuntimeError):
@@ -1010,20 +1013,25 @@ def _effective_admissions(
     return result
 
 
-def _inhibition(root: Store, installation: Installation) -> Intent:
+def _gate(installation: Installation) -> Intent | None:
+    """The user-side file as root reads it: one pinned file, strictly parsed, or damaged."""
+    if installation.intent_path is None:
+        return None
+    try:
+        # A user-supplied gate can only remove already admitted root authority.
+        return intent_from_dict(strict_loads(read_once(Path(installation.intent_path), mode=0o600)))
+    except (OSError, ValueError, UnsafeState):
+        return Intent(damaged=True)
+
+
+def _merged(root: Store, external: Intent | None) -> Intent:
+    """Root's own intent with the user-side gate added: a union, the gate clears nothing."""
     try:
         own = intent_from_dict(root.read("operator-intent.json"))
     except (OSError, ValueError, UnsafeState):
         own = Intent(damaged=True)
-    if installation.intent_path is None:
+    if external is None:
         return own
-    try:
-        # A user-supplied gate can only remove already admitted root authority.
-        external = intent_from_dict(
-            strict_loads(read_once(Path(installation.intent_path), mode=0o600))
-        )
-    except (OSError, ValueError, UnsafeState):
-        external = Intent(damaged=True)
     return Intent(
         revision=max(own.revision, external.revision),
         operator_paused=own.operator_paused or external.operator_paused,
@@ -1035,7 +1043,28 @@ def _inhibition(root: Store, installation: Installation) -> Intent:
             },
         },
         damaged=own.damaged or external.damaged,
+        # The same union per service: root's own records stay and the user's are
+        # added under hashed operation names, which are never interpreted.
+        holds={
+            service: {
+                **own.holds.get(service, {}),
+                **{
+                    f"external:{hashlib.sha256(key.encode()).hexdigest()}": holder
+                    for key, holder in external.holds.get(service, {}).items()
+                },
+            }
+            for service in {*own.holds, *external.holds}
+        },
     )
+
+
+def _inhibition(root: Store, installation: Installation) -> Intent:
+    return _merged(root, _gate(installation))
+
+
+def _attributed(config: Config, intent: Intent) -> Intent:
+    """A held service that root's own policy does not name is damage for this pass."""
+    return attribute_holds(intent, {service.id for service in config.services})
 
 
 def _snapshot(
@@ -1194,7 +1223,7 @@ def reconcile(
                         root.write("live.json", {"schema_version": 1, "records": records})
                 # Safely retire known exposure; explicit administrator ack is
                 # required before any activation after an interrupted pass.
-                intent = Intent(intent.revision, intent.operator_paused, intent.suspensions, True)
+                intent = replace(intent, damaged=True)
         if observed_rules != backend.normalize(compose_rules(records)):
             raise PFError("owned PF rules drifted; no overwrite or activation")
         try:
@@ -1268,7 +1297,7 @@ def reconcile(
         except (OSError, RuntimeError, ValueError):
             admissions = {}
             needs_ack = True
-            intent = Intent(intent.revision, intent.operator_paused, intent.suspensions, True)
+            intent = replace(intent, damaged=True)
         for profile in config.profiles:
             if (
                 profile.kind == "publication"
@@ -1334,9 +1363,9 @@ def reconcile(
                 ):
                     raise PFError("protected desired snapshot changed during pass")
                 if action.operation == "activate":
-                    if _inhibition(root, installation).blocked:
-                        raise PFError("inhibition appeared before activation")
                     profile = config.profile(action.profile)
+                    if _attributed(config, _inhibition(root, installation)).blocks(profile.service):
+                        raise PFError("inhibition appeared before activation")
                     current_admissions = _effective_admissions(
                         config, installation, root.read("admissions.json")
                     )
@@ -1425,14 +1454,11 @@ def reconcile(
             if backend.inspect() != backend.normalize(compose_rules(records)):
                 raise PFError("owned rules changed before final readback")
             final = _snapshot(config, final_runtime, records, backend, now(), installation.owner)
-            final_intent = _inhibition(root, installation)
+            final_gate = _gate(installation)
+            final_intent = _merged(root, final_gate)
             if needs_ack:
-                final_intent = Intent(
-                    final_intent.revision,
-                    final_intent.operator_paused,
-                    final_intent.suspensions,
-                    True,
-                )
+                final_intent = replace(final_intent, damaged=True)
+            final_intent = _attributed(config, final_intent)
             status = plan(config, final, admissions, final_intent, now())
             verified_profiles = {
                 action.profile
@@ -1485,12 +1511,26 @@ def reconcile(
                 # changed target or incomplete verification must not authorize
                 # discovery until the next independent pass retires exposure.
                 data["root_ready"] = (
-                    valid_approval and not final_intent.blocked and key in verified_profiles
+                    valid_approval
+                    and not final_intent.blocks(profile.service)
+                    and key in verified_profiles
                 )
                 data["admission_digest"] = (
                     admitted_digest(config, profile, installation) if valid_approval else None
                 )
                 data["policy_digest"] = profile_digest(config, config.profile(key))
+                # What a workload manager waits for before a planned stop, without
+                # a call into root: this pass ended knowing the hold, by the
+                # revision of the file the manager wrote, and the state and the
+                # retained states above are the kernel's readback of this pass.
+                if profile.service in final_intent.holds:
+                    data["held"] = True
+                if (
+                    final_gate is not None
+                    and not final_gate.damaged
+                    and final_gate.revision <= _MAX_GATE_REVISION
+                ):
+                    data["gate_revision"] = final_gate.revision
                 published[key] = Observation(
                     observed_profile.state,
                     observed_profile.reason,
@@ -1831,9 +1871,11 @@ def main(argv: list[str] | None = None) -> int:
         if name == "withdraw":
             command.add_argument("--operation")
             command.add_argument("--holder")
-    for name in ("suspend", "release"):
+    for name in ("suspend", "release", "hold", "unhold"):
         command = commands.add_parser(name)
         command.add_argument("--root-dir", required=True, type=Path)
+        if name in {"hold", "unhold"}:
+            command.add_argument("--service", required=True)
         command.add_argument("--operation", required=True)
         command.add_argument("--holder", required=True)
     command = commands.add_parser("install")
@@ -1857,6 +1899,7 @@ def main(argv: list[str] | None = None) -> int:
             "admit",
             "resume",
             "release",
+            "unhold",
             "acknowledge-journal",
         }:
             require_mutation_qualified("privileged-owner-mutation")
@@ -1928,6 +1971,15 @@ def main(argv: list[str] | None = None) -> int:
                         intent = intent.resume()
                     elif args.command == "suspend":
                         intent = intent.suspend(args.operation, args.holder)
+                    elif args.command == "hold":
+                        # A name the protected policy does not have would be
+                        # damage for every pass: refuse it instead of storing it.
+                        policy = parse_config(canonical_bytes(root.read("policy.json")))
+                        if args.service not in {service.id for service in policy.services}:
+                            raise PFError("the protected policy does not name this service")
+                        intent = intent.hold(args.service, args.operation, args.holder)
+                    elif args.command == "unhold":
+                        intent = intent.unhold(args.service, args.operation, args.holder)
                     else:
                         intent = intent.release(args.operation, args.holder)
                     root.write("operator-intent.json", intent_to_dict(intent))

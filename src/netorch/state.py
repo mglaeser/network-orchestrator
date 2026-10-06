@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import math
 import re
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any
@@ -37,6 +37,12 @@ OBSERVATION_REASONS = frozenset(
 )
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
 _ID = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}\Z")
+# A hold names a service by the policy's own identifier rule (schemas/network.schema.json).
+_SERVICE = re.compile(r"[a-z][a-z0-9-]{0,63}\Z")
+# One stored intent file holds at most this much. The view an owner merges from
+# its own file and one other reader's file can be twice as large.
+MAX_HELD_SERVICES = 64
+MAX_HOLDS_PER_SERVICE = 8
 
 
 def _time(value: object) -> float:
@@ -51,6 +57,12 @@ def _time(value: object) -> float:
 def _identifier(value: object, label: str) -> str:
     if not isinstance(value, str) or not _ID.fullmatch(value):
         raise ValueError(f"invalid {label}")
+    return value
+
+
+def _service(value: object) -> str:
+    if not isinstance(value, str) or not _SERVICE.fullmatch(value):
+        raise ValueError("invalid held service")
     return value
 
 
@@ -176,6 +188,8 @@ class Intent:
     operator_paused: bool = False
     suspensions: Mapping[str, str] = field(default_factory=dict)
     damaged: bool = False
+    # Service, then operation, then holder: inhibits that one service only.
+    holds: Mapping[str, Mapping[str, str]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if (
@@ -192,21 +206,54 @@ class Intent:
             _identifier(operation, "operation")
             _identifier(holder, "holder")
         object.__setattr__(self, "suspensions", MappingProxyType(dict(self.suspensions)))
+        if not isinstance(self.holds, Mapping) or len(self.holds) > 2 * MAX_HELD_SERVICES:
+            raise ValueError("holds must be bounded service-to-operation records")
+        holds: dict[str, Mapping[str, str]] = {}
+        for service, records in self.holds.items():
+            _service(service)
+            if not isinstance(records, Mapping) or not (
+                1 <= len(records) <= 2 * MAX_HOLDS_PER_SERVICE
+            ):
+                raise ValueError("a held service needs a bounded, nonempty set of holders")
+            for operation, holder in records.items():
+                _identifier(operation, "operation")
+                _identifier(holder, "holder")
+            holds[service] = MappingProxyType(dict(records))
+        object.__setattr__(self, "holds", MappingProxyType(holds))
 
     @property
     def blocked(self) -> bool:
+        """Site-wide inhibition only; a hold on one service is asked with blocks()."""
         return self.damaged or self.operator_paused or bool(self.suspensions)
 
+    def blocks(self, service: str) -> bool:
+        """A hold adds to the site-wide inhibition for its service and never narrows it."""
+        return self.blocked or service in self.holds
+
     def _change(
-        self, *, paused: bool | None = None, suspensions: Mapping[str, str] | None = None
+        self,
+        *,
+        paused: bool | None = None,
+        suspensions: Mapping[str, str] | None = None,
+        holds: Mapping[str, Mapping[str, str]] | None = None,
     ) -> Intent:
         if self.damaged:
             raise ValueError("damaged intent requires explicit owner repair")
         next_pause = self.operator_paused if paused is None else paused
         next_suspensions = dict(self.suspensions if suspensions is None else suspensions)
-        if next_pause == self.operator_paused and next_suspensions == dict(self.suspensions):
+        current_holds = {service: dict(records) for service, records in self.holds.items()}
+        next_holds = (
+            current_holds
+            if holds is None
+            else {service: dict(records) for service, records in holds.items()}
+        )
+        if (
+            next_pause == self.operator_paused
+            and next_suspensions == dict(self.suspensions)
+            and next_holds == current_holds
+        ):
             return self
-        return Intent(self.revision + 1, next_pause, next_suspensions)
+        return Intent(self.revision + 1, next_pause, next_suspensions, False, next_holds)
 
     def pause(self) -> Intent:
         return self._change(paused=True)
@@ -233,6 +280,57 @@ class Intent:
         records = dict(self.suspensions)
         del records[operation]
         return self._change(suspensions=records)
+
+    def hold(self, service: str, operation: str, holder: str) -> Intent:
+        """Inhibit one service; another holder cannot replace the record."""
+        service = _service(service)
+        operation = _identifier(operation, "operation")
+        holder = _identifier(holder, "holder")
+        existing = self.holds.get(service, {}).get(operation)
+        if existing is not None and existing != holder:
+            raise ValueError("hold is owned by another holder")
+        records = {key: dict(value) for key, value in self.holds.items()}
+        records.setdefault(service, {})[operation] = holder
+        _stored_holds(records)
+        return self._change(holds=records)
+
+    def unhold(self, service: str, operation: str, holder: str) -> Intent:
+        """Remove only this holder's record; pause and suspensions are never cleared."""
+        service = _service(service)
+        operation = _identifier(operation, "operation")
+        holder = _identifier(holder, "holder")
+        if self.holds.get(service, {}).get(operation) != holder:
+            raise ValueError("only the hold's holder may release it")
+        records = {key: dict(value) for key, value in self.holds.items()}
+        del records[service][operation]
+        if not records[service]:
+            del records[service]
+        return self._change(holds=records)
+
+
+def _stored_holds(holds: object) -> Mapping[str, Mapping[str, str]]:
+    """The bound of one stored file; only a merged view may be larger."""
+    if (
+        not isinstance(holds, Mapping)
+        or len(holds) > MAX_HELD_SERVICES
+        or any(
+            not isinstance(records, Mapping) or len(records) > MAX_HOLDS_PER_SERVICE
+            for records in holds.values()
+        )
+    ):
+        raise ValueError("holds exceed the bound of one intent file")
+    return holds
+
+
+def attribute_holds(intent: Intent, services: Collection[str]) -> Intent:
+    """A hold on a service this reader does not know inhibits everything for it.
+
+    Two readers can disagree about names while an installation is in progress.
+    The reader that cannot place a hold must not ignore it.
+    """
+    if intent.holds.keys() <= set(services):
+        return intent
+    return Intent(intent.revision, intent.operator_paused, intent.suspensions, True, intent.holds)
 
 
 def observation_to_dict(observation: Observation) -> dict[str, Any]:
@@ -310,27 +408,45 @@ def admissions_from_dict(value: object) -> dict[str, Admission]:
 
 
 def intent_to_dict(intent: Intent) -> dict[str, Any]:
-    return {
+    document: dict[str, Any] = {
         "schema_version": 1,
         "revision": intent.revision,
         "operator_paused": intent.operator_paused,
         "suspensions": dict(intent.suspensions),
         "damaged": intent.damaged,
     }
+    if intent.holds:
+        # Version 2 exists only while a hold does. Every other state keeps the
+        # version 1 bytes, which a release without holds reads and writes; that
+        # release reads version 2 as damaged, so a hold can widen to a full
+        # stop there and can never be ignored.
+        document["schema_version"] = 2
+        document["holds"] = {service: dict(records) for service, records in intent.holds.items()}
+    return document
 
 
 def intent_from_dict(value: object) -> Intent:
     """Unreadable, old-format and unknown-version intent always inhibits apply."""
     try:
-        item = _object(
-            value,
-            {"schema_version", "revision", "operator_paused", "suspensions", "damaged"},
-            "intent",
-        )
-        if type(item["schema_version"]) is not int or item["schema_version"] != 1:
+        fields = {"schema_version", "revision", "operator_paused", "suspensions", "damaged"}
+        holds: Mapping[str, Mapping[str, str]] = {}
+        version = 1
+        if isinstance(value, Mapping) and "holds" in value:
+            fields = fields | {"holds"}
+            version = 2
+        item = _object(value, fields, "intent")
+        if type(item["schema_version"]) is not int or item["schema_version"] != version:
             raise ValueError("unsupported intent version")
+        if version == 2:
+            holds = _stored_holds(item["holds"])
+            if not holds:
+                raise ValueError("a version 2 intent records at least one hold")
         return Intent(
-            item["revision"], item["operator_paused"], item["suspensions"], item["damaged"]
+            item["revision"],
+            item["operator_paused"],
+            item["suspensions"],
+            item["damaged"],
+            holds,
         )
     except (ValueError, TypeError):
         return Intent(damaged=True)

@@ -33,7 +33,7 @@ site/
   deployment.json          domains, jobs, monitors, paths and artifact hashes
 user-state/
   admissions.json          user profile approvals
-  intent.json              durable operator pause and holder suspensions
+  intent.json              durable operator pause, holder suspensions and service holds
   journal.json             reconciliation phases
   installation-journal.json installation phases
   installation-receipt.json retained reviewed release identity
@@ -262,8 +262,17 @@ addresses. Root replacement first suspends and withdraws through its independent
 owned boundary. Damaged intent, changed release/job bytes, unknown journals or
 unavailable predecessor inhibit recovery.
 
-Operator pause and holder suspension are separate and never expire. A transaction
-releases only its own hold. `acknowledge-journal` acknowledges an exact inspected
+Installation, recovery and rollback keep every hold on a single service
+([state contract](state-machine.md)), as they keep the pause. A release from
+before holds reads an intent file that contains one as damaged: its installer
+refuses to install, and after a rollback to such a release every owner of it
+stays inhibited until the holds are released by a release that knows them.
+Release holds before rolling back that far where possible, and place the first
+hold only after every scope runs a release that knows holds.
+
+Operator pause, holder suspensions and holds on single services are separate and
+never expire. A transaction releases only its own suspension.
+`acknowledge-journal` acknowledges an exact inspected
 reconciliation journal; it does not repair, approve or resume. Receipts are history,
 not kernel truth. A kernel lock reporting busy is a retry condition, not permission
 to delete its inode.

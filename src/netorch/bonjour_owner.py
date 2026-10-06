@@ -46,6 +46,7 @@ from .state import (
     Observation,
     Snapshot,
     admissions_from_dict,
+    attribute_holds,
     intent_from_dict,
     observation_to_dict,
     snapshot_to_dict,
@@ -230,6 +231,14 @@ def _interfaces(config: Config, settings: BonjourSettings) -> dict[str, tuple[in
     return result
 
 
+def _durable_intent(config: Config, settings: BonjourSettings) -> Intent:
+    """A hold on a service the installed policy does not name inhibits every policy."""
+    return attribute_holds(
+        intent_from_dict(private_json(settings.intent)),
+        {service.id for service in config.services},
+    )
+
+
 def independent_snapshot(
     config: Config, settings: BonjourSettings, now: float
 ) -> tuple[Snapshot, Intent, frozenset[str]]:
@@ -239,7 +248,7 @@ def independent_snapshot(
     snapshot = observe(config, clients)
     user_admissions = admissions_from_dict(private_json(settings.admissions))
     admissions = effective_admissions(config, clients, snapshot, user_admissions, now)
-    intent = intent_from_dict(private_json(settings.intent))
+    intent = _durable_intent(config, settings)
     transport = plan(config, snapshot, admissions, intent, now)
     return snapshot, intent, transport.ready_profiles
 
@@ -253,7 +262,7 @@ def dependencies_ready(
     now: float,
 ) -> bool:
     if (
-        intent.blocked
+        intent.blocks(policy.service)
         or snapshot.network_generation is None
         or not set(policy.dependencies) <= ready
     ):
@@ -753,8 +762,8 @@ def publisher_tick(
             or not isinstance(candidates.get("policies"), dict)
         ):
             raise ValueError("candidate policy changed")
-        # Pause is read directly, independently of a potentially blocked probe.
-        current_intent = intent_from_dict(private_json(settings.intent))
+        # Pause and holds are read directly, independently of a potentially blocked probe.
+        current_intent = _durable_intent(config, settings)
         for policy in _owned(config, settings):
             request = requests.get(policy.id)
             inactive = request is None or (
@@ -769,7 +778,7 @@ def publisher_tick(
             )
             valid_proof = proof is not None and 0 <= proof_age <= maximum
             if valid_proof and proof is not None:
-                if inactive or current_intent.blocked:
+                if inactive or current_intent.blocks(policy.service):
                     records = ()
                 else:
                     records = lease_records(
@@ -819,7 +828,7 @@ def publisher_tick(
                     config, policy, "unknown", "unobserved", now, proof[0], interface=True
                 )
             else:
-                state = "absent" if inactive or current_intent.blocked else "present"
+                state = "absent" if inactive or current_intent.blocks(policy.service) else "present"
                 profiles[policy.id] = _observation(
                     config,
                     policy,

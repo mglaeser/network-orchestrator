@@ -75,8 +75,9 @@ transport is withdrawn. Unknown cannot authorize recovery. A reserved status 42
 is meaningful only after a complete proven-stopped check and allowed gates.
 
 Operator pause and operation-owned suspension are durable independent records.
-The effective gate is their union; no timer expires them. Installation and
-rollback preserve the current pause and unrelated holders. Unreadable or old
+The effective gate is their union; no timer expires them. A hold is a third
+record of the same kind that inhibits one service only. Installation and
+rollback preserve the current pause, holds and unrelated holders. Unreadable or old
 state inhibits operation. Signatures in a ledger are owner attestations bound
 to retained evidence; they are not authenticated root admissions.
 

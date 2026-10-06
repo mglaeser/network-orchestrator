@@ -12,7 +12,7 @@ running native tools. These assessments are report data, never admission.
 | Resolved-content admission | Root binds the complete resolved profile, scope, workload contract, strategy, backend, observer, Python implementation and dependency versions. A changed digest stays pending. | Render/install conformance and the explicit host admission. |
 | No unprivileged call into root | Root independently pulls protected inputs. The user executor only observes its report. No privileged RPC or sudoers entry exists. | User-domain runtime/API clients remain able to redirect admitted ports by changing the runtime; record this residual. |
 | Bounded guest identity | Fresh helper and guest identities fence activation. Changed generations withdraw before later activation; unknown retires immediately. Old guest states are drained from and to the address. | Native allocator/reset, first-packet/reply and state invalidation acceptance; a signed age/count decision per bounded profile. |
-| Pause and suspensions | Separate durable operator pause and holder-owned operation records survive reinstall and rollback. Damage inhibits. | Native reboot/restore acceptance does not follow from model tests. |
+| Pause, suspensions and holds | Separate durable operator pause, holder-owned operation records and holder-owned holds on single services survive reinstall and rollback. Damage inhibits. | Native reboot/restore acceptance does not follow from model tests. |
 | Unknown and readiness | Complete typed observations, age decay, exact dependency readback and independent Bonjour leases. Unknown never calls workload recovery. | Consent and application evidence in the actual launch context; a warm-cache reload is not inward-discovery proof. |
 
 The renderer emits only the reviewed bounded rule shapes. It does not open a
@@ -79,14 +79,21 @@ repeat the native contract tests whenever the runtime dependency changes.
 
 For a targeted workload or runtime-wide stop, the administrator/lifecycle owner:
 
-1. Takes its own durable suspension, preserving operator pause and other holders.
+1. Takes its own durable suspension, or for one workload its own hold on that
+   service, preserving operator pause and other holders.
 2. Lets the independently scheduled PF owner withdraw the exact owned rules.
 3. Verifies readback and invalidation of states from and to each old guest target.
 4. Stops the workload/runtime only after quiescence is established.
 5. Starts it through its existing declared lifecycle owner.
 6. Obtains fresh runtime, helper, workload and publication identities.
-7. Releases only its own suspension; restores only unchanged admitted policy.
+7. Releases only its own suspension or hold; restores only unchanged admitted policy.
 8. Verifies transport and discovery separately, then completes host acceptance.
+
+A suspension withdraws every service for the duration. A hold withdraws the one
+service and leaves recovery, forwarding and discovery of the others in place.
+Steps 2 and 3 need no call into root for a hold: the PF owner's published report
+names the hold and the revision of the user-side file its pass read
+([PF owner](pf-owner.md), [state contract](state-machine.md)).
 
 A runtime CLI, API bridge or management UI can bypass this planned sequence.
 Such a restart is unplanned and uses the bounded withdrawal path; it is not
@@ -136,10 +143,10 @@ The allowed public surface is:
 | Validate, render, build, simulate, review admission and plan | Available; static output does not authorize installation. |
 | Observe, inspect health and capture enrollment | Available as bounded reads; enrollment output is unadmitted data. |
 | Prepare a protected deployment bundle | Static preparation only; installing the bundle is blocked. |
-| Pause, take an independent suspension, request exact scoped withdrawal | Available through the existing validation and ownership checks. |
+| Pause, take an independent suspension, hold one service, request exact scoped withdrawal | Available through the existing validation and ownership checks. |
 | Execute reconciliation or start scanner/publisher processes | Blocked. |
 | Install, admit, recreate/provision workloads or recover/start a service | Blocked. |
-| Resume, release a suspension, acknowledge an interrupted activation journal | Blocked; these can remove an activation inhibitor. |
+| Resume, release a suspension or a hold, acknowledge an interrupted activation journal | Blocked; these can remove an activation inhibitor. |
 
 Endpoint requests receive the same classification before their complete
 existing authorization checks: observation and explicit withdrawal/drain are

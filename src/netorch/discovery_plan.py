@@ -15,7 +15,7 @@ from .codec import digest
 from .config import config_digest, profile_digest, validate_config
 from .model import Config, Discovery
 from .planner import Plan
-from .state import Intent, Observation, Snapshot, snapshot_digest
+from .state import Intent, Observation, Snapshot, attribute_holds, snapshot_digest
 
 DISCOVERY_REASONS = frozenset(
     {
@@ -24,6 +24,7 @@ DISCOVERY_REASONS = frozenset(
         "intent-damaged",
         "paused",
         "suspended",
+        "held",
         "transport-plan-stale",
         "transport-unverified",
         "service-unknown",
@@ -84,17 +85,19 @@ class DiscoveryAction:
 
 
 def discovery_digest(config: Config, item: Discovery) -> str:
-    """Bind resolved policy, dependencies and the v3 discovery native contract.
+    """Bind resolved policy, dependencies and the v4 discovery native contract.
 
     V2 bound related records by ASCII DNS hostname plus address and excluded
     both projection prefixes case-insensitively. V3 additionally accepts the
     native STARTING banner and preserves exact browse labels; prior approval
-    cannot enable this corrected grammar.
+    cannot enable this corrected grammar. V4 binds the changes to record
+    reading, selection and leasing made after 0.3.2 (docs/bonjour-owner.md);
+    a V3 approval cannot enable them.
     """
     service = config.service(item.service)
     return digest(
         {
-            "digest_version": 3,
+            "digest_version": 4,
             "schema_version": config.schema_version,
             "discovery": asdict(item),
             "scope": asdict(config.scope(item.scope)),
@@ -189,6 +192,8 @@ def _reason(
         return "paused"
     if intent.suspensions:
         return "suspended"
+    if item.service in intent.holds:
+        return "held"
     if (
         transport.policy_digest != config_digest(config)
         or transport.snapshot_digest != snapshot_digest(snapshot)
@@ -258,6 +263,7 @@ def plan_discovery(
     ):
         raise ValueError("now must be a finite nonnegative timestamp")
     validate_config(config)
+    intent = attribute_holds(intent, {service.id for service in config.services})
     result = []
     for item in sorted(config.discovery, key=lambda policy: policy.id):
         policy_digest = discovery_digest(config, item)

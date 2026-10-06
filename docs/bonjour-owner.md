@@ -82,6 +82,11 @@ unchanged policy cannot retain an older implementation's discovery authority.
 Fresh planning and observation are required. Transport policy digests are
 unchanged. This does not open the current native qualification gate.
 
+Discovery digest version 4 binds the changes to record reading, selection and
+leasing made after 0.3.2; each is described where this document covers that
+behavior. Version 1 to 3 requests, candidates and cached readbacks are
+rejected at the owner boundary in the same way.
+
 Discovery does not supply the audio/video return path. A verified UDP-return
 dependency is required by the canonical import policy. The forwarding owner
 remains its sole writer and its independent safety/approval boundary is retained.
@@ -138,7 +143,11 @@ independent proof collection runs separately. Record deadlines use monotonic
 time; a backwards wall-clock adjustment cannot extend an unchanged source
 lease. A stalled scan, stale owner evidence, failed interface check, removed
 admission, changed generation, changed policy or damaged intent withdraws owned
-registrations. The durable pause is checked directly each watchdog tick.
+registrations. The durable pause and the holds are read directly each watchdog
+tick. A hold on a policy's service withdraws that policy's registrations and
+stops its scans, and the other policies keep theirs unless they depend on a
+transport profile of the held service; a hold on a service that the installed
+policy does not name withdraws all of them.
 
 If the scanner dies, the watchdog detects the changed parent relationship,
 withdraws children and exits. It cannot adopt a replacement scanner's files.
