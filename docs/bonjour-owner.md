@@ -82,6 +82,11 @@ unchanged policy cannot retain an older implementation's discovery authority.
 Fresh planning and observation are required. Transport policy digests are
 unchanged. This does not open the current native qualification gate.
 
+Discovery digest version 4 binds the changes to record reading, selection and
+leasing made after 0.3.2; each is described where this document covers that
+behavior. Version 1 to 3 requests, candidates and cached readbacks are
+rejected at the owner boundary in the same way.
+
 Discovery does not supply the audio/video return path. A verified UDP-return
 dependency is required by the canonical import policy. The forwarding owner
 remains its sole writer and its independent safety/approval boundary is retained.
@@ -159,6 +164,15 @@ Bounded scan denial and registration-child failure are isolated by discovery
 policy. The affected policy withdraws or becomes unknown while sibling policies
 continue refreshing valid records. Global policy/intent corruption still
 invalidates all owned registrations.
+
+One candidate file holds every policy's records. When a pass would exceed that
+file's size or structure bound, the bulkiest policy loses its records with the
+reason `incomplete` until the rest fits; the other policies keep their lease.
+The durable request file can outlive a policy change. An entry for an
+identifier the policy no longer declares is ignored, because only declared
+policies are ever read, and the endpoint's next write removes it under the
+lock. A request file that is itself malformed still invalidates every owned
+registration.
 
 Root dependencies use only a protected fresh report from the independent root
 owner with exact policy/generation, its own current admission proof and an
