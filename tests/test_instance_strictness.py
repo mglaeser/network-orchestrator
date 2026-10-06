@@ -451,6 +451,24 @@ def test_evidence_times_may_stay_fractional() -> None:
 
 
 @pytest.mark.parametrize(
+    "key",
+    [
+        "recovery_material",
+        "owner_conformance",
+        "names_preserved",
+        "framework_literal_check",
+        "instance_literal_check",
+    ],
+)
+@pytest.mark.parametrize("value", [0, 1, "false", []])
+def test_prerequisite_facts_cannot_disguise_a_negative_as_another_type(
+    key: str, value: Any
+) -> None:
+    with pytest.raises(InstanceError):
+        parse_host_evidence(evidence(facts=[fact(key, value)]))
+
+
+@pytest.mark.parametrize(
     ("member_name", "value", "expected"),
     [
         ("tier", 4, "fulfilled-verified"),

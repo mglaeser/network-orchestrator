@@ -189,6 +189,7 @@ NEGATIVE = [
     ("owner_conformance", "OWNER-CONFORMANCE"),
     ("names_preserved", "NAMES-PRESERVED"),
     ("instance_literal_check", "HOST-DATA"),
+    ("framework_literal_check", "HOST-DATA"),
 ]
 
 
@@ -292,15 +293,24 @@ def test_unaccepted_deviation_makes_its_row_not_fulfilled(
     assert "deviation" in row(result, record["requirement"])["reason"]
 
 
-@pytest.mark.parametrize("requirement", ["HEARD-AUDIO", "NO-LOCAL-NETWORK"])
-def test_accepted_deviation_is_an_accepted_residual(data: dict[str, Any], requirement: str) -> None:
+@pytest.mark.parametrize(
+    ("requirement", "expected"),
+    [
+        ("NAMES-PRESERVED", "accepted-residual"),
+        ("HEARD-AUDIO", "not-fulfilled"),
+        ("NO-LOCAL-NETWORK", "not-fulfilled"),
+    ],
+)
+def test_accepted_deviation_respects_the_requirement_gate(
+    data: dict[str, Any], requirement: str, expected: str
+) -> None:
     data["deviations"].append(deviation(requirement))
     result = report(data)
-    assert status(result, requirement) == "accepted-residual"
+    assert status(result, requirement) == expected
     assert "deviation" in row(result, requirement)["reason"]
 
 
-def test_accepted_deviation_is_never_better_than_a_residual(
+def test_accepted_deviation_cannot_replace_the_restore_gate(
     tmp_path: Path, data: dict[str, Any]
 ) -> None:
     attest(data, tmp_path, "RESTORE-REHEARSAL", "restore-rehearsal", 4)
@@ -308,7 +318,7 @@ def test_accepted_deviation_is_never_better_than_a_residual(
     assert status(verified, "RESTORE-REHEARSAL") == "fulfilled-verified"
     data["deviations"].append(deviation("RESTORE-REHEARSAL"))
     result = report(data, platform(), evidence_directory=tmp_path)
-    assert status(result, "RESTORE-REHEARSAL") == "accepted-residual"
+    assert status(result, "RESTORE-REHEARSAL") == "not-fulfilled"
 
 
 def test_accepted_deviation_does_not_lift_a_row_that_is_not_fulfilled(
@@ -321,11 +331,13 @@ def test_accepted_deviation_does_not_lift_a_row_that_is_not_fulfilled(
 
 
 def test_one_unaccepted_deviation_outweighs_an_accepted_one(data: dict[str, Any]) -> None:
-    data["deviations"].append(deviation("HEARD-AUDIO"))
+    data["deviations"].append(deviation("NAMES-PRESERVED"))
     data["deviations"].append(
-        deviation("HEARD-AUDIO", accepted_by=None, accepted_at=None, identifier="example-second")
+        deviation(
+            "NAMES-PRESERVED", accepted_by=None, accepted_at=None, identifier="example-second"
+        )
     )
-    assert status(report(data), "HEARD-AUDIO") == "not-fulfilled"
+    assert status(report(data), "NAMES-PRESERVED") == "not-fulfilled"
 
 
 def test_deviation_changes_only_its_own_applicable_row(data: dict[str, Any]) -> None:
@@ -335,6 +347,66 @@ def test_deviation_changes_only_its_own_applicable_row(data: dict[str, Any]) -> 
     changed["deviations"].append(
         deviation("DNS-CLIENT-IDENTITY", accepted_by=None, accepted_at=None)
     )
-    changed["deviations"].append(deviation("HEARD-AUDIO", identifier="example-second"))
+    changed["deviations"].append(deviation("NAMES-PRESERVED", identifier="example-second"))
     after = {item["id"]: item["status"] for item in report(changed)["requirements"]}
-    assert after == {**before, "HEARD-AUDIO": "accepted-residual"}
+    assert after == {**before, "NAMES-PRESERVED": "accepted-residual"}
+
+
+@pytest.mark.parametrize(
+    "requirement",
+    [
+        "BOUNDED-IDENTITY",
+        "PLATFORM-SUPPORT",
+        "SOURCE-AUTHORSHIP",
+        "OWNER-CONFORMANCE",
+        "ROOT-ADMISSION",
+        "ROOT-HARD-BOUNDS",
+        "ROOT-INDEPENDENCE",
+        "PAUSE-PRESERVED",
+        "UNKNOWN-NO-RECOVERY",
+        "RESTORE-REHEARSAL",
+        "NO-LOCAL-NETWORK",
+        "CURRENT-OBSERVATIONS",
+        "DISCOVERY-PUBLICATION",
+        "DISCOVERY-IMPORT",
+        "DISCOVERY-LEASES",
+        "CONSENT-IDENTITY",
+        "UDP-FIRST-PACKET",
+        "DNS-CLIENT-IDENTITY",
+        "HEARD-AUDIO",
+        "MULTI-RECEIVER",
+        "BOOT-RECOVERY",
+        "OWNER-ROLLBACK",
+        "PORT-BUDGET",
+    ],
+)
+def test_generic_deviation_cannot_replace_mandatory_qualification_or_provenance(
+    data: dict[str, Any], requirement: str
+) -> None:
+    data["workloads"][0]["application_profile"] = "resolver"
+    accept_unattended_recovery(data)
+    data["host"]["baseline"]["filevault"] = False
+    data["decisions"]["bounded"] = [
+        {
+            "profile": "example-return",
+            "max_age_seconds": 30,
+            "unknown_limit": 1,
+            "residual": "Example statement of the remaining address-reuse risk.",
+            "signed_by": "example-reviewer",
+            "signed_at": SIGNED,
+        }
+    ]
+    facts = [
+        *platform(),
+        fact("macos_version", "27.0.1"),
+        fact("hardware_class", "apple-silicon"),
+        fact("local_network_identity", "example-identity"),
+    ]
+    assert status(report(data, facts), requirement) in {
+        "fulfilled-unverified",
+        "fulfilled-verified",
+    }
+    data["deviations"].append(deviation(requirement))
+    result = report(data, facts)
+    assert status(result, requirement) == "not-fulfilled"
+    assert not result["fully_served"] and not result["platform"]["host_accepted"]

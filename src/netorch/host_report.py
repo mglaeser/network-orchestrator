@@ -91,11 +91,30 @@ MAX_FACT_AGE_SECONDS = 300
 # A supplied absent or false observation keeps its requirement not fulfilled until a
 # positive one replaces it. Growing stale never clears it.
 BLOCKING_FACTS = {
-    "HOST-DATA": "instance_literal_check",
-    "NAMES-PRESERVED": "names_preserved",
-    "OWNER-CONFORMANCE": "owner_conformance",
-    "RESTORE-REHEARSAL": "recovery_material",
+    "HOST-DATA": ("framework_literal_check", "instance_literal_check"),
+    "NAMES-PRESERVED": ("names_preserved",),
+    "OWNER-CONFORMANCE": ("owner_conformance",),
+    "RESTORE-REHEARSAL": ("recovery_material",),
 }
+# Safety/provenance gates and every native, lifecycle or application acceptance
+# need their own proof. A generic deviation cannot replace that proving ladder.
+MANDATORY_PROVING_GATES = frozenset(
+    {
+        "BOUNDED-IDENTITY",
+        "PLATFORM-SUPPORT",
+        "SOURCE-AUTHORSHIP",
+        "OWNER-CONFORMANCE",
+        "ROOT-ADMISSION",
+        "ROOT-HARD-BOUNDS",
+        "ROOT-INDEPENDENCE",
+        "PAUSE-PRESERVED",
+        "UNKNOWN-NO-RECOVERY",
+        "RESTORE-REHEARSAL",
+        "NO-LOCAL-NETWORK",
+        "CURRENT-OBSERVATIONS",
+    }
+    | {item.id for item in REQUIREMENTS if item.minimum_tier >= 3}
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -216,7 +235,7 @@ def parse_host_evidence(raw: bytes | str | dict[str, Any]) -> HostEvidence:
                 "internet_sharing",
                 "proxies",
                 "vpns",
-            }
+            } | {key for keys in BLOCKING_FACTS.values() for key in keys}
             list_keys = {"network_extensions", "pf_anchors", "anchor_order", "runtime_resolvers"}
             int_keys = {"udp_sockets_idle", "udp_sockets_loaded"}
             if (
@@ -402,6 +421,7 @@ def _acceptance(
     for entry in instance.acceptance:
         if (
             entry.requirement != requirement.id
+            or not entry.signed_by.strip()
             or entry.method not in requirement.acceptance_methods
             or entry.tier < requirement.minimum_tier
             or (entry.profile is not None and entry.profile not in relevant)
@@ -584,8 +604,10 @@ def _base_assessment(
                 "accepted-residual",
                 "Owner-recorded residual; not authentication against a hostile API client.",
             )
-            if value.residual
-            and value.signed_by
+            if value.residual is not None
+            and value.residual.strip()
+            and value.signed_by is not None
+            and value.signed_by.strip()
             and value.signed_at
             and datetime.strptime(value.signed_at, "%Y-%m-%dT%H:%M:%SZ")
             .replace(tzinfo=UTC)
@@ -698,10 +720,10 @@ def _base_assessment(
                     "not-fulfilled",
                     "LAN stable identity or current address is unknown or differs.",
                 )
-    blocking = BLOCKING_FACTS.get(identifier)
-    negative = None if blocking is None else _reported(evidence, blocking)
-    if negative is not None and (negative.state == "absent" or negative.value is False):
-        return "not-fulfilled", "Host evidence reports this prerequisite as absent."
+    for key in BLOCKING_FACTS.get(identifier, ()):
+        negative = _reported(evidence, key)
+        if negative is not None and (negative.state == "absent" or negative.value is False):
+            return "not-fulfilled", "Host evidence reports this prerequisite as absent."
     return (
         "fulfilled-unverified",
         "Declared capability requires its proving test at the recorded host tier.",
@@ -727,6 +749,11 @@ def _deviation(instance: Instance, identifier: str, now: float) -> tuple[str, st
                 "not-fulfilled",
                 "A recorded deviation from this requirement has no current owner acceptance.",
             )
+    if identifier in MANDATORY_PROVING_GATES:
+        return (
+            "not-fulfilled",
+            "An owner-accepted deviation cannot replace this mandatory proving gate.",
+        )
     return "accepted-residual", "Owner-accepted deviation; the requirement itself is not met."
 
 
@@ -776,7 +803,13 @@ def build_report(
                 instance, requirement, evidence, now, contracts, release_verified
             )
             if (
-                requirement.id not in {"BOUNDED-IDENTITY", "PLATFORM-SUPPORT", "IMPORT-VISIBILITY"}
+                requirement.id
+                not in {
+                    "BOUNDED-IDENTITY",
+                    "PLATFORM-SUPPORT",
+                    "IMPORT-VISIBILITY",
+                    "LIFECYCLE-WRITERS",
+                }
                 and status != "not-fulfilled"
                 and _acceptance(instance, requirement, evidence, now, evidence_directory)
             ):

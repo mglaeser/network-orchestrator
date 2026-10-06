@@ -257,7 +257,11 @@ def resolved_profile(instance: Instance, profile: Transport) -> dict[str, Any]:
         "dependencies": list(profile.dependencies),
         "fallback_publication": profile.fallback_publication,
         "lan": asdict(instance.host.lan),
-        "workload": {"id": workload.id, "contract_sha256": workload.contract.sha256},
+        "workload": {
+            "id": workload.id,
+            "name": workload.name,
+            "contract_sha256": workload.contract.sha256,
+        },
         "bounded_policy": None
         if decision is None
         else {
@@ -282,11 +286,15 @@ def resolved_profile_digest(instance: Instance, profile: Transport) -> str:
             pending.append(value.fallback_publication)
     return digest(
         {
-            "resolved_profile_version": 1,
+            "resolved_profile_version": 2,
             "profile": profile.id,
             "references": references,
             "names": resolved_names(instance),
             "framework": asdict(instance.framework),
+            "supervision": asdict(instance.supervision),
+            "account": asdict(instance.host.account),
+            "runtime": asdict(instance.host.runtime),
+            "platform": asdict(instance.host.platform),
         }
     )
 
@@ -294,7 +302,7 @@ def resolved_profile_digest(instance: Instance, profile: Transport) -> str:
 def resolved_discovery_digest(instance: Instance, selection: DiscoverySelection) -> str:
     return digest(
         {
-            "resolved_discovery_version": 1,
+            "resolved_discovery_version": 2,
             "selection": asdict(selection),
             "lan": asdict(instance.host.lan),
             "names": resolved_names(instance),

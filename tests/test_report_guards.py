@@ -6,7 +6,7 @@ import ast
 import copy
 import hashlib
 import json
-from dataclasses import replace
+from dataclasses import asdict, replace
 from functools import cache
 from pathlib import Path
 from typing import Any
@@ -14,13 +14,15 @@ from typing import Any
 import pytest
 
 from netorch import host_report
-from netorch.codec import canonical_bytes
+from netorch.codec import canonical_bytes, digest
 from netorch.host_report import build_report, parse_host_evidence
 from netorch.instance import (
     InstanceError,
     instance_contract_digest,
     parse_instance,
     resolved_discovery_digest,
+    resolved_names,
+    resolved_profile,
     resolved_profile_digest,
 )
 from netorch.requirements import requirement
@@ -393,6 +395,159 @@ def test_lifecycle_residual_without_a_current_signature_is_not_accepted(
         "signed_at": signature[1],
     }
     assert status(report(data), "LIFECYCLE-WRITERS") == "not-fulfilled"
+
+
+@pytest.mark.parametrize("member", ["residual", "signed_by"])
+@pytest.mark.parametrize("blank", [" ", "\u00a0"])
+def test_lifecycle_residual_needs_nonblank_statement_and_signer(
+    data: dict[str, Any], member: str, blank: str
+) -> None:
+    decision = {
+        "residual": "Reviewed vendor API authority remains.",
+        "signed_by": "example-reviewer",
+        "signed_at": SIGNED,
+    }
+    data["decisions"]["lifecycle_control"] = decision
+    assert status(report(data), "LIFECYCLE-WRITERS") == "accepted-residual"
+    decision[member] = blank
+    assert status(report(data), "LIFECYCLE-WRITERS") == "not-fulfilled"
+
+
+def test_lifecycle_inventory_attestation_cannot_verify_away_the_authority_residual(
+    tmp_path: Path, data: dict[str, Any]
+) -> None:
+    data["decisions"]["lifecycle_control"] = {
+        "residual": "Reviewed vendor API authority remains.",
+        "signed_by": "example-reviewer",
+        "signed_at": SIGNED,
+    }
+    attest(data, tmp_path, "LIFECYCLE-WRITERS", "process-inventory", 2)
+    result = report(data, platform(), evidence_directory=tmp_path)
+    assert status(result, "LIFECYCLE-WRITERS") == "accepted-residual"
+
+
+@pytest.mark.parametrize("blank", [" ", "\u00a0"])
+def test_content_matching_acceptance_still_requires_a_nonblank_signer(
+    tmp_path: Path, data: dict[str, Any], blank: str
+) -> None:
+    attest(data, tmp_path, "RESTORE-REHEARSAL", "restore-rehearsal", 4, signed_by=blank)
+    result = report(data, platform(), evidence_directory=tmp_path)
+    assert status(result, "RESTORE-REHEARSAL") == "fulfilled-unverified"
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "container-name",
+        "reconcile-interval",
+        "discovery-interval",
+        "discovery-misses",
+        "read-timeout",
+        "account-uid",
+        "account-gid",
+        "runtime-network",
+        "runtime-version",
+        "macos-build",
+        "macos-version",
+    ],
+)
+def test_profile_evidence_does_not_survive_changed_target_or_supervision(
+    tmp_path: Path, data: dict[str, Any], change: str
+) -> None:
+    attest(data, tmp_path, "PORT-BUDGET", "port-budget", 3, "example-return")
+    attest(data, tmp_path, "DISCOVERY-IMPORT", "cold-application-scan", 5, "example-import")
+    members = ready(data)
+    before = report(data, platform(), members, evidence_directory=tmp_path)
+    assert before["current_ready"]
+    assert (
+        status(before, "PORT-BUDGET")
+        == status(before, "DISCOVERY-IMPORT")
+        == ("fulfilled-verified")
+    )
+    if change == "container-name":
+        data["workloads"][1]["name"] = "example-renamed-media"
+    elif change == "account-uid":
+        data["host"]["account"]["uid"] += 1
+    elif change == "account-gid":
+        data["host"]["account"]["gid"] += 1
+    elif change == "runtime-network":
+        data["host"]["runtime"]["network"] = "example-other-network"
+    elif change == "runtime-version":
+        data["host"]["runtime"]["version"] = "1.2.0"
+    elif change == "macos-build":
+        data["host"]["platform"]["macos_build"] = "26A435"
+    elif change == "macos-version":
+        data["host"]["platform"]["macos_version"] = "27.0.2"
+    else:
+        setting = {
+            "reconcile-interval": "reconcile_seconds",
+            "discovery-interval": "discovery_seconds",
+            "discovery-misses": "discovery_misses",
+            "read-timeout": "read_timeout_seconds",
+        }[change]
+        data["supervision"][setting] += 1
+    after = report(data, platform(), members, evidence_directory=tmp_path)
+    assert not after["current_ready"]
+    assert (
+        status(after, "PORT-BUDGET")
+        == status(after, "DISCOVERY-IMPORT")
+        == ("fulfilled-unverified")
+    )
+
+
+def test_version_one_profile_attestations_cannot_verify_the_bound_target_context(
+    tmp_path: Path, data: dict[str, Any]
+) -> None:
+    instance = parsed(data)
+    transport = instance.transport_profile("example-return")
+    assert not transport.dependencies and transport.fallback_publication is None
+    legacy_profile = resolved_profile(instance, transport)
+    legacy_profile["workload"].pop("name", None)
+    old_transport = digest(
+        {
+            "resolved_profile_version": 1,
+            "profile": transport.id,
+            "references": {transport.id: legacy_profile},
+            "names": resolved_names(instance),
+            "framework": asdict(instance.framework),
+        }
+    )
+    selection = next(item for item in instance.discovery if item.id == "example-import")
+    assert selection.dependencies == (transport.id,)
+    old_discovery = digest(
+        {
+            "resolved_discovery_version": 1,
+            "selection": asdict(selection),
+            "lan": asdict(instance.host.lan),
+            "names": resolved_names(instance),
+            "workload_contract": instance.workload(selection.service).contract.sha256,
+            "dependencies": {transport.id: old_transport},
+        }
+    )
+    attest(
+        data,
+        tmp_path,
+        "PORT-BUDGET",
+        "port-budget",
+        3,
+        transport.id,
+        contract_sha256=old_transport,
+    )
+    attest(
+        data,
+        tmp_path,
+        "DISCOVERY-IMPORT",
+        "cold-application-scan",
+        5,
+        selection.id,
+        contract_sha256=old_discovery,
+    )
+    result = report(data, platform(), evidence_directory=tmp_path)
+    assert (
+        status(result, "PORT-BUDGET")
+        == status(result, "DISCOVERY-IMPORT")
+        == ("fulfilled-unverified")
+    )
 
 
 def resolver(data: dict[str, Any]) -> dict[str, Any]:
