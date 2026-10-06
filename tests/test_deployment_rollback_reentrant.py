@@ -220,11 +220,16 @@ def test_rollback_failed_at_any_tool_call_is_repeated_to_the_same_result(
     expected = uninterrupted(lab)
     counting, calls = failing(lab.prepare(), -1)
     lab.rollback(counting)
-    assert len(calls) == (6 if scope == "user" else 7)
+    assert len(calls) == 7
     journals: list[dict[str, Any]] = []
     for index, call in enumerate(calls):
         runner = lab.prepare()
         broken, _ = failing(runner, index)
+        if call[1] == "print" and calls[index - 1][1:] == ("bootout", call[2]):
+            # The read that waits for launchd after a `bootout` fails nothing.
+            assert lab.rollback(broken)["phase"] == "rolled-back", call
+            assert lab.state() == expected, call
+            continue
         with pytest.raises(DeploymentError, match="managed tool operation failed"):
             lab.rollback(broken)
         journals.append(Store(lab.state_dir).read("installation-journal.json"))
@@ -253,7 +258,7 @@ def test_rollback_killed_before_any_step_is_repeated_to_the_same_result(
     steps = Steps()
     with stepped(monkeypatch, steps, lab.state_dir, lab.prepare()) as counted:
         lab.rollback(counted)
-    assert steps.count == (13 if scope == "user" else 11)
+    assert steps.count == (14 if scope == "user" else 11)
     for stop_before in range(steps.count):
         runner = lab.prepare()
         with (

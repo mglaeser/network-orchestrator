@@ -514,7 +514,7 @@ def test_open_journal_of_another_operation_scope_or_digest_is_refused(
     bundle, metadata = make_bundle(tmp_path, manifest, config)
     digest = metadata["bundle_digest"]
     state_dir = Path(manifest["user"]["state_directory"])
-    killed_user_install(tmp_path, manifest, monkeypatch, bundle, digest, FakeTools(), 12)
+    killed_user_install(tmp_path, manifest, monkeypatch, bundle, digest, FakeTools(), 13)
     store = Store(state_dir)
     journal = store.read("installation-journal.json")
     assert journal["phase"] == "installing-jobs"

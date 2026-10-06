@@ -347,7 +347,7 @@ def test_releasing_a_reference_is_not_an_operation(sandbox: Sandbox, token: str)
     "operation,anchor",
     [
         ("flush", ANCHOR),
-        ("inspect", "com.apple/other"),
+        ("inspect", "com.apple/Other"),
         ("inspect", "netorch.site-forwarding"),
         ("inspect", ANCHOR + "\n"),
         ("inspect", ANCHOR + "/child"),

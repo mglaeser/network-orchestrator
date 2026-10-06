@@ -192,6 +192,21 @@ def host(tmp_path: Path) -> SimpleNamespace:
     )
     data["host"]["baseline"]["filevault"] = False
     data["decisions"]["unattended_recovery"] = {"accepted": True, "max_dns_ready_seconds": 120}
+    data["decisions"]["lifecycle_control"] = {
+        "residual": "The supervisor can start and stop workloads through the container API.",
+        "signed_by": "Example Owner",
+        "signed_at": "1970-01-01T00:00:01Z",
+    }
+    data["lifecycle_tools"].append(
+        {
+            "id": "example-supervisor",
+            "kind": "supervisor",
+            "container_api_access": True,
+            "starts_runtime": True,
+            "starts_fleet": True,
+            "version": None,
+        }
+    )
 
     # Every declared setting above is final before anything is attested against it.
     instance = parsed(data)

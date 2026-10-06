@@ -533,6 +533,7 @@ def test_retained_bounds_are_those_of_the_retained_supervisor() -> None:
         "timeout_seconds",
         "cycles",
         "recovery_code",
+        "recovery_repeat_cycles",
     }
     assert instance_module.RETAINED_ACTION_DEADLINE_MAXIMUM is None
 

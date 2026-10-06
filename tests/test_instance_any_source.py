@@ -51,7 +51,7 @@ BASE = {
             "example-export": "a87cb58580aef982e565caa79bb489da0f3996ac5e1c3c45709c3811c6f1ff86",
             "example-import": "3a399f2f69074be0231e436d0902815936a10c506b77ec7c6cdf609e002c7af3",
         },
-        "report_sha256": "16f451c0d6b69b74c2dc56975767e275e9954f1129e78f3cb1490b5dd9ef728a",
+        "report_sha256": "5d1bfa7c27d97f71b04c15a4f20eaf1aa77ebd57b838420ea53a611a0124acf9",
     },
     "instance-structural.json": {
         "file_sha256": "3656fa2b945b829525f03508b145c6993c7adfcd89bc83c7559f0b3086bf449a",
@@ -65,7 +65,7 @@ BASE = {
         "discovery": {
             "example-export": "397d48b2f0097fe344366050efc7ff1ffa9e9178445189ed3d8819c3c766e54d",
         },
-        "report_sha256": "bef74bad8cbaf49eecc02a9bb9f31c1f9c07f98f366d32d0a2439c21d81b0090",
+        "report_sha256": "b64418c2fd3e5eb53988c9a8ebab9f7163f1365e49860d82963ea87c32044f0b",
     },
 }
 

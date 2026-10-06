@@ -1201,10 +1201,13 @@ def rollback_install(
             if resumed:
                 # A job only the predecessor has may have been loaded again already.
                 for label in sorted(old_labels - {record["label"] for record in receipt["jobs"]}):
-                    _tool(
+                    _bootout(
                         runner,
-                        (deployment.launchctl, "bootout", f"{installation.domain}/{label}"),
-                        absent_ok=True,
+                        deployment.launchctl,
+                        f"{installation.domain}/{label}",
+                        reloaded=True,
+                        clock=clock,
+                        sleep=sleep,
                     )
             if scope == "root":
                 settings = next(
