@@ -79,6 +79,16 @@ hashes and new label absence, stops only owned jobs, installs generated plists,
 loads them and reads launchd back. Its own suspension is released only after the
 entire operation succeeds. It does not resume the operator or create admissions.
 
+`launchctl bootout` can return before launchd has removed the job, and loading
+the same label again can fail until it has. In either scope, installation,
+rollback and failed-upgrade recovery therefore wait after stopping a loaded job
+that they load again: they read the job with `launchctl print` at once and then
+every 0.25 seconds until launchd reports it absent, and load it only then. No
+further read is started once 20 seconds have passed for that job; the operation
+then goes on and loads the job as it did before this wait existed. The wait
+never fails an operation. A job that was not loaded, or that is stopped and not
+loaded again, is not waited for.
+
 Existing root jobs, application state, image pins, mounts, kernel arguments,
 container resources and Apple runtime configuration are untouched. A caller
 must use the separately documented explicit workload operation for a genuinely
