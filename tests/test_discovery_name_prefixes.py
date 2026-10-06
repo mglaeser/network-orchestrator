@@ -653,7 +653,9 @@ def test_scan_pass_and_lease_carry_the_named_prefixes(
     monkeypatch.setattr(owner, "independent_snapshot", lambda *_args: (current, Intent(), ready))
     monkeypatch.setattr(owner, "_interfaces", lambda *_args: {settings.scopes[0].id: (7, 9)})
 
-    def scan(interface: str, _index: int, kind: str, *_bounds: Any) -> tuple[Record, ...]:
+    def scan(
+        interface: str, _index: int, kind: str, *_bounds: Any, **_keywords: Any
+    ) -> tuple[Record, ...]:
         if kind == "_airplay._tcp":
             return (media_record(),)
         if kind == "_hap._tcp":

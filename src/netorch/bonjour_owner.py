@@ -86,6 +86,7 @@ class BonjourSettings:
     poll_seconds: int = 5
     eligible_model_prefixes: tuple[str, ...] = ("AudioAccessory", "AppleTV")
     pass_seconds: int | None = None
+    miss_tolerance: int = 1
 
     @property
     def pass_interval(self) -> int:
@@ -127,7 +128,13 @@ def load_settings(path: Path) -> BonjourSettings:
         "state_dir",
         "scopes",
     }
-    optional = {"scan_seconds", "poll_seconds", "eligible_model_prefixes", "pass_seconds"}
+    optional = {
+        "scan_seconds",
+        "poll_seconds",
+        "eligible_model_prefixes",
+        "pass_seconds",
+        "miss_tolerance",
+    }
     if (
         not isinstance(raw, dict)
         or not required <= raw.keys()
@@ -212,15 +219,27 @@ def load_settings(path: Path) -> BonjourSettings:
         or len(set(prefixes)) != len(prefixes)
     ):
         raise ValueError("invalid Apple media model eligibility")
-    return BonjourSettings(
+    tolerance = raw.get("miss_tolerance", 1)
+    if type(tolerance) is not int or not 1 <= tolerance <= 8:
+        raise ValueError("Bonjour miss tolerance must be bounded")
+    settings = BonjourSettings(
         owner.id,
         **paths,
         scopes=tuple(scopes),
         scan_seconds=raw.get("scan_seconds", 2),
         poll_seconds=raw.get("poll_seconds", 5),
+        miss_tolerance=tolerance,
         eligible_model_prefixes=tuple(prefixes),
         pass_seconds=pass_seconds,
     )
+    # A missed record is carried only inside its lease (MissMemory). Where no
+    # owned lease leaves room for that, a tolerance could never have an effect.
+    if tolerance > 1 and not any(
+        item.max_age_seconds > settings.pass_interval + carry_horizon(config, settings)
+        for item in _owned(config, settings)
+    ):
+        raise ValueError("Bonjour miss tolerance needs a lease that outlasts two passes")
+    return settings
 
 
 def record_to_dict(record: Record) -> dict[str, Any]:
@@ -547,6 +566,108 @@ def _observation(
     )
 
 
+# Time limits of one scanner pass, in seconds; pass_budget adds them up.
+_OWNER_READ_LIMIT = 10  # owners.ProcessOwner: the report of one other owner
+_INTERFACE_CHECK_LIMIT = 2  # bonjour_process.interface_index; twice for each scope
+_SCAN_LIMIT = 45  # bonjour_process.scan: one service type
+_SCAN_BATCH = 8  # service types that scan_policy reads at once
+_PASS_SLACK = 5  # process clean-up, the pass's writes and the publisher's next tick
+
+
+def pass_budget(config: Config, settings: BonjourSettings) -> int:
+    """Seconds one scanner pass may take from its clock reading to its candidate in force.
+
+    Every native read of a pass has a time limit of its own, so the pass takes
+    no longer than their sum: one report read for each other owner, two
+    interface checks for each scope and one scan for each batch of service
+    types of each owned policy. A report file is read well inside the limit of
+    an owner process unless every one of its permission checks nearly times out.
+    """
+    return (
+        _OWNER_READ_LIMIT * (len(config.owners) - 1)
+        + 2 * _INTERFACE_CHECK_LIMIT * len(settings.scopes)
+        + _SCAN_LIMIT * sum(-(-len(item.types) // _SCAN_BATCH) for item in _owned(config, settings))
+        + _PASS_SLACK
+    )
+
+
+def carry_horizon(config: Config, settings: BonjourSettings) -> int:
+    """Seconds after a pass reads its clock until the next pass's candidate is in force.
+
+    The pass writes its candidate within one budget, the scanner rests, and the
+    next pass writes within another. lease_records refuses a whole candidate for
+    one expired record, so a record that a pass missed is carried only while its
+    lease lasts longer than this: it must not end between two candidates.
+    """
+    return settings.pass_interval + 2 * pass_budget(config, settings)
+
+
+Fence = tuple[str, str | None, str | None]
+Remembered = dict[tuple[str, str], tuple[Record, int]]
+
+
+class MissMemory:
+    """Source records the scanner has read, so that a later pass may miss them.
+
+    A record that a completed pass of its policy does not read again stays among
+    that pass's sources, with the time it was last seen, until as many
+    consecutive completed passes as the settings tolerate have missed it. The
+    pass decides about it as about any source it read, so what it would not
+    project now is not kept. The time of sight is never refreshed: the lease,
+    the client's own lifetime and the publisher's deadline end a carried record
+    as they end any other. The memory belongs to this scanner process. A restart
+    forgets it, and so does a failed or skipped pass of the policy.
+    """
+
+    def __init__(self, tolerance: int) -> None:
+        self.tolerance = tolerance
+        self.listed: dict[str, tuple[Fence, Remembered]] = {}
+
+    def begin(self, policy: Discovery, fence: Fence, needed_until: float) -> MissedSources:
+        """Start one policy's pass; unless it completes, nothing is carried over."""
+        kept, known = self.listed.pop(policy.id, (fence, {}))
+        # Nothing read under another policy digest, guest or network generation is kept.
+        return MissedSources(self, policy, fence, known if kept == fence else {}, needed_until)
+
+
+@dataclass(slots=True)
+class MissedSources:
+    """One policy's pass: what it adds to the sources it read, and what it then keeps."""
+
+    memory: MissMemory
+    policy: Discovery
+    fence: Fence
+    known: Remembered
+    needed_until: float
+    read: Remembered | None = None
+
+    def __call__(self, sources: tuple[Record, ...]) -> tuple[Record, ...]:
+        """Sources an earlier pass listed that this pass did not read and may carry."""
+        read: Remembered = {(record.name, record.service_type): (record, 0) for record in sources}
+        carried = sorted(
+            (misses + 1, -record.seen_at, key, record)
+            for key, (record, misses) in self.known.items()
+            # A record read now under the same name and type takes its place.
+            if key not in read
+            and misses + 1 < self.memory.tolerance
+            and record.seen_at + self.policy.max_age_seconds > self.needed_until
+        )
+        # Carried sources never push a pass over the policy's record bound.
+        room = max(0, self.policy.max_records - len(sources))
+        for misses, _seen, key, record in carried[:room]:
+            read[key] = (record, misses)
+        self.read = read
+        return tuple(record for record, misses in read.values() if misses)
+
+    def completed(self, records: tuple[Record, ...]) -> None:
+        """Remember the sources of what the completed pass listed, and nothing else."""
+        names = {(record.name, record.service_type) for record in records}
+        self.memory.listed[self.policy.id] = (
+            self.fence,
+            {key: value for key, value in (self.read or {}).items() if key in names},
+        )
+
+
 def scan_policy(
     config: Config,
     settings: BonjourSettings,
@@ -555,6 +676,7 @@ def scan_policy(
     ready: frozenset[str],
     interfaces: dict[str, tuple[int, int]],
     now: float,
+    missed: Callable[[tuple[Record, ...]], tuple[Record, ...]] | None = None,
 ) -> tuple[tuple[Record, ...], int]:
     """The policy's projected records and the number of instances left out."""
     scope = config.scope(policy.scope)
@@ -587,11 +709,16 @@ def scan_policy(
             collected.extend(future.result(timeout=max(0.01, deadline - time.monotonic())))
             if len(collected) > policy.max_records:
                 raise DiscoveryFailure("incomplete")
-    projected = project_records(config, policy, tuple(collected), snapshot, ready, settings, now)
+    sources = tuple(collected)
+    if missed is not None:
+        sources += missed(sources)
+    projected = project_records(config, policy, sources, snapshot, ready, settings, now)
     return projected, len(left_out)
 
 
-def scan_pass(config: Config, settings: BonjourSettings, store: Store) -> None:
+def scan_pass(
+    config: Config, settings: BonjourSettings, store: Store, memory: MissMemory | None = None
+) -> None:
     """A complete policy pass refreshes its lease independently of its siblings."""
     now = time.time()
     snapshot, intent, ready = independent_snapshot(config, settings, now)
@@ -601,11 +728,24 @@ def scan_pass(config: Config, settings: BonjourSettings, store: Store) -> None:
         records: tuple[Record, ...] = ()
         skipped = 0
         error = None
+        missed = None
+        if memory is not None:
+            missed = memory.begin(
+                policy,
+                (
+                    discovery_digest(config, policy),
+                    snapshot.services[policy.service].generation,
+                    snapshot.network_generation,
+                ),
+                now + carry_horizon(config, settings),
+            )
         try:
             if dependencies_ready(config, policy, snapshot, intent, ready, now):
                 records, skipped = scan_policy(
-                    config, settings, policy, snapshot, ready, interfaces, now
+                    config, settings, policy, snapshot, ready, interfaces, now, missed
                 )
+                if missed is not None:
+                    missed.completed(records)
         except Exception as exc:
             error = exc.reason if isinstance(exc, DiscoveryFailure) else "malformed"
         candidates[policy.id] = {
@@ -638,6 +778,9 @@ def scan_pass(config: Config, settings: BonjourSettings, store: Store) -> None:
         largest = max(bulky, key=lambda key: (len(json.dumps(candidates[key]["records"])), key))
         candidates[largest]["records"] = []
         candidates[largest]["reason"] = "incomplete"
+        if memory is not None:
+            # Its pass counts as failed: nothing of it is carried into the next one.
+            memory.listed.pop(largest, None)
     store.write("candidates.json", document)
 
 
@@ -1037,16 +1180,20 @@ def serve(config: Config, settings: BonjourSettings, settings_path: Path) -> Non
             child.wait(timeout=3)
 
     _signal_stop(close)
+    # Kept in this process only: a scanner restart withdraws on the first miss again.
+    memory = MissMemory(settings.miss_tolerance) if settings.miss_tolerance > 1 else None
     try:
         while child.poll() is None:
             try:
-                scan_pass(config, settings, store)
+                scan_pass(config, settings, store, memory)
                 store.write(
                     "scanner-heartbeat.json",
                     {"schema_version": 1, "observed_at": time.time(), "pid": os.getpid()},
                 )
             except Exception as exc:
                 # Do not refresh a previous lease after a partial/failed pass.
+                if memory is not None:
+                    memory.listed.clear()
                 store.write(
                     "candidates.json",
                     {
