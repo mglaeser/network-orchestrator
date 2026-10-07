@@ -50,6 +50,12 @@ production settings.
 `source-inventory` records the full executable's digest and an explicit
 `executable-source-not-evaluated` issue; it cannot map settings.
 
+Declare each source in the format in which its owner reads it. A file that a
+shell or a line reader reads is an assignment file even where it is also valid
+TOML: of the two formats only the assignment format refuses `$`, a backquote
+and a backslash. Declared as TOML, `directory="$HOME/data"` is imported as that
+literal text.
+
 Credential/environment selectors and nested credential/environment objects are
 rejected, including common camelCase, acronym, separator and API-key spellings.
 Unmapped source fields are not copied. Diagnostics contain a closed
@@ -68,7 +74,9 @@ records. `owner_digest(owner)` hashes the source-ID/digest list in sorted order.
 `generated_bytes(result)` is the canonical report plus exactly one LF.
 `check_generated_view(manifest, report)` freshly imports and compares those bytes
 exactly. Even an otherwise equivalent source whitespace change changes the
-source receipt and therefore fails the re-import gate.
+source receipt and therefore fails the re-import gate. The result also holds
+`untyped`, the destinations whose value is text read from an assignment file or
+a data list; the generated report does not contain that record.
 
 `project_instance(result, template)` fills explicitly available null slots,
 rejects unresolved inputs, and invokes the independent closed instance parser.
@@ -79,13 +87,24 @@ holds a null slot: signatures, acceptance records, provenance and the release
 pin are written by a person. A partial generated report is useful evidence; it
 is not a complete or approved deployable instance.
 
-A literal file holds text only. Where the instance schema admits nothing but an
-integer in the destination slot, mapped text in plain decimal form (digits
-only, no sign, no leading zero, at most ten digits) is converted to that
-integer; any other text for such a slot is refused and the error names the
-field. The instance parser still checks the field's range. Nothing else is
-converted: digits mapped to a text field stay text, and text never becomes a
-Boolean. The generated view keeps every value as it was read.
+An assignment file and a data list hold text only; JSON, TOML and a property
+list tell a number from text. `project_instance` therefore converts exactly one
+kind of value: text that `import_sources` read from an assignment file or a
+data list, that a mapping names by itself (one key of an assignment file, or
+one item of a data list such as `/items/0`), and whose destination is a slot
+where the instance schema admits nothing but an integer. In plain decimal form
+(digits only, no sign, no leading zero, at most ten digits) such text becomes
+that integer; any other text for such a slot is refused and the error names the
+field. That refusal comes after every refusal that does not depend on the text:
+an authored section, a destination that is unavailable or already has an author,
+and an unresolved source are reported first. The instance parser still checks
+the field's range. Nothing else is converted. A string from JSON, TOML or a
+property list stays a string, and the instance parser refuses it for an integer
+slot: such a source has to hold the number as a number. A string inside a
+mapped list stays a string, whichever format it came from. Digits mapped to a
+text field stay text, and text never becomes a Boolean. The generated view
+keeps every value as it was read. The conversion relies on the `untyped` record
+of the import result: a result built without that record converts nothing.
 
 ## Flip only one owner with exact parity
 
