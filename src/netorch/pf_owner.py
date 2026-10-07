@@ -657,6 +657,15 @@ def state_addresses(raw: str) -> tuple[tuple[str, tuple[str, ...]], ...]:
 _PROTOCOL_NUMBER = {"tcp": "6", "udp": "17"}
 
 
+def _names_peer(row: StateRow, target: str, host: str, lan: ipaddress.IPv4Network) -> bool:
+    """Whether a row names a peer of the target, as `retained_states` defines one."""
+    others = {address for address, _ in row.endpoints if address != target}
+    on_lan = {address for address in others if ipaddress.IPv4Address(address) in lan}
+    # Any LAN address but the host's own is a peer. The host's own is one only
+    # when the row names no address outside the prefix.
+    return bool(on_lan - {host}) or (host in on_lan and on_lan == others)
+
+
 def retained_states(
     config: Config | None,
     key: str,
@@ -671,10 +680,20 @@ def retained_states(
     kernel keeps the target with that port and the peer as hosts of a state
     made under such a rule. A row is therefore a state of the record when it
     has the profile's protocol, names the target with a port inside the
-    profile's target ports at one endpoint, and names at another endpoint an
-    address of the LAN prefix that is neither the target nor the host's own
-    address. These properties decide which endpoint is which; its position in
-    the row does not. A guest's own connections lack one of them.
+    profile's target ports at one endpoint, and names a peer at another
+    endpoint. A peer is an IPv4 address that is not the target, lies in the
+    LAN prefix and either is not the host's own address, or is the host's own
+    address in a row in which every IPv4 address is the target or lies in the
+    LAN prefix. These properties decide which endpoint is which; its position
+    in the row does not.
+
+    The host's own address lies in the prefix that a rule matches: a packet
+    that arrives with it as its source creates a state of the rule that names
+    only the target and that address. The runtime's own translation of a flow
+    that the guest opens to a peer outside the prefix names the target and the
+    host's address as well, and that peer: such a row names no peer in the
+    sense above and does not count. A row that names the target only with
+    ports outside the profile's target ports does not count either.
 
     When the installed policy no longer describes the record (no policy, no
     record, the profile is gone, or its digest or kind differs), the rule that
@@ -702,11 +721,7 @@ def retained_states(
                     address == target and port is not None and ports.first <= port <= ports.last
                     for address, port in row.endpoints
                 )
-                and any(
-                    address not in {target, scope.host_ipv4}
-                    and ipaddress.IPv4Address(address) in lan
-                    for address, _ in row.endpoints
-                )
+                and _names_peer(row, target, scope.host_ipv4, lan)
                 for row in rows
             )
     return any(address == target for row in rows for address, _ in row.endpoints)
@@ -1217,7 +1232,10 @@ def _own_states_gone(
 
     The scoped invalidation is issued only while the state table shows such a
     state. Both reads go through the validated reader, so a table that cannot
-    be read raises here and is never taken for an empty one.
+    be read raises here and is never taken for an empty one; an invalidation
+    that fails raises as well. False therefore means one thing: the
+    invalidation was issued without error, the table was read again and a
+    state of the record is still listed.
     """
     if not retained_states(config, key, target, record, state_rows(backend.states())):
         return True
@@ -1621,15 +1639,13 @@ def reconcile(
                     retiring = records.get(action.profile)
                     if retiring is None or retiring["kind"] != "host-redirect":
                         # The rule is retired and was read back. While a state
-                        # of it remains, or cannot be read back as gone, the
+                        # of it is still listed after its invalidation, the
                         # retired record stays: the plan keeps this profile at
-                        # "drain only" and no target is activated for it.
-                        try:
-                            gone = _own_states_gone(
-                                backend, config, action.profile, target, retiring
-                            )
-                        except (OSError, RuntimeError, ValueError):
-                            gone = False
+                        # "drain only" and no target is activated for it. An
+                        # invalidation that fails and a table that cannot be
+                        # read are not deferred: they raise here and the pass
+                        # ends `failed`.
+                        gone = _own_states_gone(backend, config, action.profile, target, retiring)
                         if not gone:
                             deferred[action.profile] = "states-retained"
                             continue

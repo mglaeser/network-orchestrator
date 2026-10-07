@@ -7,6 +7,7 @@ state table shows for a redirect or a return flow is not established here.
 
 from __future__ import annotations
 
+import ipaddress
 from collections.abc import Iterable
 from dataclasses import replace
 from typing import Any
@@ -18,7 +19,7 @@ from netorch.config import profile_digest, to_dict, validate_config
 from netorch.model import Config, PortRange
 from netorch.pf_owner import PFError, ShellBackend, reconcile, withdraw
 from netorch.process import Result
-from netorch.state import Intent, Snapshot, intent_to_dict
+from netorch.state import Intent, Observation, Snapshot, intent_to_dict
 from tests.test_pf_owner import STAMP, approve_all, environment, run_pass
 from tests.test_pf_withdraw_order import REMAIN, LiveKernel, active, address, owned
 
@@ -39,6 +40,9 @@ RETURNED = f"ALL udp {MEDIA}:45001 -> {HOST}:45001 -> {CLIENT}:7000 SINGLE:MULTI
 # Connections a guest opens itself, through the vendor's own translation.
 OWN_TCP = f"ALL tcp {RESOLVER}:51000 -> {HOST}:51000 -> {PEER}:443 ESTABLISHED:ESTABLISHED"
 OWN_UDP = f"ALL udp {RESOLVER}:40000 -> {HOST}:40000 -> {PEER}:53 SINGLE:MULTIPLE"
+# A state of the redirect whose peer is the host's own LAN address: the rule
+# matches every source inside the LAN prefix, and that address is one of them.
+FROM_HOST = f"ALL udp {RESOLVER}:53 <- {HOST}:53 <- {HOST}:54321 SINGLE:NO_TRAFFIC"
 
 
 class Kernel(LiveKernel):
@@ -86,6 +90,46 @@ def published(environment: Any) -> tuple[dict[str, Any], Snapshot]:
         report=lambda settings, snapshot: reports.append(snapshot),
     )
     return result, reports[-1]
+
+
+def moved(environment: Any, addresses: dict[str, str]) -> None:
+    """A new network generation in which the named services hold other addresses."""
+    config, snapshots = environment[1], environment[4]
+    current = snapshots[-1]
+    services = {
+        key: Observation(
+            "present",
+            "verified",
+            STAMP,
+            "instance-2",
+            {**value.data, "ipv4": addresses.get(key, value.data["ipv4"])},
+        )
+        for key, value in current.services.items()
+    }
+    publications = {
+        key: Observation(
+            value.state,
+            value.reason,
+            STAMP,
+            "instance-2",
+            {
+                **value.data,
+                "target_ipv4": services[config.profile(key).service].data["ipv4"],
+                "target_generation": "instance-2",
+                "network_generation": "network-2",
+            },
+        )
+        for key, value in current.profiles.items()
+    }
+    snapshots.append(Snapshot(STAMP, "network-2", services, publications))
+
+
+def acknowledge(root: Any) -> None:
+    """What `acknowledge-journal` does to a failed journal."""
+    journal = root.read("journal.json")
+    assert journal["phase"] == "failed"
+    journal["phase"] = "acknowledged"
+    root.write("journal.json", journal)
 
 
 # ---------------------------------------------------------------- the one reader
@@ -325,6 +369,12 @@ def test_a_state_the_rules_of_the_record_can_have_created_is_retained(
             id="IPv6 only",
         ),
         pytest.param(
+            "dns-udp",
+            RESOLVER,
+            f"ALL udp ::ffff:{RESOLVER}[53] <- 2001:db8::77[54321] SINGLE:MULTIPLE",
+            id="no IPv4 address beside the target",
+        ),
+        pytest.param(
             "media-udp",
             MEDIA,
             f"ALL udp {MEDIA}:44999 -> {HOST}:44999 -> {CLIENT}:7000 SINGLE:MULTIPLE",
@@ -363,6 +413,224 @@ def test_a_state_the_rules_cannot_have_created_is_not_retained(
     assert bool(owner.retained_states(None, key, target, None, owner.state_rows(row))) is (
         names_target
     )
+
+
+@pytest.mark.parametrize(
+    "key,target,row",
+    [
+        pytest.param("dns-udp", RESOLVER, FROM_HOST, id="redirect: lan, gwy, ext"),
+        pytest.param(
+            "dns-udp",
+            RESOLVER,
+            f"ALL udp {HOST}:54321 -> {HOST}:53 -> {RESOLVER}:53 SINGLE:NO_TRAFFIC",
+            id="redirect: the target last",
+        ),
+        pytest.param(
+            "dns-udp",
+            RESOLVER,
+            f"all udp {HOST}:54321 -> {RESOLVER}:53 NO_TRAFFIC:SINGLE",
+            id="redirect: two endpoints",
+        ),
+        pytest.param(
+            "dns-udp",
+            RESOLVER,
+            f"all udp {RESOLVER}:53 <- {HOST}:54321 SINGLE:NO_TRAFFIC",
+            id="redirect: two endpoints, target first",
+        ),
+        pytest.param(
+            "dns-udp",
+            RESOLVER,
+            f"all udp {HOST}:53 ({RESOLVER}:53) <- {HOST}:54321 SINGLE:NO_TRAFFIC",
+            id="redirect: parenthesised display",
+        ),
+        pytest.param(
+            "dns-udp",
+            RESOLVER,
+            f"ALL udp {RESOLVER}:53 <- {HOST}:53 <- ~{HOST}:54321 SINGLE:NO_TRAFFIC",
+            id="redirect: marked peer",
+        ),
+        pytest.param(
+            "dns-udp",
+            RESOLVER,
+            f"ALL udp ::ffff:{RESOLVER}[53] <- ::ffff:{HOST}[53] <- ::ffff:{HOST}[54321] "
+            "SINGLE:NO_TRAFFIC",
+            id="redirect: IPv4-mapped",
+        ),
+        # The reader returns IPv4 addresses only: an IPv6 address beside them
+        # is not an address outside the prefix.
+        pytest.param(
+            "dns-udp",
+            RESOLVER,
+            f"ALL udp ::ffff:{RESOLVER}[53] <- ::ffff:{HOST}[53] <- 2001:db8::7[54321] "
+            "SINGLE:NO_TRAFFIC",
+            id="redirect: IPv4-mapped, beside an IPv6 address",
+        ),
+        pytest.param(
+            "dns-udp",
+            RESOLVER,
+            f"ALL 17 {RESOLVER}:53 <- {HOST}:53 <- {HOST}:54321 SINGLE:NO_TRAFFIC",
+            id="redirect: protocol printed as its number",
+        ),
+        pytest.param(
+            "dns-tcp",
+            RESOLVER,
+            f"ALL tcp {RESOLVER}:53 <- {HOST}:53 <- {HOST}:50123 ESTABLISHED:ESTABLISHED",
+            id="tcp redirect",
+        ),
+        pytest.param(
+            "media-udp",
+            MEDIA,
+            f"ALL udp {MEDIA}:45001 <- {HOST}:45001 <- {HOST}:7000 SINGLE:NO_TRAFFIC",
+            id="return profile: lan, gwy, ext",
+        ),
+        pytest.param(
+            "media-udp",
+            MEDIA,
+            f"ALL udp {HOST}:7000 -> {HOST}:45127 -> {MEDIA}:45127 SINGLE:NO_TRAFFIC",
+            id="return profile: the target last, last port",
+        ),
+        pytest.param(
+            "media-udp",
+            MEDIA,
+            f"all udp {HOST}:7000 -> {MEDIA}:45000 NO_TRAFFIC:SINGLE",
+            id="return profile: two endpoints, first port",
+        ),
+    ],
+)
+def test_a_state_whose_only_peer_is_the_hosts_own_address_is_retained(
+    environment: Any, key: str, target: str, row: str
+) -> None:
+    config = environment[1]
+    assert retained(config, key, target, row)
+    # Beside the runtime's translation of the guest's own flows it still is
+    # one: the rule looks at each row by itself.
+    assert retained(config, key, target, OWN_TCP, OWN_UDP, row)
+
+
+@pytest.mark.parametrize(
+    "key,target,row",
+    [
+        pytest.param(
+            "dns-udp",
+            RESOLVER,
+            f"ALL udp {PEER}:53 <- {HOST}:53 <- {RESOLVER}:53 SINGLE:MULTIPLE",
+            id="a target port: the target last",
+        ),
+        pytest.param(
+            "dns-udp",
+            RESOLVER,
+            f"all udp {HOST}:53 ({RESOLVER}:53) -> {PEER}:53 SINGLE:MULTIPLE",
+            id="a target port: parenthesised display",
+        ),
+        pytest.param(
+            "dns-udp",
+            RESOLVER,
+            f"ALL udp ::ffff:{RESOLVER}[53] -> ::ffff:{HOST}[53] -> ::ffff:{PEER}[53] "
+            "SINGLE:MULTIPLE",
+            id="a target port: IPv4-mapped",
+        ),
+        pytest.param(
+            "dns-udp",
+            RESOLVER,
+            f"ALL 17 {RESOLVER}:53 -> {HOST}:53 -> {PEER}:53 SINGLE:MULTIPLE",
+            id="a target port: protocol printed as its number",
+        ),
+        pytest.param(
+            "dns-tcp",
+            RESOLVER,
+            f"ALL tcp {RESOLVER}:53 -> {HOST}:53 -> {PEER}:443 ESTABLISHED:ESTABLISHED",
+            id="a target port: tcp",
+        ),
+        pytest.param(
+            "media-udp",
+            MEDIA,
+            f"ALL udp {PEER}:7000 <- {HOST}:45127 <- {MEDIA}:45127 MULTIPLE:MULTIPLE",
+            id="a port of the return range: the target last",
+        ),
+        pytest.param(
+            "dns-udp",
+            RESOLVER,
+            f"ALL udp {PEER}:53 <- {HOST}:51000 <- {RESOLVER}:51000 SINGLE:MULTIPLE",
+            id="another port: the target last",
+        ),
+        pytest.param(
+            "media-udp",
+            MEDIA,
+            f"ALL udp {PEER}:7000 <- {HOST}:45128 <- {MEDIA}:45128 MULTIPLE:MULTIPLE",
+            id="a port above the return range: the target last",
+        ),
+    ],
+)
+def test_the_runtimes_translation_to_an_outside_peer_is_not_retained(
+    environment: Any, key: str, target: str, row: str
+) -> None:
+    # Controls for the host's address as a peer. Each row names the guest, the
+    # host's address and a peer outside the LAN prefix, so the host's address
+    # is no peer in it. This held before and must go on holding.
+    assert not retained(environment[1], key, target, row)
+
+
+@pytest.mark.parametrize(
+    "row",
+    [
+        pytest.param(REDIRECTED, id="beside the host's address"),
+        pytest.param(
+            f"all udp {HOST}:53 ({RESOLVER}:53) <- {CLIENT}:54321 ({PEER}:9) SINGLE:MULTIPLE",
+            id="beside the host's address and an address outside the prefix",
+        ),
+        pytest.param(
+            f"ALL udp {RESOLVER}:53 -> 192.0.2.9:53 -> {PEER}:53 SINGLE:MULTIPLE",
+            id="beside an address outside the prefix",
+        ),
+    ],
+)
+def test_a_lan_peer_other_than_the_host_counts_whatever_else_the_row_names(
+    environment: Any, row: str
+) -> None:
+    # Controls, as before: only the host's own address needs a row that names
+    # no address outside the prefix.
+    assert retained(environment[1], "dns-udp", RESOLVER, row)
+
+
+def test_a_state_of_a_rule_is_retained_whichever_address_of_the_lan_prefix_is_its_peer(
+    environment: Any,
+) -> None:
+    """Rows built from each profile's own parameters, for every address its rule matches."""
+    config, snapshot = environment[1], environment[4][-1]
+    checked: dict[str, int] = {}
+    for profile in config.profiles:
+        if profile.kind not in {"guest-direct", "udp-return"}:
+            continue
+        scope = config.scope(profile.scope)
+        lan = ipaddress.IPv4Network(scope.lan_cidr)
+        peers = [str(peer) for peer in lan]
+        # The whole prefix: its first address, its last one and the host's own.
+        assert len(peers) == lan.num_addresses
+        assert {str(lan[0]), str(lan[-1]), scope.host_ipv4} <= set(peers)
+        target = str(snapshot.services[profile.service].data["ipv4"])
+        inner = profile.target_ports or profile.ports
+        host = f"{scope.host_ipv4}:{profile.ports.first}"
+        tail = "ESTABLISHED:ESTABLISHED" if profile.protocol == "tcp" else "SINGLE:MULTIPLE"
+        rows: list[str] = []
+        for port in sorted({inner.first, (inner.first + inner.last) // 2, inner.last}):
+            guest = f"{target}:{port}"
+            for peer in peers:
+                rows += [
+                    f"all {profile.protocol} {peer}:54321 -> {guest} {tail}",
+                    f"all {profile.protocol} {guest} <- {peer}:54321 {tail}",
+                    f"ALL {profile.protocol} {guest} <- {host} <- {peer}:54321 {tail}",
+                    f"ALL {profile.protocol} {peer}:54321 -> {host} -> {guest} {tail}",
+                ]
+        record = record_of(config, profile.id, target)
+        missed = [
+            row.line
+            for row in owner.state_rows("\n".join(rows))
+            if not owner.retained_states(config, profile.id, target, record, (row,))
+        ]
+        assert missed == []
+        checked[profile.id] = len(rows)
+
+    assert checked == {"dns-udp": 1024, "dns-tcp": 1024, "media-udp": 3072}
 
 
 @pytest.mark.parametrize("case", ["no-policy", "no-record", "removed", "digest", "kind"])
@@ -432,6 +700,32 @@ def test_a_guests_own_flow_to_a_lan_peer_from_a_port_of_the_rule_is_not_told_apa
 ) -> None:
     # The rule's own states have these properties too; only the host
     # endpoint's port differs, and it is not consulted.
+    assert retained(environment[1], key, target, row)
+
+
+@pytest.mark.parametrize(
+    "key,target,row",
+    [
+        pytest.param(
+            "dns-udp",
+            RESOLVER,
+            f"all udp {RESOLVER}:53 -> {HOST}:5353 SINGLE:MULTIPLE",
+            id="redirect: the guest sends from its published port",
+        ),
+        pytest.param(
+            "media-udp",
+            MEDIA,
+            f"ALL udp {MEDIA}:45001 -> {HOST}:45001 -> {HOST}:7000 SINGLE:NO_TRAFFIC",
+            id="return profile: a flow from the published range",
+        ),
+    ],
+)
+def test_a_guests_own_flow_to_the_hosts_address_from_a_port_of_the_rule_is_not_told_apart(
+    environment: Any, key: str, target: str, row: str
+) -> None:
+    # A state of the rule whose peer is the host's own address names the
+    # target with a port of the rule and that address, and nothing else. So
+    # does this row, and the direction of a row is not read.
     assert retained(environment[1], key, target, row)
 
 
@@ -525,7 +819,72 @@ def test_a_client_state_of_the_retired_rule_is_invalidated_once(environment: Any
     assert backend.kills == [RESOLVER]
 
 
-def test_an_invalidation_that_fails_keeps_the_retired_record(environment: Any) -> None:
+def test_a_state_whose_peer_is_the_host_is_invalidated_before_its_address_is_reused(
+    environment: Any,
+) -> None:
+    old = address(environment, "resolver")
+    backend = Kernel()
+    environment = active(environment, backend)
+    backend.flow_states = f"all udp {HOST}:54321 -> {old}:53 SINGLE:NO_TRAFFIC"
+    # The resolver moves and another guest is given its former address.
+    moved(environment, {"resolver": "198.51.100.50", "camera": old})
+
+    result, _ = published(environment)
+
+    assert result["phase"] == "inhibited" and "deferred" not in result
+    # One invalidation of the old address, and the state is not listed any
+    # more when the pass ends, before a rule for the new target is loaded.
+    assert backend.kills == [old] and backend.flow_states == ""
+    assert owned(backend) == []
+
+    result, _ = published(environment)
+
+    assert result["phase"] == "committed" and backend.kills == [old]
+    assert backend.rules.count("-> 198.51.100.50 port 53") == 2
+
+
+def test_a_listed_state_whose_peer_is_the_host_holds_back_the_replacement_target(
+    environment: Any,
+) -> None:
+    old = address(environment, "resolver")
+    assert old == RESOLVER
+    backend = Kernel(lasting=[FROM_HOST])
+    environment = active(environment, backend)
+    root = environment[0]
+    moved(environment, {"resolver": "198.51.100.50", "camera": old})
+
+    result, report = published(environment)
+
+    # The old address is invalidated, and the row is listed again at the readback.
+    assert result["phase"] == "inhibited"
+    assert result["deferred"] == {"dns-udp": "states-retained"}
+    assert backend.kills == [old] and owned(backend) == []
+
+    result, report = published(environment)
+
+    # The other profiles return, the tcp one at the new address. This one
+    # keeps its withdrawn record: no replacement target is activated for it.
+    assert result["phase"] == "inhibited"
+    assert result["deferred"] == {"dns-udp": "states-retained"}
+    assert backend.kills == [old, old]
+    assert owned(backend) == ["dns-tcp", "media-udp", "media-udp", "proxy-standard"]
+    assert backend.rules.count("-> 198.51.100.50 port 53") == 1
+    record = root.read("live.json")["records"]["dns-udp"]
+    assert record["active"] is False and record["target_ipv4"] == old
+    assert report.profiles["dns-udp"].data["root_ready"] is False
+
+    backend.lasting.clear()
+    result, report = published(environment)
+
+    assert result["phase"] == "committed" and result["changed"] == ["dns-udp:activate"]
+    assert backend.rules.count("-> 198.51.100.50 port 53") == 2
+    assert backend.kills == [old, old]
+    assert report.profiles["dns-udp"].data["root_ready"] is True
+
+
+def test_an_invalidation_that_fails_ends_the_pass_failed_and_keeps_the_retired_record(
+    environment: Any,
+) -> None:
     approve_all(environment)
     root, _, _, backend, _ = environment
     assert run_pass(environment)["phase"] == "committed"
@@ -533,16 +892,63 @@ def test_an_invalidation_that_fails_keeps_the_retired_record(environment: Any) -
     backend.undrainable = True
     root.write("operator-intent.json", intent_to_dict(Intent().pause()))
 
-    result = run_pass(environment)
+    # The command fails. That is no drain that stays open: the pass raises.
+    with pytest.raises(PFError, match="remaining states"):
+        run_pass(environment)
 
-    assert result["phase"] == "inhibited" and backend.rules == ""
-    assert result["deferred"] == {"dns-udp": "states-retained"}
-    assert set(root.read("live.json")["records"]) == {"dns-udp"}
+    journal = root.read("journal.json")
+    assert journal["phase"] == "failed" and "deferred" not in journal
+    assert backend.rules == "" and backend.flow_states == REDIRECTED
+    records = root.read("live.json")["records"]
+    assert "dns-udp" in records and not any(item["active"] for item in records.values())
 
+    # Resumed, with the command still failing: every pass ends the same way.
+    root.write("operator-intent.json", intent_to_dict(Intent(2, False)))
+    for _ in range(2):
+        with pytest.raises(PFError, match="remaining states"):
+            run_pass(environment)
+        assert root.read("journal.json")["phase"] == "failed" and backend.rules == ""
+        assert "dns-udp" in root.read("live.json")["records"]
+
+    # The command works again. Without the acknowledgement the passes finish
+    # the retirement, stay failed and activate nothing.
     backend.undrainable = False
-    result = run_pass(environment)
-    assert "deferred" not in result and root.read("live.json")["records"] == {}
-    assert backend.flow_states == ""
+    for _ in range(2):
+        result = run_pass(environment)
+        assert result["phase"] == "failed" and "deferred" not in result
+        assert backend.rules == "" and backend.flow_states == ""
+        assert root.read("live.json")["records"] == {}
+
+    acknowledge(root)
+    assert run_pass(environment)["phase"] == "committed"
+    assert "# netorch:dns-udp" in backend.rules
+
+
+def test_a_failing_invalidation_is_never_reported_as_states_retained(environment: Any) -> None:
+    approve_all(environment)
+    root, _, _, backend, snapshots = environment
+    assert run_pass(environment)["phase"] == "committed"
+    # A state of each of two rules is listed, and the command fails.
+    backend.flow_states = f"{REDIRECTED}\n{RETURNED}"
+    backend.undrainable = True
+    root.write("operator-intent.json", intent_to_dict(Intent().pause()))
+    reports: list[Snapshot] = []
+
+    for _ in range(3):
+        with pytest.raises(PFError, match="remaining states"):
+            reconcile(
+                root,
+                lambda config, settings: snapshots[-1],
+                lambda root, settings: backend,
+                now=lambda: STAMP,
+                report=lambda settings, snapshot: reports.append(snapshot),
+            )
+        # There is no result. The journal names no deferral either, and no
+        # report was written that could carry one.
+        journal = root.read("journal.json")
+        assert journal["phase"] == "failed" and "deferred" not in journal
+        assert "states-retained" not in str(journal)
+    assert reports == []
 
 
 class UnreadableOnce(Kernel):
@@ -561,7 +967,7 @@ class UnreadableOnce(Kernel):
 
 
 @pytest.mark.parametrize("unreadable", [3, 4], ids=["before", "after-the-invalidation"])
-def test_a_table_that_cannot_be_read_back_is_not_a_drained_one(
+def test_a_table_that_cannot_be_read_during_a_drain_ends_the_pass_failed(
     environment: Any, unreadable: int
 ) -> None:
     backend = UnreadableOnce(0)
@@ -572,15 +978,30 @@ def test_a_table_that_cannot_be_read_back_is_not_a_drained_one(
     backend.reads = 0
     backend.unreadable = unreadable  # read 1: the pass starts; 2: the tcp profile
 
-    result, _ = published(environment)
+    with pytest.raises(PFError, match="unsupported PF state observation"):
+        published(environment)
 
-    assert result["deferred"] == {"dns-udp": "states-retained"}
-    assert set(root.read("live.json")["records"]) == {"dns-udp"}
+    journal = root.read("journal.json")
+    assert journal["phase"] == "failed" and "deferred" not in journal
+    assert owned(backend) == []
+    records = root.read("live.json")["records"]
+    assert "dns-udp" in records and not any(item["active"] for item in records.values())
     # An invalidation is issued only for a state that a read has shown.
     assert backend.kills == ([] if unreadable == 3 else [RESOLVER])
 
+    # The table can be read again and the pause is lifted. Without the
+    # acknowledgement the passes finish the retirement, stay failed and
+    # activate nothing.
+    root.write("operator-intent.json", intent_to_dict(Intent(2, False)))
+    for _ in range(2):
+        result, _ = published(environment)
+        assert result["phase"] == "failed" and "deferred" not in result
+        assert owned(backend) == [] and root.read("live.json")["records"] == {}
+        assert backend.kills == [RESOLVER]
+
+    acknowledge(root)
     result, _ = published(environment)
-    assert "deferred" not in result and root.read("live.json")["records"] == {}
+    assert result["phase"] == "committed" and "dns-udp" in owned(backend)
     assert backend.kills == [RESOLVER]
 
 
@@ -642,6 +1063,71 @@ def test_withdrawal_fails_closed_while_a_state_of_its_rules_remains(environment:
         "phase": "inhibited",
         "reason": "administrator-withdrawal",
     }
+
+
+def test_withdrawal_fails_closed_while_a_state_whose_peer_is_the_host_is_listed(
+    environment: Any,
+) -> None:
+    resolver = address(environment, "resolver")
+    assert resolver == RESOLVER
+    backend = Kernel(lasting=[FROM_HOST])
+    environment = active(environment, backend)
+    root = environment[0]
+
+    with pytest.raises(PFError, match=REMAIN):
+        withdraw(root, lambda root, settings: backend)
+
+    assert owned(backend) == [] and root.read("journal.json")["phase"] == "failed"
+    assert backend.kills == [resolver]
+    assert all(not item["active"] for item in root.read("live.json")["records"].values())
+
+    backend.lasting.clear()
+    result = withdraw(root, lambda root, settings: backend)
+
+    assert result["withdrawn"] is True and result["guest_states_drained"] is True
+    assert backend.kills == [resolver]
+    assert root.read("live.json") == {"schema_version": 1, "records": {}}
+
+
+def test_withdrawal_invalidates_a_state_whose_peer_is_the_host(environment: Any) -> None:
+    resolver = address(environment, "resolver")
+    backend = Kernel()
+    environment = active(environment, backend)
+    root = environment[0]
+    backend.flow_states = f"all udp {HOST}:54321 -> {resolver}:53 SINGLE:NO_TRAFFIC"
+
+    result = withdraw(root, lambda root, settings: backend)
+
+    # It reports the states drained, and the state is not listed any more.
+    assert result["withdrawn"] is True and result["guest_states_drained"] is True
+    assert backend.kills == [resolver] and backend.flow_states == ""
+    assert root.read("live.json") == {"schema_version": 1, "records": {}}
+
+
+@pytest.mark.parametrize("unreadable", [2, 3], ids=["before", "after-the-invalidation"])
+def test_withdrawal_fails_closed_when_the_table_cannot_be_read(
+    environment: Any, unreadable: int
+) -> None:
+    # A control: the withdrawal never took an error in a drain for a drained state.
+    backend = UnreadableOnce(0)
+    environment = active(environment, backend)
+    root = environment[0]
+    backend.flow_states = REDIRECTED
+    backend.reads = 0
+    backend.unreadable = unreadable  # read 1: the tcp profile
+
+    with pytest.raises(PFError, match="unsupported PF state observation"):
+        withdraw(root, lambda root, settings: backend)
+
+    assert owned(backend) == [] and root.read("journal.json")["phase"] == "failed"
+    records = root.read("live.json")["records"]
+    assert "dns-udp" in records and not any(item["active"] for item in records.values())
+    assert backend.kills == ([] if unreadable == 2 else [RESOLVER])
+
+    result = withdraw(root, lambda root, settings: backend)
+
+    assert result["withdrawn"] is True and result["guest_states_drained"] is True
+    assert backend.kills == [RESOLVER] and backend.flow_states == ""
 
 
 @pytest.mark.parametrize("policy", ["missing", "damaged"])
