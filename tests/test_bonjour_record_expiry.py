@@ -4,6 +4,9 @@ With ``-t`` Apple's client arms ``dispatch_after(exitTimeout)`` with ``exit(0)``
 when it enters its event loop (``Clients/dns-sd.c`` lines 1315-1320 at the
 revision the Bonjour guide cites). Its other ``exit(0)``, for a daemon that has
 stopped, first prints ``Error code %d`` on a line of its own (lines 245-246).
+An unknown interface returns 0 as well, through ``Fail:`` (lines 2104 and
+2405-2408), and a callback can arrive after the last poll that saw the client
+running. So the end is an expiry only if the complete output is clean.
 The fake client below follows that source and prints the banner and the two
 confirmation callbacks in its format. Synthetic names and RFC 5737 addresses
 only; nothing here is a capture from a host.
@@ -15,6 +18,7 @@ import os
 import selectors
 import sys
 import time
+from collections.abc import Callable
 from dataclasses import replace
 from typing import Any, ClassVar
 
@@ -87,8 +91,12 @@ def ended_registration(status: int, age: float, output: bytes) -> native.Registr
     ("status", "age", "output", "expired"),
     [
         (0, 30.0, CONFIRMED, True),
-        # The banner echoes names and TXT; only a line of its own is the diagnostic.
-        (0, 30.0, CONFIRMED.replace(b"port 7000", b"port 7000 TXT note=Error code 7"), True),
+        # The banner echoes TXT with every space escaped (ShowTXTRecord, line 806),
+        # so these words in TXT are not the diagnostic.
+        (0, 30.0, CONFIRMED.replace(b"port 7000", rb"port 7000 TXT note=Error\ code\ 7"), True),
+        # Unescaped in the banner they fail a running client, and so an ended one:
+        # the diagnostic goes to stderr and can follow a banner that stdio cut.
+        (0, 30.0, CONFIRMED.replace(b"port 7000", b"port 7000 TXT note=Error code 7"), False),
         (0, 10.0, CONFIRMED, False),
         (1, 30.0, CONFIRMED, False),
         (255, 30.0, CONFIRMED, False),
@@ -98,7 +106,8 @@ def ended_registration(status: int, age: float, output: bytes) -> native.Registr
     ],
     ids=[
         "own-timer",
-        "own-timer-with-the-words-in-its-banner",
+        "own-timer-with-the-words-in-its-txt-as-echoed",
+        "status-0-with-the-words-unescaped-in-its-banner",
         "status-0-before-the-lifetime",
         "status-1",
         "status-255",
@@ -145,6 +154,192 @@ def test_last_line_of_an_ended_client_is_read_before_its_exit_is_judged() -> Non
         os.close(read_end)
     assert caught.value.reason == "unavailable"
     assert not isinstance(caught.value, native.RegistrationExpired)
+
+
+SERVICE = b"Example speaker._airplay._tcp.local."
+ACTIVE = b": Name now registered and active\n"
+# printtimestamp() writes this before the text of every callback line.
+LATER = b"22:03:47.250  "
+REMOVED = LATER + b"Got a reply for service " + SERVICE + b": Name registration removed\n"
+UNSTAMPED = b"Got a reply for service " + SERVICE + ACTIVE
+# main(): "Unknown interface %s\n" (line 2104), then Fail: prints the usage and
+# returns 0. The first usage line stands for all of them.
+UNKNOWN_INTERFACE = (
+    b"Unknown interface example0\n"
+    b"dns-sd -E                          (Enumerate recommended registration domains)\n"
+)
+# The client leaves stdio's defaults: stdout to a pipe is written in full blocks,
+# stderr at once. Here a block ended inside the banner, the daemon stopped, the
+# diagnostic followed the cut and exit(0) flushed the rest. (A real block is longer.)
+GLUED_TO_THE_BANNER = (
+    b"Using interface 7\n"
+    b"Registering Service " + SERVICE + b" host speaker.local. port 7000 TXT model="
+    b"Error code -65563\n"
+    b"AudioAccessory5,1\n"
+    b"DATE: ---Mon 05 Oct 2026---\n"
+    b"22:03:17.123  ...STARTING...\n"
+)
+OVERSIZED = CONFIRMED.replace(b"port 7000", b"port 7000 TXT " + b"x" * native.MAX_OUTPUT)
+
+
+@pytest.mark.parametrize(
+    ("output", "confirmed"),
+    [
+        (CONFIRMED + REMOVED, True),
+        (
+            CONFIRMED
+            + LATER
+            + b"Got a reply for service Example speaker (2)._airplay._tcp.local."
+            + ACTIVE,
+            True,
+        ),
+        (CONFIRMED + LATER + b"Got a reply for record other.local." + ACTIVE, True),
+        (CONFIRMED + LATER + b"Got a reply for service " + SERVICE + b": Error -65570\n", True),
+        (CONFIRMED + b"    No Authorization\n", True),
+        (CONFIRMED + b"DNSService call failed -65563\n", True),
+        # The loop without libdispatch prints this and main() returns 0 (line 1377).
+        (CONFIRMED + LATER + b"DNSServiceProcessResult returned -65563\n", True),
+        (UNKNOWN_INTERFACE, False),
+        (CONFIRMED + LATER + b"Error code -65563\n", True),
+        (GLUED_TO_THE_BANNER, False),
+        (CONFIRMED + b"Error code -65563\r\n", True),
+        (CONFIRMED + LATER + b"Got a reply for record speaker.local.: Name now regis", True),
+        # Every line is as expected; only the last newline is missing.
+        (CONFIRMED[:-1], True),
+        (CONFIRMED + UNSTAMPED, True),
+        (b"", False),
+        (OVERSIZED, True),
+        # main() prints the requested interface once, before anything else (line 2135).
+        (CONFIRMED.replace(b"Using interface 7\n", b""), True),
+        (CONFIRMED + b"Using interface 7\n", True),
+        (CONFIRMED.replace(b"Using interface 7\n", b"Using interface 8\n"), True),
+        (UNKNOWN_INTERFACE.split(b"\n", 1)[1], False),
+    ],
+    ids=[
+        "removal-callback",
+        "confirmation-for-another-service-name",
+        "confirmation-for-another-host-record",
+        "callback-with-error-65570",
+        "no-authorization-line",
+        "dnsservice-call-failed-line",
+        "dnsservice-returned-line",
+        "unknown-interface-and-usage",
+        "error-code-directly-after-an-unterminated-line",
+        "error-code-glued-to-a-cut-banner",
+        "error-code-line-ending-in-a-carriage-return",
+        "confirmation-cut-in-the-middle",
+        "last-line-without-its-newline",
+        "callback-without-the-timestamp",
+        "nothing-printed",
+        "more-output-than-the-bound",
+        "no-interface-line",
+        "interface-line-twice",
+        "line-for-another-interface",
+        "usage-text-only",
+    ],
+)
+def test_status_zero_at_the_lifetime_is_no_expiry_unless_the_whole_output_is_clean(
+    output: bytes, confirmed: bool
+) -> None:
+    registration = ended_registration(0, 30.0, output)
+    registration.active = confirmed
+    with pytest.raises(native.DiscoveryFailure) as caught:
+        registration.poll()
+    # An ended client keeps the general reason; only the expiry got narrower.
+    assert caught.value.reason == "unavailable"
+    assert not isinstance(caught.value, native.RegistrationExpired)
+    assert registration.active is confirmed
+
+
+@pytest.mark.parametrize(
+    ("output", "confirmed"),
+    [
+        # A lifetime can be shorter than the confirmation takes.
+        (CONFIRMED[: CONFIRMED.index(b"22:03:17.900")], False),
+        (CONFIRMED + LATER + b"Got a reply for record speaker.local." + ACTIVE, True),
+        # The confirmation arrived after the last poll that saw the client running.
+        (CONFIRMED, False),
+    ],
+    ids=["banner-only", "expected-confirmation-repeated", "confirmed-after-the-last-poll"],
+)
+def test_clean_end_stays_an_expiry_and_does_not_change_the_confirmed_state(
+    output: bytes, confirmed: bool
+) -> None:
+    registration = ended_registration(0, 30.0, output)
+    registration.active = confirmed
+    with pytest.raises(native.RegistrationExpired):
+        registration.poll()
+    # The publisher reads this to decide whether the record keeps the policy's
+    # state; judging the end does not change what the last running poll found.
+    assert registration.active is confirmed
+
+
+class Running:
+    """The process handle of a client that has not ended."""
+
+    def poll(self) -> None:
+        return None
+
+
+def running_registration(output: bytes) -> native.Registration:
+    registration = ended_registration(0, 0.0, output)
+    registration.process = Running()  # type: ignore[assignment]
+    registration.active = False
+    return registration
+
+
+@pytest.mark.parametrize(
+    ("output", "reason"),
+    [
+        (CONFIRMED + REMOVED, "identity-mismatch"),
+        (CONFIRMED + UNSTAMPED, "malformed"),
+        (
+            CONFIRMED + LATER + b"Got a reply for service " + SERVICE + b": Error -65570\n",
+            "local-network-denied",
+        ),
+        (CONFIRMED + b"    No Authorization\n", "local-network-denied"),
+        (CONFIRMED + b"DNSService call failed -65563\n", "malformed"),
+        (UNKNOWN_INTERFACE, "malformed"),
+        (GLUED_TO_THE_BANNER, "malformed"),
+        (CONFIRMED.replace(b"port 7000", b"port 7000 TXT note=Error code 7"), "malformed"),
+        (OVERSIZED, "incomplete"),
+    ],
+    ids=[
+        "removal-callback",
+        "callback-without-the-timestamp",
+        "callback-with-error-65570",
+        "no-authorization-line",
+        "dnsservice-call-failed-line",
+        "unknown-interface-and-usage",
+        "error-code-glued-to-a-cut-banner",
+        "the-words-unescaped-in-its-banner",
+        "more-output-than-the-bound",
+    ],
+)
+def test_running_client_keeps_failing_with_the_specific_reason(output: bytes, reason: str) -> None:
+    with pytest.raises(native.DiscoveryFailure) as caught:
+        running_registration(output).poll()
+    assert caught.value.reason == reason
+    assert not isinstance(caught.value, native.RegistrationExpired)
+
+
+def test_running_client_keeps_a_partial_last_line_until_its_newline() -> None:
+    registration = running_registration(CONFIRMED + REMOVED[:-4])
+    # The complete lines confirm; the cut callback is not judged yet.
+    assert registration.poll() is True
+    registration.output.extend(REMOVED[-4:])
+    with pytest.raises(native.DiscoveryFailure) as caught:
+        registration.poll()
+    assert caught.value.reason == "identity-mismatch"
+
+
+def test_running_client_that_does_not_confirm_times_out_after_five_seconds() -> None:
+    registration = running_registration(CONFIRMED[: CONFIRMED.index(b"22:03:17.900")])
+    assert registration.poll() is False
+    registration.started -= 5.1
+    with pytest.raises(native.DiscoveryFailure) as caught:
+        registration.poll()
+    assert caught.value.reason == "timed-out"
 
 
 class Child:
@@ -324,6 +519,99 @@ def test_policy_stays_present_and_counts_confirmed_records_during_a_renewal(
     Child.made[2].end = native.DiscoveryFailure("unavailable")
     assert tick() == ("unknown", "unavailable", 0)
     assert second.closed and not manager.children
+
+
+class Scripted(native.Registration):
+    """Registration.poll as shipped; the test writes the client's output and its end."""
+
+    made: ClassVar[list[Scripted]] = []
+
+    def __init__(self, record: Record, index: int, lifetime_seconds: int = 120) -> None:
+        self.record = record
+        self.index = index
+        self.lifetime_seconds = lifetime_seconds
+        self.closed = False
+        self.active = False
+        self.started = self.spawned = time.monotonic()
+        self.process = Running()  # type: ignore[assignment]
+        self.selector = Idle()  # type: ignore[assignment]
+        self.service = f"{record.name}.{record.service_type}.local."
+        self.output = bytearray(
+            (
+                f"Using interface {index}\n"
+                f"Registering Service {self.service} host {record.hostname} port {record.port}\n"
+                "DATE: ---Mon 05 Oct 2026---\n"
+                "22:03:17.123  ...STARTING...\n"
+                f"22:03:17.900  Got a reply for record {record.hostname}"
+                ": Name now registered and active\n"
+                f"22:03:18.100  Got a reply for service {self.service}"
+                ": Name now registered and active\n"
+            ).encode()
+        )
+        Scripted.made.append(self)
+
+    def end_on_timer(self, final: str = "") -> None:
+        """Print ``final`` after the last poll, then exit with status 0 at the lifetime."""
+        self.output.extend(final.encode())
+        self.process = Ended(0)  # type: ignore[assignment]
+        self.spawned = time.monotonic() - self.lifetime_seconds
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def scripted_policy(
+    config: Config, settings: owner.BonjourSettings
+) -> tuple[owner.Publisher, Callable[[], tuple[str, str, int]]]:
+    """The import policy with two leased records, published through Scripted clients."""
+    current = snapshot(config)
+    store = Store(settings.state_dir)
+    requests, candidates = lease(config, settings, current, two_records(), 1000)
+    store.write("requests.json", requests)
+    store.write("candidates.json", candidates)
+    proof = (current, Intent(), READY, {"wired-lan": (7, 9)})
+    Scripted.made = []
+    manager = owner.Publisher(Scripted)
+
+    def tick() -> tuple[str, str, int]:
+        fact = owner.publisher_tick(config, settings, store, manager, proof, 0, 1000).profiles[
+            "media-import"
+        ]
+        return fact.state, fact.reason, fact.data["record_count"]
+
+    return manager, tick
+
+
+def test_removal_in_the_final_output_of_a_client_ended_at_its_lifetime_withdraws_the_policy(
+    config: Config, settings: owner.BonjourSettings
+) -> None:
+    manager, tick = scripted_policy(config, settings)
+    assert tick() == ("present", "verified", 2)
+    first, second = Scripted.made
+    assert first.active and second.active
+    # The daemon reports the name removed after the last poll that saw the client
+    # running; then the client's own timer ends it with status 0.
+    first.end_on_timer(
+        f"22:03:47.250  Got a reply for service {first.service}: Name registration removed\n"
+    )
+    assert tick() == ("unknown", "unavailable", 0)
+    # Every registration of the policy is closed and nothing was started again.
+    assert first.closed and second.closed and not manager.children
+    assert Scripted.made == [first, second]
+
+
+def test_clean_final_output_of_a_client_ended_at_its_lifetime_renews_that_record_alone(
+    config: Config, settings: owner.BonjourSettings
+) -> None:
+    manager, tick = scripted_policy(config, settings)
+    assert tick() == ("present", "verified", 2)
+    first, second = Scripted.made
+    # The same end with nothing else printed stays the expiry of one record.
+    first.end_on_timer()
+    assert tick() == ("present", "verified", 1)
+    assert first.closed and not second.closed and len(Scripted.made) == 3
+    assert Scripted.made[2].record == first.record and second in manager.children.values()
+    assert tick() == ("present", "verified", 2)
 
 
 FAKE_CLIENT = r"""#!{python}

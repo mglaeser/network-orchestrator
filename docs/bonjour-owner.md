@@ -161,10 +161,20 @@ second lifetime bound prevents indefinitely orphaned registrations; normal
 supervision renews from fresh evidence after client expiry. Actual renewal and
 cache propagation behavior remain native acceptance gates.
 
-A client that exits with status 0 at or after its own `-t` lifetime, without an
-`Error code` line, has ended on that timer: `Clients/dns-sd.c` lines 1315-1320 at
-the revision above arm it with `exit(0)`, and lines 245-246 show the other
-`exit(0)`, which prints that line first. This is the expiry of one record, not a
+A client that exits with status 0 at or after its own `-t` lifetime, with clean
+output, has ended on that timer: `Clients/dns-sd.c` lines 1315-1320 at the
+revision above arm it with `exit(0)`. Clean is judged on the whole output,
+including what arrived after the last poll that saw the client running: it must
+end with a newline, show the line `Using interface <index>` for the requested
+interface exactly once, be at most 1 MiB and pass the content checks of a
+running client, that is, contain no `-65570`, `No Authorization`, `Error code`,
+`error code` or `Unknown interface`, no line with `DNSService` followed by
+`returned` or `failed`, and no `Got a reply for service` or
+`Got a reply for record` line other than the two timestamped confirmations of
+this record. In the libdispatch build that these lines belong to, a
+registration has two more ends with status 0, and neither output is clean:
+lines 245-246 print an `Error code` line first, and lines 2104 and 2405-2408
+print `Unknown interface` and the usage. This is the expiry of one record, not a
 failure. The publisher replaces that client alone, with the lease that is left
 and only after the old client has ended, so it never runs two clients for one
 record. Sibling registrations keep running. A record that was confirmed keeps
@@ -172,7 +182,7 @@ the policy's state while its replacement confirms; the five-second confirmation
 limit bounds that, and the observation's `record_count` leaves the record out
 until then. The record is not registered between the two clients. A replacement that
 fails, and every other exit (another status, a signal, status 0 before the
-lifetime or after an `Error code` line), is a registration-child failure as
+lifetime or with output that is not clean), is a registration-child failure as
 before. Renewal still needs fresh evidence: without it the lease ends and the
 policy withdraws.
 
