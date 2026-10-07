@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
-from .bonjour_process import DiscoveryFailure, Registration, interface_index, scan
+from .bonjour_process import MAX_LEFT_OUT, DiscoveryFailure, Registration, interface_index, scan
 from .codec import canonical_bytes, digest, strict_loads
 from .config import config_digest, load_config, profile_digest
 from .discovery import (
@@ -511,7 +511,12 @@ def scan_policy(
     interfaces: dict[str, tuple[int, int]],
     now: float,
 ) -> tuple[tuple[Record, ...], int]:
-    """The policy's projected records and the number of instances left out."""
+    """The policy's projected records and the number of instances left out.
+
+    Instances are left out only beside at least one instance of the policy
+    that was read in the same pass. Where none was read, the pass fails for
+    the policy instead of leaving any out.
+    """
     scope = config.scope(policy.scope)
     guest = next(item for item in settings.scopes if item.id == policy.scope)
     source = scope.interface if policy.direction == "import" else guest.guest_interface
@@ -542,6 +547,12 @@ def scan_policy(
             collected.extend(future.result(timeout=max(0.01, deadline - time.monotonic())))
             if len(collected) > policy.max_records:
                 raise DiscoveryFailure("incomplete")
+    # Nothing is left out unless something was read, of any type and whatever
+    # is then selected from it: a pass that read no instance of the policy
+    # does not show that its reader works, and it fails for the policy as it
+    # did before instances were left out.
+    if left_out and not collected:
+        raise DiscoveryFailure("incomplete")
     projected = project_records(config, policy, tuple(collected), snapshot, ready, settings, now)
     return projected, len(left_out)
 
@@ -635,11 +646,11 @@ def lease_records(
         "observed_at",
     }:
         return None
-    # Instances the scan left out: absent while none, at most one per browsed
-    # name of each type.
+    # Instances the scans left out: absent while none, at most MAX_LEFT_OUT of
+    # each type, and of no type more than the names its browse may list.
+    bound = min(MAX_LEFT_OUT, policy.max_records) * len(policy.types)
     if "skipped" in candidate and (
-        type(candidate["skipped"]) is not int
-        or not 1 <= candidate["skipped"] <= policy.max_records * len(policy.types)
+        type(candidate["skipped"]) is not int or not 1 <= candidate["skipped"] <= bound
     ):
         return None
     endpoint = snapshot.services.get(policy.service)
