@@ -797,15 +797,23 @@ def test_a_launch_file_replaced_while_it_is_read_is_not_the_expected_one(
 ) -> None:
     world = World(enrolled, tmp_path)
     real = os.read
+    launch = world.launch.stat()
+
+    def launch_file(fd: int) -> bool:
+        # `os.read` is patched for the whole process: on macOS the ACL check of the
+        # identity reads `/bin/ls -lde` through a pipe, and that read stays untouched.
+        info = os.fstat(fd)
+        return (info.st_dev, info.st_ino) == (launch.st_dev, launch.st_ino)
 
     def replacing(fd: int, count: int) -> bytes:
         data = real(fd, count)
-        if data:
+        if data and launch_file(fd):
             os.utime(world.launch, ns=(1, 1))
         return data
 
     def growing(fd: int, count: int) -> bytes:
-        return real(fd, count) + b" "
+        data = real(fd, count)
+        return data + b" " if launch_file(fd) else data
 
     for changed in (replacing, growing):
         with monkeypatch.context() as patch, pytest.raises(runtime.RuntimeReadError):
