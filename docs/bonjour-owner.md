@@ -421,12 +421,29 @@ setting:
 - every line a reader refuses in an answer, a reply for another interface
   among them;
 - more names or records than `max_records`, a duplicate, an unverified
-  dependency and whatever else the pass refuses after it has read;
+  dependency and whatever else the pass refuses after it has read, except a
+  pass in which no listed instance answered (below);
 - a client that cannot be started and every other error that is not the
   reader's own;
 - a scan whose time is used up, as the next paragraph says;
 - a pass in which one scan failed in one of these ways, whatever another scan
   of it did.
+
+One refusal of the pass itself counts the same way: a pass of a policy in
+which the browse listed instances and none of them answered its resolve at
+all. Each such instance printed no reply line, so it was left out, and the
+pass read nothing; it fails with `incomplete`, at the rule that nothing is
+left out unless something was read
+([above](#one-instance-and-the-scan-as-a-whole)) or where a scan reached its
+fifth such instance before it had read one. With the setting it counts as one
+miss, also beside another scan of the pass whose read did not complete, and
+its candidate names it `malformed`, as for every read that did not complete;
+where nothing can be kept it stands with `incomplete`. An instance that printed
+any reply line has answered, also where its replies cannot be used (replies
+that differ, a port or target that cannot be published), and a pass with such
+an instance and nothing read keeps failing, beside another scan whose read did
+not complete as well; so does a scan at its fifth instance left out where
+another scan of the pass read one.
 
 A scan has 45 seconds for one service type, and the scanner waits as long
 for it, or half the lease where that is less. A scan whose time is used up is
@@ -446,8 +463,8 @@ report or an interface check), a scanner restart and a changed digest or
 generation forget as before.
 
 A failed pass that counted as a miss stays visible. Its candidate has
-`tolerated_failure` with the reason, which is `malformed`, in the place of
-`reason`, and the observation of a policy that reads `present` from that
+`tolerated_failure` with the reason, which is `malformed` (also for a pass in
+which no listed instance answered), in the place of `reason`, and the observation of a policy that reads `present` from that
 candidate shows the same member beside `record_count`. A pass that completes
 writes neither. The policy keeps reading `present` while its records are
 kept, so whoever wants to know that passes are failing reads that member. The

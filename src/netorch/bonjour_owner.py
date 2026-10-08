@@ -746,6 +746,10 @@ class MissedSources:
 # The reader marks no failure with another reason: a scan whose own time is
 # used up (timed-out) is never a read that did not complete.
 _COUNTED_AS_MISS = frozenset({"malformed"})
+# The reason of a pass in which the browse listed instances and none of them
+# answered its resolve at all (scan_policy). Counted as a miss, such a pass is a
+# read that did not complete, and its candidate names it as the list above does.
+_UNANSWERED = "incomplete"
 
 
 def counts_as_miss(failure: BaseException) -> bool:
@@ -758,12 +762,17 @@ def counts_as_miss(failure: BaseException) -> bool:
     list besides. A denial, every other error code, a command that did not
     show the verified interface, whatever a reader refuses in an answer it
     read, what the pass itself refuses afterwards, a scan whose time is used
-    up and every exception that is not a DiscoveryFailure never count.
+    up and every exception that is not a DiscoveryFailure never count. One
+    refusal of the pass counts as well, marked `unanswered` by scan_policy: a
+    pass in which the browse listed instances and none of them answered.
     """
     return (
         isinstance(failure, DiscoveryFailure)
         and failure.unfinished
-        and failure.reason in _COUNTED_AS_MISS
+        and (
+            failure.reason in _COUNTED_AS_MISS
+            or (failure.unanswered and failure.reason == _UNANSWERED)
+        )
     )
 
 
@@ -792,22 +801,42 @@ def carried_through(
     return records
 
 
-def _only_unfinished(futures: list[Future[tuple[Record, ...]]], deadline: float) -> bool:
+def _only_unfinished(
+    futures: list[Future[tuple[Record, ...]]],
+    deadline: float,
+    left_out: list[str],
+    unanswered: list[str],
+) -> bool:
     """Whether each scan of a pass completed or failed by a read that did not complete.
 
     A scan that has not ended when the scanner's wait for a scan is over has
     used up its time. That is never a miss: not here, not where scan_policy
     waits for the scan's result, and not where the scan itself finds no time
     left (bonjour_process.scan).
+
+    A scan that stopped at its fifth instance left out counts only where none
+    of them answered and the pass read no instance. Where the pass left
+    instances out and read none, each of them must not have answered at all:
+    an instance that answered with what cannot be used keeps the pass failing,
+    whatever another scan of it did.
     """
+    read = stopped = False
     for item in futures:
         try:
             error = item.exception(timeout=max(0.01, deadline - time.monotonic()))
         except TimeoutError:
             return False
-        if error is not None and not counts_as_miss(error):
+        if error is None:
+            read = read or bool(item.result())
+        elif (
+            isinstance(error, DiscoveryFailure) and error.unanswered and error.reason == _UNANSWERED
+        ):
+            stopped = True
+        elif not counts_as_miss(error):
             return False
-    return True
+    if stopped and read:
+        return False
+    return read or len(unanswered) == len(left_out)
 
 
 def scan_policy(
@@ -835,6 +864,7 @@ def scan_policy(
     inspected = snapshot.services[policy.service].data.get("ipv4")
     guest_ipv4 = inspected if policy.direction == "export" and isinstance(inspected, str) else None
     left_out: list[str] = []
+    unanswered: list[str] = []
     with ThreadPoolExecutor(max_workers=min(8, len(policy.types))) as pool:
         futures = [
             pool.submit(
@@ -847,6 +877,7 @@ def scan_policy(
                 now,
                 guest_ipv4=guest_ipv4,
                 skipped=left_out,
+                unanswered=unanswered,
             )
             for kind in policy.types
         ]
@@ -859,16 +890,18 @@ def scan_policy(
                 # One read that did not complete says nothing about a scan of
                 # this pass that failed otherwise, a denial for example, or
                 # whose time is used up: every scan of the pass is looked at.
-                failure.unfinished = _only_unfinished(futures, deadline)
+                failure.unfinished = _only_unfinished(futures, deadline, left_out, unanswered)
                 raise
             if len(collected) > policy.max_records:
                 raise DiscoveryFailure("incomplete")
     # Nothing is left out unless something was read, of any type and whatever
     # is then selected from it: a pass that read no instance of the policy
     # does not show that its reader works, and it fails for the policy as it
-    # did before instances were left out.
+    # did before instances were left out. Where none of them answered at all,
+    # its read did not complete, as where a scan stops at its fifth such one.
     if left_out and not collected:
-        raise DiscoveryFailure("incomplete")
+        silent = _only_unfinished(futures, deadline, left_out, unanswered)
+        raise DiscoveryFailure(_UNANSWERED, unfinished=silent, unanswered=silent)
     sources = tuple(collected)
     if missed is not None:
         sources += missed(sources)
@@ -913,8 +946,10 @@ def scan_pass(
                 records = carried_through(config, settings, policy, snapshot, ready, now, missed)
                 if records:
                     # Written as a completed pass that carried them, and the
-                    # failure stays visible beside them.
-                    tolerated, error = error, None
+                    # failure stays visible beside them. A pass in which no
+                    # instance answered is named as the closed list names a
+                    # read that did not complete.
+                    tolerated, error = ("malformed" if error == _UNANSWERED else error), None
         candidates[policy.id] = {
             "policy_digest": discovery_digest(config, policy),
             "service_generation": snapshot.services[policy.service].generation,

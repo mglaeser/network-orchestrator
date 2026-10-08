@@ -39,7 +39,9 @@ _STARTING = rf"{_STAMP}  \.\.\.STARTING\.\.\."
 
 
 class DiscoveryFailure(RuntimeError):
-    def __init__(self, reason: str = "malformed", *, unfinished: bool = False) -> None:
+    def __init__(
+        self, reason: str = "malformed", *, unfinished: bool = False, unanswered: bool = False
+    ) -> None:
         super().__init__(reason)
         self.reason = reason
         # True only where a scan's read did not complete (unfinished_read):
@@ -49,6 +51,10 @@ class DiscoveryFailure(RuntimeError):
         # it read is never marked, and neither is a denial, any other error
         # code or a scan whose own time is used up.
         self.unfinished = unfinished
+        # True only where no instance this failure concerns answered at all: an
+        # instance left out because its resolve printed no reply line, or a scan
+        # that stopped at its fifth such instance before it had read one.
+        self.unanswered = unanswered
 
 
 class RegistrationExpired(DiscoveryFailure):
@@ -304,15 +310,18 @@ class InstanceUnusable(DiscoveryFailure):
     """
 
 
-def _unusable(raw: bytes, reason: str = "malformed") -> DiscoveryFailure:
+def _unusable(
+    raw: bytes, reason: str = "malformed", *, unanswered: bool = False
+) -> DiscoveryFailure:
     """The failure for replies that were all read and give no usable value.
 
     Without the start line the client has not shown that it waited for a
-    reply, and the command fails as it did before.
+    reply, and the command fails as it did before; only an instance that it
+    waited for can be one that did not answer.
     """
     if re.search(rb"(?m)^" + _STARTING.encode() + rb"$", raw) is None:
         return DiscoveryFailure(reason)
-    return InstanceUnusable(reason)
+    return InstanceUnusable(reason, unanswered=unanswered)
 
 
 def resolve_endpoint(raw: bytes, index: int) -> tuple[str, str, int]:
@@ -371,7 +380,8 @@ def resolve_endpoint(raw: bytes, index: int) -> tuple[str, str, int]:
             # none at all; the TXT display never holds two adjacent spaces.
             raise _refused(line, rb"[^ ]* error code -65570")
     if len(unique) != 1:
-        raise _unusable(raw)
+        # Without any reply line the instance did not answer its resolve at all.
+        raise _unusable(raw, unanswered=not unique)
     fullname, host, port = unique.pop()
     if not 1 <= port <= 65535 or not host.endswith(".local."):
         raise _unusable(raw)
@@ -466,12 +476,15 @@ def scan(
     *,
     guest_ipv4: str | None = None,
     skipped: list[str] | None = None,
+    unanswered: list[str] | None = None,
 ) -> tuple[Record, ...]:
     """Browse one type and resolve each instance; a failed command fails the scan.
 
     Only an instance whose own replies are unusable is left out, and its name
-    is added to ``skipped``. At most MAX_LEFT_OUT are left out; one more fails
-    the scan. ``guest_ipv4`` is the export rule of resolve_ipv4.
+    is added to ``skipped``; also to ``unanswered`` where its resolve printed
+    no reply line at all. At most MAX_LEFT_OUT are left out; one more fails
+    the scan, marked ``unanswered`` where none of them answered and nothing
+    was read before. ``guest_ipv4`` is the export rule of resolve_ipv4.
     """
     deadline = time.monotonic() + max_seconds
 
@@ -511,8 +524,9 @@ def scan(
             raise
 
     names = browse_names(query(["-B", service_type, "local."]), service_type, index, limit)
-    result = []
+    result: list[Record] = []
     left_out = 0
+    silent = 0
     for name in names:
         # query() never raises InstanceUnusable: a command that cannot prove
         # itself, a diagnostic and the scan's time budget end the whole scan.
@@ -528,10 +542,15 @@ def scan(
                 raise InstanceUnusable() from exc
         except InstanceUnusable as exc:
             left_out += 1
+            silent += exc.unanswered
             if left_out > MAX_LEFT_OUT:
-                raise DiscoveryFailure("incomplete") from exc
+                raise DiscoveryFailure(
+                    "incomplete", unanswered=silent == left_out and not result
+                ) from exc
             if skipped is not None:
                 skipped.append(name)
+            if exc.unanswered and unanswered is not None:
+                unanswered.append(name)
             continue
         result.append(record)
     return tuple(result)
