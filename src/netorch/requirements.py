@@ -180,12 +180,36 @@ REQUIREMENTS = (
     ),
     _requirement(
         "ROOT-HARD-BOUNDS",
-        "No profile widens interface, IPv4 scope or admitted rule shape.",
+        (
+            "No profile widens interface, IPv4 scope or admitted rule shape beyond what "
+            "its policy declares and root admitted for it."
+        ),
         "Rule2",
         "root-transport",
         ("first-packet",),
         3,
-        ("test_unknown_strategy_or_version_is_rejected",),
+        (
+            "test_unknown_strategy_or_version_is_rejected",
+            "test_admission_of_an_unrestricted_source_needs_its_own_acknowledgement",
+            "test_existing_rules_keep_their_bytes",
+            "test_renderer_itself_never_emits_any_for_a_guest_target_or_a_return_pair",
+            "test_record_without_the_acknowledgement_never_activates_an_unrestricted_source",
+        ),
+    ),
+    _requirement(
+        "ANY-SOURCE-INGRESS",
+        (
+            "A first packet from outside the LAN prefix is answered through each redirect "
+            "with an unrestricted source; a LAN client proves nothing about that setting."
+        ),
+        "Rule2",
+        "any-source",
+        ("external-first-packet",),
+        3,
+        (
+            "test_any_source_host_redirect_renders_from_any_to_the_host_address",
+            "test_a_lan_first_packet_record_does_not_prove_the_outside_packet",
+        ),
     ),
     _requirement(
         "BOUNDED-IDENTITY",

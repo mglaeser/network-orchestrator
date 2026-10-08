@@ -1262,7 +1262,8 @@
               "process-inventory",
               "local-network-consent",
               "root-runtime-observer",
-              "port-budget"
+              "port-budget",
+              "external-first-packet"
             ]
           },
           "tier": {

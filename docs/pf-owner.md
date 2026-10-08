@@ -462,12 +462,15 @@ back, changes its digest: the loaded rule is withdrawn and nothing is loaded
 until root admits the new digest. As for every host redirect, withdrawal does
 not kill states that already exist.
 
-First-packet evidence for a profile with an unrestricted source is valid only
-when it was captured from a source outside the LAN prefix, through the
-forwarding router; a LAN client proves nothing about this setting. Nothing of
-this has been observed on a host. That the loaded listing of a `from any` rule
-equals its normalized dry-run listing, on which every pass depends, is an open
-native check.
+Evidence that an unrestricted source serves the clients it was declared for is
+a first packet from a source outside the LAN prefix, through the forwarding
+router, and its reply; a LAN client proves nothing about this setting. The
+instance report asks for it under a requirement of its own,
+`ANY-SOURCE-INGRESS`, with the acceptance method `external-first-packet`
+([instances](instances.md)); the method `first-packet` keeps its one meaning.
+Nothing of this has been observed on a host. That the loaded listing of a
+`from any` rule equals its normalized dry-run listing, on which every pass
+depends, is an open native check.
 
 `guest-direct` and `udp-return` target current dynamic guest addresses. Their
 reviewed bounded safety model explicitly accepts the observation race between

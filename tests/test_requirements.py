@@ -25,6 +25,7 @@ APPLICABILITY = frozenset(
         "components",
         "transport",
         "root-transport",
+        "any-source",
         "bounded",
         "bounded-udp",
         "exports",
