@@ -49,18 +49,18 @@ BASE_OUTPUT_SHA256 = {
     "instance.json": {
         "validate": "2086100c7ad81419ef1161d2ab8493034402988f9340dc59f1ab623089387a36",
         "preflight": "e0466b247db6a280787279e842d1a0b74636cfba468827c68d0e383b37f26627",
-        "status": "cb239359488aa413adbcb91db33128a3986728059ae127e22b4cdb71dac5513c",
+        "status": "819680c2c02232d90fb95e67fcf66ac61bf555d8e9eafd690dde797c7127e481",
         "plan": "06cdb6df75215902a420e100e7956f77fd270b2e751cfd8c1c1540be39ef3d7f",
-        "check": "708763e8b952081e1a2086328266520c62d3ca7f7614d848b6bbd50cadab1898",
-        "report": "cb239359488aa413adbcb91db33128a3986728059ae127e22b4cdb71dac5513c",
+        "check": "3390217f1a706df424034519b077fe656e32924607e08ea7570c7949ec3c1fa5",
+        "report": "819680c2c02232d90fb95e67fcf66ac61bf555d8e9eafd690dde797c7127e481",
     },
     "instance-structural.json": {
         "validate": "7725528c672ef2f764f053e3b19ddc11f265cbfb1ce78e835cdcfaffec7ee8fb",
         "preflight": "decf8bde6e9539a15daaa9d1b69109725a7d4b0312cba8a4b11f0e4086341426",
-        "status": "6aac69ca059118340018774809b7e0071449627e370d1f0d1d4b6fedad0ed75f",
+        "status": "cef309f1073105e3e7a3c38991365c0c3ee82094838c13a2302e5cd1d9e3bb79",
         "plan": "fe7056bc6332335dd14ccf8c2ae8a17fbadc2480e5df1dab1937ffd05c82bd4b",
-        "check": "b35e2d3cd718dab04bf98fe9e95629e544296470c7e8a55ef4ebb5a32d9e5e29",
-        "report": "6aac69ca059118340018774809b7e0071449627e370d1f0d1d4b6fedad0ed75f",
+        "check": "2141cb223d27aadafbde678ecbb542c4e8206cfe3933b447f09f71b8e495af00",
+        "report": "cef309f1073105e3e7a3c38991365c0c3ee82094838c13a2302e5cd1d9e3bb79",
     },
 }
 # The same for `validate` where no contract file is found: its answer with `valid` false.
@@ -76,17 +76,17 @@ BASE_STATUS = {"validate": 0, "preflight": 0, "status": 0, "plan": 0, "check": 1
 BASE_NO_CONTRACT_SHA256 = {
     "instance.json": {
         "preflight": BASE_OUTPUT_SHA256["instance.json"]["preflight"],
-        "status": "54b142ef99bdb01b3125dfdefbd47da669c24785e9181590097b4e88b3fc972e",
+        "status": "6fbf3825e9ccb67746039791b54aa26015be49c408406ac59bbba2ce2404fbf0",
         "plan": BASE_OUTPUT_SHA256["instance.json"]["plan"],
-        "check": "93b688e3f9456bac03298128c61dc56fb957717bd24ada6c9320fb760ed3d703",
-        "report": "54b142ef99bdb01b3125dfdefbd47da669c24785e9181590097b4e88b3fc972e",
+        "check": "6973d4a7083a590cbf85047a7dcfb5a5dece6ea8ecea8d309b70190bc631e65d",
+        "report": "6fbf3825e9ccb67746039791b54aa26015be49c408406ac59bbba2ce2404fbf0",
     },
     "instance-structural.json": {
         "preflight": BASE_OUTPUT_SHA256["instance-structural.json"]["preflight"],
-        "status": "06678dd8bde2832878be340aa7b73035be1e4ea0c808caa1cf4a3d84429215a5",
+        "status": "a9fa8b1a8907a6e10572ef85a083887f7ba51b246e9643cee2eb8679f3181301",
         "plan": BASE_OUTPUT_SHA256["instance-structural.json"]["plan"],
-        "check": "77839903f2dabf0e43d73aa9ba5b80274504b45131bc80021ff9c2885451f305",
-        "report": "06678dd8bde2832878be340aa7b73035be1e4ea0c808caa1cf4a3d84429215a5",
+        "check": "0f03b30b7c11416761b2b6a0fb8f10240e5103ada3a0c6fa558da82f334d21f6",
+        "report": "a9fa8b1a8907a6e10572ef85a083887f7ba51b246e9643cee2eb8679f3181301",
     },
 }
 
