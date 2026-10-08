@@ -33,6 +33,7 @@ from .codec import MAX_JSON_BYTES, canonical_bytes, digest, strict_loads
 from .config import backing_publication, parse_config, profile_digest, profile_view, to_dict
 from .model import Config, PortRange, Profile, Scope
 from .planner import Action, plan
+from .platform_contract import PF_ANCHOR_BYTES
 from .process import Result, run
 from .state import (
     Admission,
@@ -50,10 +51,36 @@ from .workflow_gate import NOT_QUALIFIED, StageNotQualified, require_mutation_qu
 STRATEGY = "darwin-pf-v1"
 _ID = re.compile(r"[a-z][a-z0-9-]{0,62}\Z")
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
-# One component directly below the platform namespace: the product's own form, as
-# before, or a site's pinned name. The kernel refuses a component of 64 characters
-# or more, so a pinned name has at most 63. The backend script checks the same.
-_ANCHOR = re.compile(r"com\.apple/(?:netorch\.[a-z][a-z0-9-]{0,62}|[a-z][a-z0-9.-]{0,62})\Z")
+# One component directly below the platform namespace. The kernel refuses to
+# create a component of more than PF_ANCHOR_BYTES bytes, so the expression takes
+# none: a site's pinned name, and the product's own form as well.
+_ANCHOR = re.compile(rf"com\.apple/[a-z][a-z0-9.-]{{0,{PF_ANCHOR_BYTES - 1}}}\Z")
+# The product form is this prefix and the owner identifier. Installation is the
+# one place that builds it, and it holds it to the rule below like any other
+# anchor. The backend script's argument check is not changed by that rule: it
+# does not bound the path, and its first alternative still lets the product
+# form of every identifier through. The record refuses that form for another
+# owner, as before, and for its own owner where the rule below refuses it.
+_PRODUCT = "com.apple/netorch."
+# What the record answers for the product form of a longer identifier. The
+# number is what the bound leaves after the prefix; it is stated nowhere else.
+_NEEDS_PIN = (
+    f"an owner identifier of more than {PF_ANCHOR_BYTES - len(_PRODUCT)} characters "
+    "needs a pinned anchor"
+)
+
+
+def _anchor_accepted(anchor: str) -> bool:
+    """The one rule for an anchor, for the product's own form and for a pinned name.
+
+    The name is one component of the expression above, and the complete path as
+    it is passed to the tool, parent and slash included, has at most
+    PF_ANCHOR_BYTES bytes as well. The expression admits ASCII only, so the
+    characters counted here are bytes.
+    """
+    return _ANCHOR.fullmatch(anchor) is not None and len(anchor) <= PF_ANCHOR_BYTES
+
+
 # A sibling of the owned anchor is somebody else's anchor. Its name is read from
 # a listing and is only ever given to two read-only listings: one component
 # directly below the same parent, of letters, digits, `_`, `.` and `-`, at most
@@ -197,13 +224,18 @@ class Installation:
             not isinstance(self.owner, str)
             or not isinstance(self.anchor, str)
             or not _ID.fullmatch(self.owner)
-            or not _ANCHOR.fullmatch(self.anchor)
+        ):
+            raise PFError("invalid independent PF owner identity")
+        product = _PRODUCT + self.owner
+        if self.anchor == product and not _anchor_accepted(product):
+            # A valid identifier whose own product anchor is longer than the
+            # rule takes. Refused here, where the record is read, instead of
+            # where a pass first hands the name to the tool.
+            raise PFError(_NEEDS_PIN)
+        if not _anchor_accepted(self.anchor) or (
             # The product form still names this installation's own owner, so a
             # pin cannot claim another owner's anchor of that form.
-            or (
-                self.anchor.startswith("com.apple/netorch.")
-                and self.anchor != f"com.apple/netorch.{self.owner}"
-            )
+            self.anchor.startswith(_PRODUCT) and self.anchor != product
         ):
             raise PFError("invalid independent PF owner identity")
         if not isinstance(self.backend_sha256, str) or not _HASH.fullmatch(self.backend_sha256):

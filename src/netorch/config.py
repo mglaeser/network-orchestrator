@@ -31,9 +31,11 @@ class ConfigError(ValueError):
     """Schema or cross-owner invariants are not satisfied."""
 
 
-# The independent root owner names its anchor after its own identifier and keys
-# its protected admission and rule records by the identifiers of its profiles.
-# Those stores accept one character fewer than the schema's 64.
+# The independent root owner's installation record holds its own identifier, and
+# its protected admission and rule records are keyed by the identifiers of its
+# profiles. Those stores accept one character fewer than the schema's 64. (The
+# anchor named after the owner ends earlier: that record bounds the whole path
+# of an anchor, and an owner with a longer identifier pins another name.)
 ROOT_IDENTIFIER_LENGTH = 63
 
 

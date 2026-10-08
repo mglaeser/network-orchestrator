@@ -173,14 +173,50 @@ anchor.
 The owned anchor is one name directly below `com.apple/`. It is either the
 product form `com.apple/netorch.<owner>`, which must name this installation's
 own owner, or one pinned component that begins with a lower-case letter and
-has at most 63 characters of `a-z`, `0-9`, `.` and `-`. An existing site can
-therefore keep the one anchor its previous manager used, instead of having two
+consists of `a-z`, `0-9`, `.` and `-`. In both forms the complete name, as it
+is passed to `pfctl` with `com.apple/` in front, has at most 63 bytes: a
+pinned component has at most 53 characters, and the product form exists for
+an owner identifier of at most 45. An existing site can therefore keep the one
+anchor its previous manager used, if that name fits, instead of having two
 managers' rules loaded side by side during a move. The installation record
-and the argument check of the backend script apply the same grammar; the
-script does not know the owner and cannot check whose product form it is
-given. Nested anchors and longer components are refused: the kernel does not
-create an anchor component of 64 characters or more
+and the argument check of the backend script apply the same grammar to a
+pinned name, but the script bounds only the component, at 63 characters, and
+not the complete name. Of the product form the script checks less still: it
+does not know the owner and cannot check whose product form it is given, and
+it lets the product form of every identifier through, up to a component of 71
+characters. No record names what only the script lets through. Nested anchors
+are refused.
+
+The bound of 63 bytes has two sources. The kernel does not create an anchor
+component of 64 bytes or more
 ([xnu `pf_find_or_create_ruleset`](https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.121.6/bsd/net/pf_ruleset.c#L353-L358)).
+Apple does not publish its `pfctl`. The nearest published source of that tool
+copies the whole `-a` argument, parent and slash included, into a buffer of 64
+bytes and stops at 64 bytes or more, on a dry run as well
+([FreeBSD 8.4 `contrib/pf/pfctl/pfctl.c`, `pfctl_rules`, lines 1401-1406](https://github.com/freebsd/freebsd-src/blob/release/8.4.0/contrib/pf/pfctl/pfctl.c#L1401-L1406);
+lines 1446-1451 in release 9.3.0). Until a real `pfctl` has answered, the
+record therefore holds the complete name to the bound of one component. A
+hosted test records what the tool of one hosted macOS image answers for
+arguments of 62, 63, 64 and 73 bytes, and asserts only that 63 are accepted.
+
+The installation record refuses a longer name wherever the record is read: by
+the installer, by every pass, by `withdraw`, `admit` and `review-admission`,
+and where the retained provisioning reads the forwarding settings of a
+bundle. A pass and a withdrawal read the record before they call the backend.
+An owner whose identifier has 46 to 63 characters pins its anchor. The command
+does not name the rule: like every refusal of the owner it prints
+`{"error":"PFError","reason":"independent owner operation failed; inspect protected journal","schema_version":1}`
+on standard error and exits 65, and this refusal writes nothing to the
+journal, because the record is read before a pass begins. The cause is the
+length itself: count the bytes of `anchor` in the settings given to the
+installer, or in the installed record that `status` prints. A record whose
+component has more than 63 bytes, the product form of an identifier of 56 or
+more characters, can never have loaded a rule: the kernel does not create the
+anchor. For a record whose component fits and whose complete name does not
+(the product form of an identifier of 46 to 55 characters, which earlier
+releases accepted), that is not established, because it depends on what the
+real tool takes; such an installation is withdrawn with the release that
+installed it, before the upgrade.
 
 A pinned name never lets the owner take over rules it did not write. Every
 pass stops with a drift error, before any write, while the anchor holds rules

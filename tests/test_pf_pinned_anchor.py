@@ -59,7 +59,7 @@ FOREIGN_RULE = "rdr on lo0 inet proto tcp from any to 192.0.2.10 port 80 -> 192.
 TABLE: list[tuple[str, str, bool, bool]] = [
     # the product form: unchanged, and still tied to this installation's owner
     (PRODUCT, OWNER, True, True),
-    (PREFIX + "netorch." + "o" * 63, "o" * 63, True, True),
+    (PREFIX + "netorch." + "o" * 45, "o" * 45, True, True),
     (PREFIX + "netorch.a", "a", True, True),
     # the backend does not know the owner; the record refuses another owner's form
     (PREFIX + "netorch.other", OWNER, False, True),
@@ -67,13 +67,16 @@ TABLE: list[tuple[str, str, bool, bool]] = [
     (PREFIX + "netorch.site.forwarding", OWNER, False, True),
     (PREFIX + "netorch.", OWNER, False, True),
     (PREFIX + "netorch." + "o" * 64, "o" * 63, False, False),
-    # one pinned component of at most 63 characters
+    # one pinned component; with its parent the complete name has at most 63 bytes
     (PINNED, OWNER, True, True),
     (OTHER_PIN, OWNER, True, True),
     (PREFIX + "netorch", OWNER, True, True),
     (PREFIX + "a", OWNER, True, True),
-    (PREFIX + "a" * 63, OWNER, True, True),
-    (PREFIX + "a" + ".0-" * 20 + "z9", OWNER, True, True),
+    (PREFIX + "a" * 53, OWNER, True, True),
+    (PREFIX + "a" + ".0-" * 16 + "z9z9", OWNER, True, True),
+    # the record bounds the complete name, the backend's check only the component
+    (PREFIX + "a" * 63, OWNER, False, True),
+    (PREFIX + "a" + ".0-" * 20 + "z9", OWNER, False, True),
     (PREFIX + "a" * 64, OWNER, False, False),
     (PREFIX + "a" * 140, OWNER, False, False),
     # nested anchors stay refused
@@ -237,7 +240,7 @@ def staged(tmp_path: Path, environment: Any, settings: Installation) -> tuple[Pa
 
 def test_installation_accepts_the_product_form_only_for_its_own_owner() -> None:
     assert record(PRODUCT).anchor == PRODUCT
-    assert record_accepts(PREFIX + "netorch." + "o" * 63, "o" * 63)
+    assert record_accepts(PREFIX + "netorch." + "o" * 45, "o" * 45)
     for owner in ("other", OWNER + "x", "site"):
         assert not record_accepts(PRODUCT, owner)
         assert not record_accepts(PREFIX + "netorch." + owner)
@@ -250,7 +253,7 @@ def test_installation_accepts_the_product_form_only_for_its_own_owner() -> None:
 def test_installation_accepts_one_pinned_component_and_refuses_nested_or_long_ones() -> None:
     assert record(PINNED).anchor == PINNED
     assert record_accepts(OTHER_PIN)
-    assert record_accepts(PREFIX + "a" * 63) and not record_accepts(PREFIX + "a" * 64)
+    assert record_accepts(PREFIX + "a" * 53) and not record_accepts(PREFIX + "a" * 54)
     assert not record_accepts(PREFIX + "example/nested")
     assert not record_accepts(PINNED + "/child")
     for anchor in (PREFIX, PREFIX + "250.example", PREFIX + "Example", PINNED + "\n", PINNED[1:]):
@@ -280,8 +283,9 @@ def test_installation_grammar_table(
     anchor: str, owner: str, accepted: bool, _backend: bool
 ) -> None:
     assert record_accepts(anchor, owner) is accepted
-    if not anchor.startswith(PREFIX + "netorch."):
-        assert _backend is accepted  # the two places differ only for the product form
+    if not anchor.startswith(PREFIX + "netorch.") and len(anchor) <= 63:
+        # the two places differ only for the product form and for a longer complete name
+        assert _backend is accepted
 
 
 def derived_anchor(name: str) -> str:
@@ -352,7 +356,11 @@ def test_backend_expression_and_installation_agree_on_generated_names() -> None:
     )
     answers = [answer == "1" for answer in result.stdout.split()]
     assert len(answers) == len(candidates) > 500
-    assert answers == [record_accepts(candidate) for candidate in candidates]
+    # The record takes what the expression takes, where the complete name has 63 bytes at most.
+    assert [
+        answer and len(candidate) <= 63
+        for answer, candidate in zip(answers, candidates, strict=True)
+    ] == [record_accepts(candidate) for candidate in candidates]
     assert 0 < sum(answers) < len(answers)
 
 
