@@ -20,7 +20,7 @@ from collections.abc import Callable, Iterator
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from .codec import canonical_bytes, digest, strict_loads
+from .codec import MAX_JSON_BYTES, CodecError, canonical_bytes, digest, strict_loads
 from .config import config_digest, parse_config, to_dict
 from .deployment_config import (
     DeploymentError,
@@ -52,6 +52,13 @@ _OPEN_INSTALL_PHASES = frozenset(
         "starting-jobs",
     }
 )
+# The widest form an installation journal takes after its first write: recovery
+# of an installer that was stopped records the phase it stopped in, and closes
+# the journal with the longest of the phases that can stand beside one.
+_WIDEST_JOURNAL_PHASES = {
+    "failed_phase": max(_OPEN_INSTALL_PHASES, key=len),
+    "phase": "rolled-back",
+}
 # The forwarding owner exits 75 when it could not take its own lock; it has then
 # done nothing. Its scheduled pass holds that lock, and the job an installation
 # loads starts such a pass at once. Half of the 10-second example schedule is
@@ -810,6 +817,16 @@ def _root_hold(deployment: Deployment, holder: str, runner: ToolRunner) -> bool:
     return True
 
 
+def _journal_fits(journal: dict[str, Any]) -> bool:
+    """Whether the state store writes this installation journal in every form it takes."""
+    try:
+        widest = canonical_bytes({**journal, **_WIDEST_JOURNAL_PHASES})
+    except CodecError:
+        return False
+    # The store writes the canonical form and one line end.
+    return len(widest) < MAX_JSON_BYTES
+
+
 def install_bundle(
     bundle: Path,
     scope: str,
@@ -862,6 +879,10 @@ def install_bundle(
                     (deployment.launchctl, "print", f"{installation.domain}/{item['label']}"),
                 )
             return {"phase": "unchanged", "release_id": manifest["release_id"]}
+        # The journal keeps the receipt this installation replaces as it is now,
+        # its own predecessor included: recovery writes exactly that back, so a
+        # recovered release keeps the rollback target it had.
+        replaced = previous
         if previous is not None:
             previous_deployment = parse_deployment(canonical_bytes(previous["deployment"]))
             if previous_deployment.installation(scope) != installation or (
@@ -871,7 +892,8 @@ def install_bundle(
                 raise DeploymentError(
                     "upgrade cannot change installation or forwarding ownership boundaries"
                 )
-            # Keep one explicit predecessor, not an ever-growing nested history.
+            # A new receipt keeps one explicit predecessor, not an ever-growing
+            # nested history.
             previous = {**previous, "previous": None}
         jobs = [job for job in deployment.jobs if job.scope == scope]
         old_jobs = [] if previous is None else previous["jobs"]
@@ -893,6 +915,20 @@ def install_bundle(
             # A retained release is never overwritten. Refuse before the hold is
             # taken and a journal is opened, so that the refusal needs no recovery.
             raise DeploymentError("release already exists without matching committed receipt")
+        journal: dict[str, Any] = {
+            "schema_version": 1,
+            "phase": "staging",
+            "scope": scope,
+            "release_id": manifest["release_id"],
+            "bundle_digest": expected_digest,
+            "previous": replaced,
+            "deployment": deployment_to_dict(deployment),
+        }
+        if not _journal_fits(journal):
+            # The journal holds this release's record, the replaced receipt and
+            # that receipt's predecessor. Refuse like a retained release: before
+            # the hold is taken and the journal is opened.
+            raise DeploymentError("installation journal would exceed its size bound")
         if scope == "user":
             try:
                 intent = intent_from_dict(store.read("intent.json"))
@@ -902,15 +938,6 @@ def install_bundle(
                 raise DeploymentError("damaged intent must be inspected before installation")
             intent = intent.suspend("installation", manifest["bundle_digest"])
             store.write("intent.json", intent_to_dict(intent))
-        journal: dict[str, Any] = {
-            "schema_version": 1,
-            "phase": "staging",
-            "scope": scope,
-            "release_id": manifest["release_id"],
-            "bundle_digest": expected_digest,
-            "previous": previous,
-            "deployment": deployment_to_dict(deployment),
-        }
         store.write("installation-journal.json", journal)
         root_held = False
         try:
@@ -1500,6 +1527,8 @@ def recover_install(
                     runner, (deployment.launchctl, "bootstrap", installation.domain, str(installed))
                 )
                 _tool(runner, (deployment.launchctl, "print", f"{installation.domain}/{label}"))
+            # The receipt as the failed installation found it. A journal of a
+            # release that did not yet keep it whole names no predecessor in it.
             store.write("installation-receipt.json", previous)
             if scope == "user":
                 current = intent_from_dict(store.read("intent.json"))
