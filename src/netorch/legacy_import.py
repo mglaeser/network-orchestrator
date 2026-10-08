@@ -33,6 +33,9 @@ _SECRET_KEY = re.compile(
     re.I,
 )
 _FORMATS = {"json", "plist", "toml", "literal-env", "text-list", "source-inventory"}
+# The two formats without types: every scalar read from them is text, so they
+# can never supply a number. JSON, TOML and a property list tell a number from text.
+_UNTYPED_FORMATS = frozenset({"literal-env", "text-list"})
 # Decisions, acceptance records, deviations, provenance and the release pin are
 # written by a person; a static import never fills them.
 _AUTHORED_SECTIONS = frozenset({"decisions", "acceptance", "deviations", "authoring", "framework"})
@@ -43,6 +46,28 @@ _INTEGER_TEXT = re.compile(r"0|[1-9][0-9]{0,9}")
 _RENDER_KEYS = frozenset({"composed", "translated", "constants", "unexamined", "independent"})
 # A program is recorded by hash and supplies no value; it is not an unread data input.
 INVENTORY_ONLY = "executable-source-not-evaluated"
+# The dialect whose keywords the integer-slot walk reads. The validator judges a
+# subschema that names another dialect by that dialect's rules.
+_DIALECT = "https://json-schema.org/draft/2020-12/schema"
+# Schema keywords whose effect on a member the integer-slot walk does not judge.
+# A node that carries one of them is never an integer slot and never leads to one.
+_UNJUDGED = frozenset(
+    {
+        "patternProperties",
+        "prefixItems",
+        "additionalItems",
+        "unevaluatedProperties",
+        "unevaluatedItems",
+        "allOf",
+        "not",
+        "if",
+        "then",
+        "else",
+        "dependentSchemas",
+        "$ref",
+        "$dynamicRef",
+    }
+)
 
 
 class ImportError(ValueError):
@@ -80,6 +105,9 @@ class ImportResult:
     values: dict[str, Any]
     receipts: tuple[SourceReceipt, ...]
     underivable: tuple[Issue, ...]
+    # Destination pointers, spelled as the mapping spells them, whose value is
+    # text read from a format without types. The generated view leaves it out.
+    untyped: frozenset[str] = frozenset()
 
     def owner_digest(self, owner: str) -> str:
         records = [{"id": r.id, "sha256": r.sha256} for r in self.receipts if r.owner == owner]
@@ -361,6 +389,7 @@ def import_sources(manifest: str | Path) -> ImportResult:
     claimed: dict[str, Any] = {}
     receipts: list[SourceReceipt] = []
     issues: list[Issue] = []
+    untyped: set[str] = set()
     seen: set[str] = set()
     for entry in entries:
         if not isinstance(entry, dict) or set(entry) - _RENDER_KEYS != {
@@ -433,7 +462,9 @@ def import_sources(manifest: str | Path) -> ImportResult:
                 continue
             _safe_projection(value)
             _fill(values, pointer, value)
-    return ImportResult(values, tuple(receipts), tuple(issues))
+            if fmt in _UNTYPED_FORMATS and isinstance(value, str):
+                untyped.add(pointer)
+    return ImportResult(values, tuple(receipts), tuple(issues), frozenset(untyped))
 
 
 def generated_bytes(result: ImportResult) -> bytes:
@@ -446,35 +477,58 @@ def check_generated_view(manifest: str | Path, generated: str | Path) -> bool:
 
 
 def _choices(nodes: list[Any]) -> list[dict[str, Any]]:
-    """Schema nodes, each ``anyOf``/``oneOf`` node replaced by its alternatives."""
+    """Schema nodes, each ``anyOf``/``oneOf`` node replaced by its alternatives.
+
+    A node that the walk does not judge is replaced by the open schema, which
+    is never an integer slot and never leads to one.
+    """
     flat: list[dict[str, Any]] = []
     for node in nodes:
-        if isinstance(node, dict) and ("anyOf" in node or "oneOf" in node):
+        if (
+            not isinstance(node, dict)
+            or isinstance(node.get("type"), list)
+            or node.get("$schema", _DIALECT) != _DIALECT
+            or not _UNJUDGED.isdisjoint(node)
+        ):
+            # A boolean schema says nothing about a type. The walk does not judge
+            # a list-valued ``type``, another dialect or a keyword of ``_UNJUDGED``.
+            flat.append({})
+        elif "anyOf" in node or "oneOf" in node:
             flat.extend(_choices([*node.get("anyOf", []), *node.get("oneOf", [])]))
         else:
-            # A boolean schema says nothing about a type; treat it as an open one.
-            flat.append(node if isinstance(node, dict) else {})
+            flat.append(node)
     return flat
 
 
 def _integer_slot(schema: Any, pointer: str) -> bool:
     """Whether a closed schema admits nothing but an integer, or null, at ``pointer``.
 
-    Only ``properties``, ``items`` and ``anyOf``/``oneOf`` are followed. Any other
-    construct, and any alternative that leaves the member open, answers no: the
-    value then stays as it is and the instance parser decides.
+    The walk follows ``properties`` on a node whose ``type`` is ``"object"``,
+    ``items`` on a node whose ``type`` is ``"array"``, and ``anyOf``/``oneOf``.
+    It leaves an alternative out as one that cannot hold the member only where
+    its ``type`` is ``"null"``, or where it is such an object, does not list the
+    member and has ``additionalProperties: false``. It answers no, so that the
+    value stays as it is and the instance parser decides, for an alternative
+    that leaves the member open and for every node it meets, on the way or at
+    the member, that it does not judge: a boolean schema, a list-valued
+    ``type``, a ``$schema`` that names another dialect than draft 2020-12, or a
+    keyword of ``_UNJUDGED``. Any other keyword is not read: in that dialect it
+    can only narrow what a node admits.
     """
     nodes = _choices([schema])
     for part in _pointer(pointer):
         members: list[Any] = []
         for node in nodes:
-            if part in node.get("properties", {}):
+            kind = node.get("type")
+            if kind == "object" and part in node.get("properties", {}):
                 members.append(node["properties"][part])
-            elif "items" in node:
+            elif kind == "array" and "items" in node:
                 # A list member is named by its position or, where every member
                 # carries one, by its `id`.
                 members.append(node["items"])
-            elif node.get("type") != "null" and node.get("additionalProperties") is not False:
+            elif kind != "null" and not (
+                kind == "object" and node.get("additionalProperties") is False
+            ):
                 return False
         nodes = _choices(members)
     integer = False
@@ -487,20 +541,29 @@ def _integer_slot(schema: Any, pointer: str) -> bool:
     return integer
 
 
-def _slot_value(schema: Any, pointer: str, value: Any) -> Any:
-    """Text for an integer slot becomes that integer; nothing else is converted."""
+def _slot_value(schema: Any, pointer: str, value: Any, unreadable: list[str]) -> Any:
+    """Text for an integer slot becomes that integer; nothing else is converted.
+
+    Text for such a slot that is not a plain decimal integer is returned as it
+    is, and the slot is added to ``unreadable`` for the caller to refuse.
+    """
     if not isinstance(value, str) or not _integer_slot(schema, pointer):
         return value
     if not _INTEGER_TEXT.fullmatch(value):
-        raise ImportError(f"Text mapped to integer field {pointer} is not a plain decimal integer")
+        unreadable.append(pointer)
+        return value
     return int(value)
 
 
 def project_instance(result: ImportResult, template: dict[str, Any]) -> bytes:
     """Fill explicit null slots and validate the independently closed instance model.
 
-    A literal file holds text only. Text mapped to a slot that the instance
-    schema types as an integer is converted from its plain decimal form.
+    An assignment file and a data list hold text only. Text that was read from
+    one of them and mapped by itself to a slot that the instance schema types as
+    an integer is converted from its plain decimal form. Nothing else is
+    converted: a string from JSON, TOML or a property list stays a string. Text
+    for such a slot that is not a plain decimal integer is refused by field name
+    after every refusal that does not depend on the text.
     A program receipt does not block: the program is recorded by hash and
     supplies no value. Data that could not be read still does.
     """
@@ -510,6 +573,7 @@ def project_instance(result: ImportResult, template: dict[str, Any]) -> bytes:
         raise ImportError("Authored instance sections cannot be filled by an import")
     data = copy.deepcopy(template)
     schema = instance_validator().schema
+    unreadable: list[str] = []
 
     def apply(node: Any, prefix: str) -> None:
         if isinstance(node, dict):
@@ -517,8 +581,10 @@ def project_instance(result: ImportResult, template: dict[str, Any]) -> bytes:
                 pointer = f"{prefix}/{key}"
                 if isinstance(value, dict):
                     apply(value, pointer)
+                elif pointer in result.untyped:
+                    _fill(data, pointer, _slot_value(schema, pointer, value, unreadable))
                 else:
-                    _fill(data, pointer, _slot_value(schema, pointer, value))
+                    _fill(data, pointer, value)
         else:
             raise ImportError("Generated projection must be an object")
 
@@ -529,4 +595,8 @@ def project_instance(result: ImportResult, template: dict[str, Any]) -> bytes:
         for issue in result.underivable
     ):
         raise ImportError("Unresolved owner inputs cannot become a complete instance")
+    if unreadable:
+        raise ImportError(
+            f"Text mapped to integer field {unreadable[0]} is not a plain decimal integer"
+        )
     return canonical_instance_bytes(parse_instance(canonical_bytes(data) + b"\n"))
