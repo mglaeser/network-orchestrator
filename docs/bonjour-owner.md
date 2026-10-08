@@ -325,7 +325,8 @@ Every native registration also carries `dns-sd -t` with at most 120 seconds,
 bounded by its remaining record lease rounded up to whole seconds. Apple's
 client terminates itself on that timer even if the publisher is killed. This
 second lifetime bound prevents indefinitely orphaned registrations; normal
-supervision renews from fresh evidence after client expiry. Actual renewal and
+supervision renews from fresh evidence after client expiry, or shortly before
+it where the settings say so (below). Actual renewal and
 cache propagation behavior remain native acceptance gates.
 
 A client that exits with status 0 at or after its own `-t` lifetime, without an
@@ -333,15 +334,82 @@ A client that exits with status 0 at or after its own `-t` lifetime, without an
 the revision above arm it with `exit(0)`, and lines 245-246 show the other
 `exit(0)`, which prints that line first. This is the expiry of one record, not a
 failure. The publisher replaces that client alone, with the lease that is left
-and only after the old client has ended, so it never runs two clients for one
-record. Sibling registrations keep running. A record that was confirmed keeps
+and, unless the settings give `renewal_overlap_seconds` (below), only after the
+old client has ended, so that it never runs two clients for one record.
+Sibling registrations keep running. A record that was confirmed keeps
 the policy's state while its replacement confirms; the five-second confirmation
 limit bounds that, and the observation's `record_count` leaves the record out
-until then. The record is not registered between the two clients. A replacement that
+until then. Without that setting the record is not registered between the two
+clients: it leaves the network and returns at least every two minutes. A replacement that
 fails, and every other exit (another status, a signal, status 0 before the
 lifetime or after an `Error code` line), is a registration-child failure as
 before. Renewal still needs fresh evidence: without it the lease ends and the
 policy withdraws.
+
+The settings can give `renewal_overlap_seconds` (1 to 30; absent unless given,
+which is the behaviour above). The publisher then starts the replacement of a
+confirmed client at the first turn of its loop at which that client's own
+lifetime has at most that many seconds left, with the lease that is left, and
+lets the running client end on its own timer. It never signals a client to make
+room. The two then run side by side until the running client's lifetime ends:
+for the setting less up to one turn of the loop, which is a quarter of a second
+and the time the turn takes. For that time two clients hold the identical
+record, never more, and each of them still ends by itself within its own
+lifetime if the publisher is killed. While both run, the record is confirmed
+by the running client and counted once; neither the policy's state nor
+`record_count` shows the replacement. When the running client ends, a
+replacement that has confirmed holds the record without interruption, and one
+that has not is between two clients as described above until it confirms. A
+replacement that fails is a registration-child failure and withdraws the policy
+like any failed client; one that ends on its own timer before its predecessor
+is dropped. No replacement is started early for a client that lives no longer
+than the overlap, which is replaced after its end, nor where the lease does not
+end at least a second later than the running client does. The two ends are
+compared on the publisher's monotonic clock, not through a lifetime rounded to
+whole seconds, so the length of a turn does not matter. A lease reaches further
+than the running client after a newer sighting, or where it was longer than a
+client's 120 seconds from the start. A sighting that arrives when the running
+client already has less than the setting left starts the replacement at that
+turn, and the two run side by side for what that client then has left. Without
+either, nothing is started beside the client, the record ends with its lease as
+before, and no renewal moves a lease deadline. Settings with an overlap are
+refused unless at least one owned policy's lease, of which a client lives 120
+seconds at most, is longer than the overlap.
+
+The setting rests on what the daemon does with a second registration that is
+identical to a running one. That was read in the source published as
+`mDNSResponder-2881.120.11`, not observed on a host:
+
+- `dns-sd -P` registers its address record with `kDNSServiceFlagsUnique` and
+  its service with no flags, that is with automatic renaming left on
+  (`Clients/dns-sd.c` lines 1468-1474, 1529-1533 and 2197-2204).
+- A record that is identical in name, type, class and data to one already
+  registered on the same interface goes on the daemon's list of duplicates, not
+  on its active list (`mDNSCore/mDNS.c` lines 1329-1338 and 1756-1771). It is
+  not probed, because only active records are (lines 4249-4254), and it is
+  acknowledged to its client as registered: at once where it does not probe,
+  which is the case for the shared PTR records and for the TXT record, which
+  depends on its SRV record (lines 1569-1572 and 1810-1812), and otherwise as
+  soon as the first copy is verified (lines 1776-1777, 4292-4299 and
+  4323-4329). The address record takes the same path
+  (`mDNSShared/uds_daemon.c` lines 796-801 and 1448).
+- The client-facing layer counts registrations of the same service name and
+  port only to write a log line, so the daemon logs one line for each renewal
+  (`mDNSShared/uds_daemon.c` lines 957-967 and 2733-2739). A service that was
+  registered under a name of its own is renamed only after a name conflict
+  (lines 1071-1086), and an identical record raises none: a packet record
+  identical to one of the daemon's own is not a conflict (`mDNSCore/mDNS.c`
+  lines 10260-10276).
+- When the first of two identical registrations is removed, the duplicate takes
+  its place and state, and no goodbye is sent for the removed one
+  (`mDNSCore/mDNS.c` lines 2089-2131 and 2230-2243). A client that exits is
+  deregistered in exactly that way (`mDNSShared/uds_daemon.c` lines 1365 and
+  1787, `mDNSCore/mDNS.c` lines 14929-14944).
+
+The published source leaves out the vendor's own build options. One capture on
+the supported release therefore stays part of the native acceptance gate: two
+clients for one record, both confirmed under the unchanged name, and no goodbye
+on the wire when the first one ends.
 
 Bounded scan denial and registration-child failure are isolated by discovery
 policy. The affected policy withdraws or becomes unknown while sibling policies

@@ -88,6 +88,7 @@ class BonjourSettings:
     eligible_model_prefixes: tuple[str, ...] = ("AudioAccessory", "AppleTV")
     pass_seconds: int | None = None
     miss_tolerance: int = 1
+    renewal_overlap_seconds: int | None = None
 
     @property
     def pass_interval(self) -> int:
@@ -135,6 +136,7 @@ def load_settings(path: Path) -> BonjourSettings:
         "eligible_model_prefixes",
         "pass_seconds",
         "miss_tolerance",
+        "renewal_overlap_seconds",
     }
     if (
         not isinstance(raw, dict)
@@ -223,6 +225,19 @@ def load_settings(path: Path) -> BonjourSettings:
     tolerance = raw.get("miss_tolerance", 1)
     if type(tolerance) is not int or not 1 <= tolerance <= 8:
         raise ValueError("Bonjour miss tolerance must be bounded")
+    overlap = raw.get("renewal_overlap_seconds")
+    if "renewal_overlap_seconds" in raw:
+        if type(overlap) is not int or not 1 <= overlap <= 30:
+            raise ValueError("Bonjour renewal overlap must be bounded")
+        # A client lives for the lease its record has left, 120 seconds at most.
+        # One that lives no longer than the overlap is replaced after its end,
+        # so an overlap that no owned lease exceeds could never have an effect.
+        if not any(
+            min(120, item.max_age_seconds) > overlap
+            for item in config.discovery
+            if item.owner == owner.id
+        ):
+            raise ValueError("Bonjour renewal overlap needs a lease that is longer")
     settings = BonjourSettings(
         owner.id,
         **paths,
@@ -232,6 +247,7 @@ def load_settings(path: Path) -> BonjourSettings:
         miss_tolerance=tolerance,
         eligible_model_prefixes=tuple(prefixes),
         pass_seconds=pass_seconds,
+        renewal_overlap_seconds=overlap,
     )
     # A missed record is carried only inside its lease (MissMemory). Where a
     # lease leaves no room for that, a tolerance could never have an effect. A
@@ -930,7 +946,11 @@ def lease_records(
 class Publisher:
     """Independent watchdog owns all registration children and their deadlines."""
 
-    def __init__(self, factory: Callable[[Record, int, int], Registration] = Registration) -> None:
+    def __init__(
+        self,
+        factory: Callable[[Record, int, int], Registration] = Registration,
+        renewal_overlap: int | None = None,
+    ) -> None:
         self.factory = factory
         self.children: dict[str, Registration] = {}
         self.deadlines: dict[str, float] = {}
@@ -938,6 +958,12 @@ class Publisher:
         # Confirmed records whose client ended on its own timer and whose
         # replacement has not confirmed yet.
         self.renewing: set[str] = set()
+        # Seconds before the end of a running client's own lifetime at which its
+        # replacement is started. None: a client is replaced after it has ended.
+        self.renewal_overlap = renewal_overlap
+        # Replacements that run beside the client they take over from: at most
+        # one for a record, and only with an overlap.
+        self.successors: dict[str, Registration] = {}
 
     def reconcile(
         self, policy: Discovery, records: tuple[Record, ...], index: int, now: float
@@ -949,6 +975,7 @@ class Publisher:
         for key in tuple(self.children):
             if key.startswith(policy.id + ":") and key not in desired:
                 self.children.pop(key).close()
+                self._end_successor(key)
                 self.deadlines.pop(key, None)
                 self.sources_seen_at.pop(key, None)
                 self.renewing.discard(key)
@@ -966,24 +993,53 @@ class Publisher:
             else:
                 self.deadlines[key] = min(self.deadlines[key], deadline)
             try:
+                if key in self.successors:
+                    self._poll_successor(key)
                 try:
                     active = self.children[key].poll()
                 except RegistrationExpired:
                     # Only this record's own native timer ended; nothing failed and
-                    # its siblings are not touched. The client has ended, so its
-                    # replacement never runs beside it. The lease deadline stays.
+                    # its siblings are not touched. The lease deadline stays.
                     ended = self.children[key]
                     ended.close()
-                    self.children[key] = self.factory(record, index, lifetime)
+                    successor = self.successors.pop(key, None)
+                    if successor is None:
+                        # The client has ended, so its replacement never runs beside it.
+                        self.children[key] = self.factory(record, index, lifetime)
+                        active = False
+                    else:
+                        # With an overlap its replacement already runs, and takes its place.
+                        self.children[key] = successor
+                        active = successor.active
                     # A confirmed record keeps the policy's state while its
                     # replacement confirms; Registration.poll bounds that wait.
                     if ended.active:
                         self.renewing.add(key)
                     else:
                         self.renewing.discard(key)
-                    active = False
+                if self.renewal_overlap is not None and active and key not in self.successors:
+                    running = self.children[key]
+                    ends = running.spawned + running.lifetime_seconds
+                    left = ends - time.monotonic()
+                    # The replacement of a confirmed client starts at the first turn
+                    # at which that client's own lifetime has at most that many
+                    # seconds left, with the lease that is left, and the client ends
+                    # on its own timer: it is never signalled to make room. A client
+                    # that lives no longer than the overlap is replaced after its
+                    # end. A replacement renews something only where the lease ends
+                    # later than the running client does. Both are instants of the
+                    # monotonic clock and are compared as such, not through a
+                    # lifetime rounded to whole seconds; the lease has to be ahead
+                    # by a second, the unit a client's lifetime is given in.
+                    if (
+                        running.lifetime_seconds > self.renewal_overlap
+                        and left <= self.renewal_overlap
+                        and self.deadlines[key] - ends >= 1
+                    ):
+                        self.successors[key] = self.factory(record, index, lifetime)
             except DiscoveryFailure:
                 self.children.pop(key).close()
+                self._end_successor(key)
                 self.deadlines.pop(key, None)
                 self.sources_seen_at.pop(key, None)
                 self.renewing.discard(key)
@@ -993,6 +1049,24 @@ class Publisher:
             confirmed = (active or key in self.renewing) and confirmed
         return confirmed
 
+    def _poll_successor(self, key: str) -> None:
+        """Let the replacement that runs beside this record's client confirm.
+
+        One that ends on its own timer first has taken over nothing and is
+        dropped; the running client still holds the record. Every other end is
+        a failure of a registration child, as for any client.
+        """
+        try:
+            self.successors[key].poll()
+        except RegistrationExpired:
+            self.successors.pop(key).close()
+
+    def _end_successor(self, key: str) -> None:
+        """Close the replacement that runs beside this record's client, if there is one."""
+        successor = self.successors.pop(key, None)
+        if successor is not None:
+            successor.close()
+
     def renewals(self, policy: Discovery) -> int:
         """Records of this policy that are between two clients right now."""
         return sum(key.startswith(policy.id + ":") for key in self.renewing)
@@ -1001,14 +1075,16 @@ class Publisher:
         for key, deadline in tuple(self.deadlines.items()):
             if now >= deadline:
                 self.children.pop(key).close()
+                self._end_successor(key)
                 self.deadlines.pop(key)
                 self.sources_seen_at.pop(key, None)
                 self.renewing.discard(key)
 
     def close(self) -> None:
-        for child in self.children.values():
+        for child in (*self.children.values(), *self.successors.values()):
             child.close()
         self.children.clear()
+        self.successors.clear()
         self.deadlines.clear()
         self.sources_seen_at.clear()
         self.renewing.clear()
@@ -1163,7 +1239,11 @@ def publisher_loop(
     config: Config, settings: BonjourSettings, store: Store, parent_pid: int | None = None
 ) -> None:
     """Independent proof collection never blocks lease expiry and child polling."""
-    publisher = Publisher()
+    publisher = (
+        Publisher()
+        if settings.renewal_overlap_seconds is None
+        else Publisher(renewal_overlap=settings.renewal_overlap_seconds)
+    )
     _signal_stop(publisher.close)
     pool = ThreadPoolExecutor(max_workers=1)
     future: Future[Proof] | None = None
