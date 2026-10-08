@@ -748,7 +748,8 @@ class MissedSources:
 _COUNTED_AS_MISS = frozenset({"malformed"})
 # The reason of a pass in which the browse listed instances and none of them
 # answered its resolve at all (scan_policy). Counted as a miss, such a pass is a
-# read that did not complete, and its candidate names it as the list above does.
+# read that did not complete, and its candidate names it by its own reason,
+# `incomplete`.
 _UNANSWERED = "incomplete"
 # What a candidate may name as the failure it carried records through: the
 # reason of the pass that counted as a miss, never another one.
