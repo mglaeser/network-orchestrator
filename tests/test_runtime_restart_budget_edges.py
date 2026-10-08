@@ -88,18 +88,27 @@ def held_once_the_hold_can_be_stored(site: Site, monkeypatch: pytest.MonkeyPatch
 
 
 def test_a_spent_budget_stays_spent_while_the_store_refuses_the_intent_file(
-    enrolled: Any, monkeypatch: pytest.MonkeyPatch
+    enrolled: Any,
 ) -> None:
     site = Site(enrolled, 3, 600)
     site.spend()
     intent = site.store.directory / "intent.json"
-    # Not private to the account. Recovery and the probe still read an open
-    # site in it; the state store neither reads nor replaces it.
+    # Not private to the account. Recovery and the probe read the intent by the
+    # state store's own rule, so they read damage, which blocks every workload
+    # before a budget is consulted: nothing starts and the record is kept.
     intent.chmod(0o644)
-    assert not runtime._intent(site.settings).blocks("camera")
-    stays_spent(site)
+    assert runtime._intent(site.settings).damaged
+    issued, recorded = starts(site.inner), site.record()
+    for later in LATER:
+        assert site.refused(at=T0 + later).reason == "incomplete"
+        assert starts(site.inner) == issued
+        assert site.record() == recorded
     intent.chmod(0o600)
-    held_once_the_hold_can_be_stored(site, monkeypatch)
+    # Readable again inside the window: the budget is spent and the hold is stored.
+    assert site.refused(at=T0 + LATER[0]).reason == "incomplete"
+    assert holds_of(site)["camera"] == HOLD
+    assert "camera" not in site.record()
+    assert starts(site.inner) == issued
 
 
 def enlarged(enrolled: Any, tmp_path: Path, extra: int) -> tuple[Any, Any, Any]:

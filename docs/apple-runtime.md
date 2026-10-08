@@ -477,8 +477,10 @@ Where something is unclear the brake engages:
 - If the hold cannot be stored, nothing is started, and the record of that
   workload is stored as spent in a form that does not age: no start follows,
   at any later time or under a larger budget, until the hold could be stored,
-  which clears that record. This covers an intent file the state store
-  refuses, 64 services held already and a write that fails.
+  which clears that record. This covers 64 services held already and a write
+  that fails. An intent file that the state store refuses is read as damaged
+  by recovery and the probe as well, so every workload is blocked before a
+  budget is consulted, and the record stays as it is.
 - If the record cannot be written, nothing is started on that firing.
 
 Starts after a boot count like any other. Several boots, or several planned
