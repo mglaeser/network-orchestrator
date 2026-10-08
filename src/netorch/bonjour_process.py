@@ -23,6 +23,12 @@ from .process import Result, run
 DNS_SD = "/usr/bin/dns-sd"
 IFCONFIG = "/sbin/ifconfig"
 MAX_OUTPUT = 1_048_576
+# The most instances one scan (one type on one interface) leaves out; one more
+# fails it. Each instance that does not answer costs a wait of the scan's
+# seconds, the scanner writes its candidates and its heartbeat only after the
+# whole pass, and a scan in which more than a few instances are unusable is
+# not one to trust for the others.
+MAX_LEFT_OUT = 4
 Runner = Callable[[list[str], float], Result]
 # Apple's printtimestamp_F uses %2d for the hour: one padding space before
 # 00:00-09:59's single-digit hour, and no padding for 10:00-23:59.
@@ -238,9 +244,10 @@ def _unusable(raw: bytes, reason: str = "malformed") -> DiscoveryFailure:
 def resolve_endpoint(raw: bytes, index: int) -> tuple[str, str, int]:
     """The one endpoint the resolve replies name.
 
-    No reply (a browse entry whose instance is gone), replies that differ, a
-    reply for another interface and a port or target that cannot be published
-    are unusable for that instance.
+    No reply (a browse entry whose instance is gone), replies that differ and
+    a port or target that cannot be published are unusable for that instance.
+    A reply for another interface is not confined to it: the command was asked
+    for one interface, and it fails, as it does for such an address or TXT row.
     """
     pattern = re.compile(
         rf"^{_STAMP}\s+(.+?) can be reached at ([^\s:]+):(\d+) "
@@ -251,19 +258,22 @@ def resolve_endpoint(raw: bytes, index: int) -> tuple[str, str, int]:
     for line in _lines(raw):
         match = pattern.fullmatch(line)
         if match is not None:
+            # A reply for another interface means that the scope asked for was
+            # not honoured. That concerns the scan as a whole.
+            if int(match[4]) != index:
+                raise DiscoveryFailure()
             try:
                 unique.add(
                     (
                         match[1].decode("utf-8"),
                         match[2].decode("utf-8"),
                         int(match[3]),
-                        int(match[4]),
                     )
                 )
             except UnicodeError:
                 # Names that are not UTF-8: a reply that can never be used. It
                 # is kept as one, so that the rest of the output is still read.
-                unique.add(("", "", 0, 0))
+                unique.add(("", "", 0))
             continuation = True
         elif _banner(line, index) or re.fullmatch(
             rb"Lookup .+\._[A-Za-z0-9-]+\._(?:tcp|udp)\.local\.", line
@@ -288,8 +298,8 @@ def resolve_endpoint(raw: bytes, index: int) -> tuple[str, str, int]:
             raise _refused(line, rb"[^ ]* error code -65570")
     if len(unique) != 1:
         raise _unusable(raw)
-    fullname, host, port, actual = unique.pop()
-    if actual != index or not 1 <= port <= 65535 or not host.endswith(".local."):
+    fullname, host, port = unique.pop()
+    if not 1 <= port <= 65535 or not host.endswith(".local."):
         raise _unusable(raw)
     return fullname, host, port
 
@@ -386,7 +396,8 @@ def scan(
     """Browse one type and resolve each instance; a failed command fails the scan.
 
     Only an instance whose own replies are unusable is left out, and its name
-    is added to ``skipped``. ``guest_ipv4`` is the export rule of resolve_ipv4.
+    is added to ``skipped``. At most MAX_LEFT_OUT are left out; one more fails
+    the scan. ``guest_ipv4`` is the export rule of resolve_ipv4.
     """
     deadline = time.monotonic() + max_seconds
 
@@ -403,6 +414,7 @@ def scan(
 
     names = browse_names(query(["-B", service_type, "local."]), service_type, index, limit)
     result = []
+    left_out = 0
     for name in names:
         # query() never raises InstanceUnusable: a command that cannot prove
         # itself, a diagnostic and the scan's time budget end the whole scan.
@@ -416,7 +428,10 @@ def scan(
                 record = Record(name, service_type, host, port, address, txt, interface, now)
             except ValueError as exc:
                 raise InstanceUnusable() from exc
-        except InstanceUnusable:
+        except InstanceUnusable as exc:
+            left_out += 1
+            if left_out > MAX_LEFT_OUT:
+                raise DiscoveryFailure("incomplete") from exc
             if skipped is not None:
                 skipped.append(name)
             continue

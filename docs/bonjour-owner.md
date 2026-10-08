@@ -213,10 +213,24 @@ instance alone, not its policy. A scan runs one browse for a type and then three
 commands for each browsed instance. An instance whose own replies cannot be
 used is left out of that pass: it gets no lease, a registration made for it
 earlier is withdrawn, and the healthy records of the policy are projected and
-leased as usual. The candidate carries the number of instances left out as
-`skipped` (absent while there is none, at most `max_records` for each type),
-and the observation shows it as `skipped_count` beside `record_count`. That
-count is the only trace of a device that is being left out. Everything that
+leased as usual. Three rules bound what may be left out:
+
+- A reply that names another interface than the one asked for fails the scan,
+  in the resolve as in the address and TXT queries: the scope was not
+  honoured, and that concerns every instance.
+- A scan, that is one type on one interface, leaves out at most four
+  instances. A fifth unusable instance fails the scan with `incomplete`, and
+  the names after it are not asked about.
+- A pass leaves instances of a policy out only if it read at least one
+  instance of that policy completely: of any of its types, and whether or not
+  that instance is then selected. Where instances would be left out and none
+  was read, the pass fails for that policy with `incomplete`, because a pass
+  in which nothing could be read does not show that the reader works.
+
+The candidate carries the number of instances left out as `skipped` (absent
+while there is none; at most four for each type, fewer where `max_records` is
+lower), and the observation shows it as `skipped_count` beside `record_count`.
+That count is the only trace of a device that is being left out. Everything that
 concerns the scan as a whole still fails it and withdraws the policy:
 
 | Failure | Detected by | Outcome |
@@ -224,12 +238,15 @@ concerns the scan as a whole still fails it and withdraws the policy:
 | A command does not complete: time limit, output bound | the bounded runner | the scan fails |
 | A command cannot prove itself: exit status, any error stream, a missing or second `Using interface N` line | `confirmed_output` | the scan fails |
 | A diagnostic of the client in any command, a denial among them, or any other line that is neither a banner nor a well-formed reply | `confirmed_output`, the command's reader | the scan fails |
+| A reply for another interface than the one asked for, in the resolve, the address query or the TXT query | the command's reader | the scan fails |
 | The browse: more names than `max_records`, a name that cannot be passed on | `browse_names` | the scan fails |
 | The time budget of the scan is used up | `scan` | the scan fails |
-| Resolve: no reply (a browse entry whose instance is gone), replies that differ, a reply for another interface, a port outside 1-65535, a target outside `.local.` or not UTF-8 | `resolve_endpoint` | the instance is left out |
+| A fifth unusable instance in one scan | `scan` | the scan fails |
+| Resolve: no reply (a browse entry whose instance is gone), replies that differ, a port outside 1-65535, a target outside `.local.` or not UTF-8 | `resolve_endpoint` | the instance is left out |
 | Address: none, several for an import, several without the guest address for an export | `resolve_ipv4` | the instance is left out |
 | TXT: no record, records that differ, a record shorter than one of its strings declares | `resolve_txt` | the instance is left out |
 | The answers form no valid record: a host name longer than 255 bytes | `scan` | the instance is left out |
+| Instances to leave out and no instance of the policy read in the same pass | `scan_policy` | the policy is withdrawn |
 | More usable records than the policy's `max_records`, a duplicate or an unverified dependency in the projection | `scan_policy`, `project_records` | the policy is withdrawn |
 | A candidate whose `skipped` is not an integer from 1 to its bound, stale or foreign evidence | `lease_records` | the policy is withdrawn |
 
@@ -244,9 +261,28 @@ built from that instance's own three answers. For a record that is shorter
 than it declares, the client's resolve display reads `<< invalid data >>`
 (`Clients/dns-sd.c` line 788 at the revision above); it is accepted as the
 display, and the query then shows the record to be unusable. An instance that
-does not answer costs one resolve of `scan_seconds`; enough of them use up the
-scan's budget, which fails the scan as before. This is part of discovery
-digest version 4.
+does not answer costs one command that waits `scan_seconds`. A pass in which
+instances are left out can therefore take up to `4 * scan_seconds` longer for
+each type it scans than a pass that reads every instance, and a type whose
+scan fails at the fifth has waited up to `5 * scan_seconds`. The scanner
+writes the candidates of all its policies once, after the last scan of the
+pass and with the time the pass began, and its heartbeat after that, so this
+time ages the candidate of every policy of the pass. This is part of
+discovery digest version 4.
+
+Which of these cases the client can show is read from its source
+(`Clients/dns-sd.c` at the revision above), not captured from a host. The scan
+passes `-m` to the resolve, address and TXT commands, and with it the client
+leaves after the first reply that is not marked as followed by more (lines
+841-844, 1209-1212 and 1287-1290). A host with two IPv4 addresses therefore
+shows two rows only if both replies are delivered together; with one row that
+address is read and the instance is published. TXT records that differ are
+likewise two records listed together; an `Add`, `Rmv`, `Add` sequence for a
+record that changed is read as its last value. The address command asks for
+intermediate results (line 2306) and prints a negative answer as
+`No Such Record` (lines 1280-1281), which fails the scan as every diagnostic
+does; a host without an IPv4 address is left out only if the client prints no
+row at all.
 
 ## Supervision, leases and recovery
 

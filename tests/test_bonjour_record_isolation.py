@@ -23,7 +23,7 @@ from netorch.discovery import Record
 from netorch.discovery_plan import discovery_digest
 from netorch.model import Config
 from netorch.process import OutputLimit, ProcessError, ProcessTimeout, Result
-from netorch.state import Intent, Observation
+from netorch.state import Intent, Observation, Snapshot
 from netorch.storage import Store
 from tests.test_bonjour_owner import FakeRegistration, config, policy, publisher, settings, snapshot
 from tests.test_bonjour_starting_banner import starting
@@ -89,7 +89,6 @@ class Device:
     port: int = 7000
     txt: tuple[bytes, ...] = (MODEL,)
     replies: int = 1  # resolve replies; none is a browse entry whose instance is gone
-    reply_index: int | None = None  # the interface a resolve reply names, if not the scanned one
 
     @property
     def fullname(self) -> str:
@@ -99,11 +98,14 @@ class Device:
 class Client:
     """A fake client for one interface: the devices on it, and commands made to fail."""
 
-    def __init__(self, *devices: Device, index: int = LAN_INDEX) -> None:
+    def __init__(
+        self, *devices: Device, index: int = LAN_INDEX, waited: list[float] | None = None
+    ) -> None:
         self.devices = devices
         self.index = index
         self.failing: dict[tuple[str, str], Failure] = {}
         self.asked: list[tuple[str, str]] = []
+        self.waited = waited  # a clock: the seconds spent on commands that got no reply
 
     def fail(self, operation: str, subject: str, failure: Failure) -> Client:
         self.failing[operation, subject] = failure
@@ -117,6 +119,9 @@ class Client:
         body = {"-B": self.browse, "-L": self.resolve, "-G": self.address, "-Q": self.query}[
             operation
         ](*arguments)
+        if self.waited is not None and operation != "-B" and STAMP not in body.split(starting())[1]:
+            # HandleEvents (1315-1320): without a reply the client leaves through its -t timer.
+            self.waited[0] += int(argv[argv.index("-t") + 1])
         # main (2135): printf("Using interface %d\n", opinterface);
         answer = Result(
             0, f"Using interface {self.index}\n{body}".encode("utf-8", "surrogateescape"), b""
@@ -138,10 +143,9 @@ class Client:
         device = next(item for item in self.devices if (item.name, item.kind) == (name, kind))
         out = f"Lookup {name}.{kind}.local.\n" + starting()  # main (2181)
         for reply in range(device.replies):
-            index = self.index if device.reply_index is None else device.reply_index
             # resolve_reply (828, 832): "%s " "can be reached at %s:%u (interface %d)"
             out += STAMP + f"{device.fullname} can be reached at {device.host}:"
-            out += f"{device.port + reply} (interface {index})\n"
+            out += f"{device.port + reply} (interface {self.index})\n"
             # resolve_reply (837): the display follows unless the record is one empty string
             if device.txt and len(device.txt[0]) > 1:
                 out += shown(device.txt[0]) + "\n"
@@ -177,11 +181,11 @@ KITCHEN = Device("Kitchen speaker", "kitchen.local.", ("192.0.2.81",))
 STUDY = Device("Study speaker", "study.local.", ("192.0.2.82",))
 ODD = Device("Odd neighbour", "odd.local.", ("192.0.2.83",))
 
-# What one instance's own replies can say that cannot be used.
+# What one instance's own replies can say that cannot be used. A reply for
+# another interface is not among them: it fails the scan (further down).
 UNUSABLE = {
     "stale-browse-entry": replace(ODD, replies=0),
     "replies-that-differ": replace(ODD, replies=2),
-    "reply-for-another-interface": replace(ODD, reply_index=LAN_INDEX + 1),
     "port-zero": replace(ODD, port=0),
     "target-outside-local": replace(ODD, host="odd.home.arpa."),
     "target-not-utf8": replace(ODD, host="odd\udcff.local."),
@@ -224,6 +228,45 @@ def test_scan_that_reads_every_instance_leaves_nothing_out() -> None:
     left_out: list[str] = []
     assert names(scanned(Client(KITCHEN, STUDY), skipped=left_out)) == [KITCHEN.name, STUDY.name]
     assert left_out == []
+
+
+# At most four instances of one scan are left out; a fifth fails it.
+
+
+def unusable(count: int, kind: str = AIRPLAY) -> tuple[Device, ...]:
+    """Instances of one type, unusable in four ways; a scan asks about them after KITCHEN."""
+    label = kind.strip("_").split(".")[0]
+    ways: tuple[dict[str, Any], ...] = ({"replies": 0}, {"port": 0}, {"addresses": ()}, {"txt": ()})
+    return tuple(
+        replace(
+            ODD,
+            name=f"Odd {label} {number}",
+            host=f"odd-{label}-{number}.local.",
+            kind=kind,
+            **ways[number % len(ways)],
+        )
+        for number in range(count)
+    )
+
+
+def test_four_unusable_instances_of_one_scan_are_left_out() -> None:
+    client = Client(KITCHEN, *unusable(4), STUDY)
+    left_out: list[str] = []
+    assert names(scanned(client, skipped=left_out)) == [KITCHEN.name, STUDY.name]
+    assert left_out == [item.name for item in unusable(4)]
+
+
+@pytest.mark.parametrize("count", [5, 6])
+@pytest.mark.parametrize("listed", [False, True], ids=["plain", "names-asked-for"])
+def test_fifth_unusable_instance_fails_the_scan(count: int, listed: bool) -> None:
+    # The bound is the scan's own: it holds whether or not the caller asks for the names.
+    client = Client(KITCHEN, *unusable(count), STUDY)
+    with pytest.raises(native.DiscoveryFailure) as caught:
+        scanned(client, **({"skipped": []} if listed else {}))
+    assert type(caught.value) is native.DiscoveryFailure and caught.value.reason == "incomplete"
+    # The scan ended at the fifth: the names after it were not asked about.
+    resolved = [subject for operation, subject in client.asked if operation == "-L"]
+    assert resolved == [KITCHEN.name, *(item.name for item in unusable(5))]
 
 
 def test_invalid_txt_display_of_the_client_is_read_as_display() -> None:
@@ -311,6 +354,17 @@ def flooded(_answer: Result) -> Result:
     raise OutputLimit("command exceeded its combined output bound")
 
 
+def for_another_interface(answer: Result) -> Result:
+    # The interface a reply names: resolve_reply (832) "(interface %d)", and "%3d" after the
+    # flags of addrinfo_reply (1276) and qr_reply (1182).
+    stdout = answer.stdout
+    for column in ("(interface {})", f"{0x40000002:<9X} {' '}  {{:3d}}  "):
+        stdout = stdout.replace(
+            column.format(LAN_INDEX).encode(), column.format(LAN_INDEX + 1).encode()
+        )
+    return replace(answer, stdout=stdout)
+
+
 COMMAND_FAILURES: dict[str, tuple[Failure, str | None]] = {
     "exit-status": (lambda answer: replace(answer, returncode=1), "malformed"),
     # EXIT_IF_LIBDISPATCH_FATAL_ERROR (246): fprintf(stderr, "Error code %d\n", (E)); exit(0);
@@ -318,6 +372,8 @@ COMMAND_FAILURES: dict[str, tuple[Failure, str | None]] = {
     "interface-not-acknowledged": (without_interface_line, "malformed"),
     "interface-acknowledged-twice": (with_interface_line_twice, "malformed"),
     "line-that-is-no-reply": (with_line("unexpected line"), "malformed"),
+    # The scope asked for with -i was not honoured, whichever command shows it.
+    "reply-for-another-interface": (for_another_interface, "malformed"),
     "time-limit": (timed_out, None),
     "output-bound": (flooded, None),
 }
@@ -362,6 +418,43 @@ def test_command_that_cannot_prove_itself_still_fails_the_scan(
     assert getattr(caught.value, "reason", None) == reason
     # The scan ended there: the next instance was not asked about.
     assert ("-L", STUDY.name) not in client.asked
+
+
+# resolve_reply (832), naming another interface than the one the scan asked for.
+ELSEWHERE = STAMP + f"{ODD.fullname} can be reached at {ODD.host}:7000 (interface {LAN_INDEX + 1})"
+
+
+@pytest.mark.parametrize(
+    "devices,failure",
+    [
+        ((ODD,), for_another_interface),
+        ((KITCHEN, ODD, STUDY), with_line(ELSEWHERE)),
+        ((KITCHEN, replace(ODD, host="odd\udcff.local."), STUDY), for_another_interface),
+        # These two failed the scan before as well, by the line that is missing or added.
+        ((KITCHEN, ODD, STUDY), lambda answer: without_start_line(for_another_interface(answer))),
+        (
+            (KITCHEN, ODD, STUDY),
+            lambda answer: with_line("unexpected line")(for_another_interface(answer)),
+        ),
+    ],
+    ids=[
+        "on-its-own",
+        "beside-a-reply-for-the-scanned-interface",
+        "with-names-that-are-not-utf8",
+        "without-start-line",
+        "with-an-unreadable-line",
+    ],
+)
+def test_resolve_reply_for_another_interface_fails_the_scan_whatever_comes_with_it(
+    devices: tuple[Device, ...], failure: Failure
+) -> None:
+    # Beside healthy instances and nothing else: the case of the table above.
+    client = Client(*devices).fail("-L", ODD.name, failure)
+    with pytest.raises(native.DiscoveryFailure) as caught:
+        scanned(client)
+    assert type(caught.value) is native.DiscoveryFailure and caught.value.reason == "malformed"
+    # The scan ended with that reply: nothing further was asked.
+    assert client.asked[-1] == ("-L", ODD.name)
 
 
 @pytest.mark.parametrize(
@@ -479,8 +572,13 @@ def scan_pass(
     return candidates
 
 
-def tick(config: Config, settings: owner.BonjourSettings) -> dict[str, Observation]:
-    """Request every policy and let the publisher lease what the pass wrote."""
+def tick(
+    config: Config, settings: owner.BonjourSettings, kept: owner.Publisher | None = None
+) -> dict[str, Observation]:
+    """Request every policy and let the publisher lease what the pass wrote.
+
+    ``kept`` is a publisher that still holds the registrations of an earlier pass.
+    """
     current = snapshot(config)
     store = Store(settings.state_dir)
     requests = {
@@ -495,7 +593,7 @@ def tick(config: Config, settings: owner.BonjourSettings) -> dict[str, Observati
     }
     store.write("requests.json", {"schema_version": 1, "policies": requests})
     proof = (current, Intent(), READY, {"wired-lan": (LAN_INDEX, GUEST_INDEX)})
-    observed = owner.publisher_tick(config, settings, store, publisher(), proof, 0, 1000)
+    observed = owner.publisher_tick(config, settings, store, kept or publisher(), proof, 0, 1000)
     return dict(observed.profiles)
 
 
@@ -543,6 +641,149 @@ def test_failed_command_still_withdraws_the_policy(
     assert not FakeRegistration.made
 
 
+# Nothing is left out unless something was read in the same pass.
+
+
+def test_pass_in_which_no_resolve_is_answered_withdraws_the_policy(
+    config: Config, settings: owner.BonjourSettings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    everyone = (KITCHEN, ODD, STUDY)
+    kept = publisher()
+    scan_pass(config, settings, monkeypatch, Client(*everyone), Client(index=GUEST_INDEX))
+    assert tick(config, settings, kept)["media-import"].data["record_count"] == 3
+    # The browse still lists the three names; none of them answers a resolve.
+    silent = Client(*(replace(item, replies=0) for item in everyone))
+    candidate = scan_pass(config, settings, monkeypatch, silent, Client(index=GUEST_INDEX))[
+        "media-import"
+    ]
+    assert [subject for operation, subject in silent.asked if operation == "-L"] == [
+        item.name for item in everyone
+    ]
+    assert candidate["records"] == [] and candidate.get("reason") == "incomplete"
+    assert "skipped" not in candidate
+    observed = tick(config, settings, kept)["media-import"]
+    assert (observed.state, observed.reason) == ("unknown", "unobserved")
+    assert (observed.data["record_count"], observed.data["skipped_count"]) == (0, 0)
+    assert [child.closed for child in FakeRegistration.made] == [True, True, True]
+
+
+def test_instances_are_left_out_beside_one_that_was_read(
+    config: Config, settings: owner.BonjourSettings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    lan = Client(replace(KITCHEN, replies=0), replace(ODD, replies=0), STUDY)
+    candidate = scan_pass(config, settings, monkeypatch, lan, Client(index=GUEST_INDEX))[
+        "media-import"
+    ]
+    assert "reason" not in candidate and candidate["skipped"] == 2
+    assert [item["name"] for item in candidate["records"]] == [STUDY.name]
+    observed = tick(config, settings)["media-import"]
+    assert (observed.state, observed.reason) == ("present", "verified")
+    assert (observed.data["record_count"], observed.data["skipped_count"]) == (1, 2)
+
+
+def test_export_whose_own_instance_alone_is_unusable_is_withdrawn(
+    config: Config, settings: owner.BonjourSettings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    kept = publisher()
+    scan_pass(config, settings, monkeypatch, Client(), Client(camera(GUEST), index=GUEST_INDEX))
+    assert tick(config, settings, kept)["camera-export"].data["record_count"] == 1
+    # The guest's own instance is still browsed and no longer answers; no other was read.
+    silent = Client(replace(camera(GUEST), replies=0), index=GUEST_INDEX)
+    candidate = scan_pass(config, settings, monkeypatch, Client(), silent)["camera-export"]
+    assert candidate["records"] == [] and candidate.get("reason") == "incomplete"
+    assert "skipped" not in candidate
+    observed = tick(config, settings, kept)["camera-export"]
+    assert (observed.state, observed.reason) == ("unknown", "unobserved")
+    assert [child.closed for child in FakeRegistration.made] == [True]
+
+
+def test_instance_that_was_read_counts_before_selection_and_for_any_type(
+    config: Config, settings: owner.BonjourSettings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # What was read is counted, not what is then selected: a related record without
+    # its AirPlay record, and another guest's instance, are read and not published.
+    lan = Client(replace(KITCHEN, replies=0), replace(STUDY, kind=RAOP))
+    other = replace(camera("198.51.100.77"), name="Other", host="other.local.")
+    guests = Client(replace(camera(GUEST), replies=0), other, index=GUEST_INDEX)
+    candidates = scan_pass(config, settings, monkeypatch, lan, guests)
+    observed = tick(config, settings)
+    for identifier in ("media-import", "camera-export"):
+        candidate = candidates[identifier]
+        assert candidate["records"] == [] and "reason" not in candidate
+        assert candidate["skipped"] == 1
+        assert (observed[identifier].state, observed[identifier].reason) == ("present", "verified")
+        assert observed[identifier].data["skipped_count"] == 1
+
+
+def test_pass_that_reads_every_instance_and_selects_none_stays_present(
+    config: Config, settings: owner.BonjourSettings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Not changed: where nothing is left out, nothing has to be selected either.
+    lan = Client(replace(KITCHEN, txt=(rdata(b"model=Example1,1"),)))
+    guests = Client(camera("198.51.100.77"), index=GUEST_INDEX)
+    candidates = scan_pass(config, settings, monkeypatch, lan, guests)
+    observed = tick(config, settings)
+    for identifier in ("media-import", "camera-export"):
+        candidate = candidates[identifier]
+        assert candidate["records"] == [] and not {"reason", "skipped"} & set(candidate)
+        assert (observed[identifier].state, observed[identifier].reason) == ("present", "verified")
+        assert observed[identifier].data["skipped_count"] == 0
+
+
+# The bound on instances left out, in the owner: for each type of a policy.
+
+
+@pytest.mark.parametrize(
+    "airplay,raop,reason,skipped",
+    [(4, 4, None, 8), (5, 3, "incomplete", None)],
+    ids=["four-of-each-of-two-types", "five-of-one-type"],
+)
+def test_instances_left_out_are_bounded_for_each_type_of_a_policy(
+    config: Config,
+    settings: owner.BonjourSettings,
+    monkeypatch: pytest.MonkeyPatch,
+    airplay: int,
+    raop: int,
+    reason: str | None,
+    skipped: int | None,
+) -> None:
+    # Eight instances are unusable in both cases; what differs is how many of one type.
+    lan = Client(KITCHEN, *unusable(airplay), *unusable(raop, RAOP))
+    candidate = scan_pass(config, settings, monkeypatch, lan, Client(index=GUEST_INDEX))[
+        "media-import"
+    ]
+    assert candidate.get("reason") == reason and candidate.get("skipped") == skipped
+    observed = tick(config, settings)["media-import"]
+    if reason is None:
+        assert [item["name"] for item in candidate["records"]] == [KITCHEN.name]
+        assert (observed.state, observed.data["skipped_count"]) == ("present", 8)
+    else:
+        assert candidate["records"] == []
+        assert (observed.state, observed.reason) == ("unknown", "unobserved")
+
+
+def test_candidate_with_a_count_always_has_an_instance_that_was_read_behind_it(
+    config: Config, settings: owner.BonjourSettings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Every small network of instances that are gone and instances that answer.
+    for read in range(3):
+        for gone in range(7):
+            lan = Client(
+                *(
+                    replace(ODD, name=f"Gone {n}", host=f"gone-{n}.local.", replies=0)
+                    for n in range(gone)
+                ),
+                *(replace(KITCHEN, name=f"Read {n}", host=f"read-{n}.local.") for n in range(read)),
+            )
+            candidate = scan_pass(config, settings, monkeypatch, lan, Client(index=GUEST_INDEX))[
+                "media-import"
+            ]
+            failed = gone > 4 or (gone > 0 and read == 0)
+            assert candidate.get("reason") == ("incomplete" if failed else None), (read, gone)
+            assert candidate.get("skipped") == (gone if gone and not failed else None), (read, gone)
+            assert len(candidate["records"]) == (0 if failed else read), (read, gone)
+
+
 def test_more_records_than_the_policy_bound_still_withdraw_it(
     config: Config, settings: owner.BonjourSettings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -557,12 +798,13 @@ def test_more_records_than_the_policy_bound_still_withdraw_it(
 
 
 @pytest.mark.parametrize(
-    "guests,records,skipped",
+    "guests,records,skipped,reason",
     [
-        ((camera(GUEST, "192.0.2.10"),), 1, None),
-        ((camera(GUEST, "192.0.2.10"), OTHER_GUEST), 1, 1),
-        ((camera("192.0.2.10"),), 0, None),
-        ((camera("192.0.2.10", "198.51.100.77"),), 0, 1),
+        ((camera(GUEST, "192.0.2.10"),), 1, None, None),
+        ((camera(GUEST, "192.0.2.10"), OTHER_GUEST), 1, 1, None),
+        ((camera("192.0.2.10"),), 0, None, None),
+        # Unusable, and no other instance was read in the pass: the policy is withdrawn.
+        ((camera("192.0.2.10", "198.51.100.77"),), 0, None, "incomplete"),
     ],
     ids=["guest-and-alias", "another-guest-with-two-addresses", "alias-only", "guest-not-among"],
 )
@@ -573,11 +815,12 @@ def test_guest_with_a_second_address_is_exported_by_its_guest_address(
     guests: tuple[Device, ...],
     records: int,
     skipped: int | None,
+    reason: str | None,
 ) -> None:
     candidate = scan_pass(
         config, settings, monkeypatch, Client(), Client(*guests, index=GUEST_INDEX)
     )["camera-export"]
-    assert "reason" not in candidate and candidate.get("skipped") == skipped
+    assert candidate.get("reason") == reason and candidate.get("skipped") == skipped
     exported = candidate["records"]
     assert isinstance(exported, list) and len(exported) == records
     if records:
@@ -628,7 +871,8 @@ def test_pass_that_reads_every_instance_writes_the_candidate_of_before(
 BEFORE = "a6110c4b738291002be2aee3036cb6c7f02e4dfa547054f2392823bf51529e08"
 
 
-@pytest.mark.parametrize("value", [1, 2, 128 * 4])
+# The example policy has four types: four instances left out for each is its bound.
+@pytest.mark.parametrize("value", [1, 2, 4 * 4])
 def test_candidate_skip_count_within_its_bound_is_leased(
     config: Config,
     settings: owner.BonjourSettings,
@@ -638,7 +882,10 @@ def test_candidate_skip_count_within_its_bound_is_leased(
     assert lease(config, settings, monkeypatch, value) is not None
 
 
-@pytest.mark.parametrize("value", [0, -1, 128 * 4 + 1, True, 1.0, "1", None, [1]])
+# Refused among them: the bound of before, one for each name a browse may list (128 * 4).
+@pytest.mark.parametrize(
+    "value", [0, -1, 4 * 4 + 1, 128 * 4, 128 * 4 + 1, True, 1.0, "1", None, [1]]
+)
 def test_candidate_skip_count_is_parsed_strictly(
     config: Config,
     settings: owner.BonjourSettings,
@@ -646,6 +893,25 @@ def test_candidate_skip_count_is_parsed_strictly(
     value: object,
 ) -> None:
     assert lease(config, settings, monkeypatch, value) is None
+
+
+@pytest.mark.parametrize("value,leased", [(2 * 4, True), (2 * 4 + 1, False)])
+def test_candidate_skip_count_never_exceeds_the_names_a_browse_may_list(
+    config: Config,
+    settings: owner.BonjourSettings,
+    monkeypatch: pytest.MonkeyPatch,
+    value: int,
+    leased: bool,
+) -> None:
+    # A browse of a policy that may hold two records lists two names at most.
+    small = replace(
+        config,
+        discovery=tuple(
+            replace(item, max_records=2) if item.id == "media-import" else item
+            for item in config.discovery
+        ),
+    )
+    assert (lease(small, settings, monkeypatch, value) is not None) is leased
 
 
 def lease(
@@ -659,7 +925,7 @@ def lease(
     )["media-import"]
     current = snapshot(config)
     item = policy(config)
-    assert item.max_records * len(item.types) == 128 * 4
+    assert len(item.types) == 4
     request = {
         "active": True,
         "policy_digest": discovery_digest(config, item),
@@ -670,3 +936,96 @@ def lease(
     return owner.lease_records(
         config, item, request, {**candidate, "skipped": skipped}, current, Intent(), READY, 1000
     )
+
+
+# Time: what instances that do not answer cost a pass, and the policy beside them.
+
+
+def fresh(config: Config, now: float) -> Snapshot:
+    """The owners' reports as read at that moment, so that only a candidate's age counts."""
+    base = snapshot(config)
+    return replace(
+        base,
+        observed_at=now,
+        services={key: replace(item, observed_at=now) for key, item in base.services.items()},
+        profiles={key: replace(item, observed_at=now) for key, item in base.profiles.items()},
+    )
+
+
+@pytest.mark.parametrize("silent", [4, 5, 14, 22])
+def test_instances_that_do_not_answer_delay_a_pass_by_a_bounded_time(
+    config: Config, settings: owner.BonjourSettings, monkeypatch: pytest.MonkeyPatch, silent: int
+) -> None:
+    """One clock, advanced by ``scan_seconds`` for every command that gets no reply.
+
+    The scanner scans its policies one after another and writes all candidates
+    once, stamped with the time the pass began; then it sleeps ``poll_seconds``.
+    Until the next pass has ended, the publisher holds the candidates of this one.
+    """
+    # The policy beside the slow one: its records may be 60 seconds old.
+    config = replace(
+        config,
+        discovery=tuple(
+            replace(item, max_age_seconds=60) if item.id == "camera-export" else item
+            for item in config.discovery
+        ),
+    )
+    waited = [0.0]
+    gone = tuple(
+        Device(f"Gone {number:02d}", f"gone-{number}.local.", ("192.0.2.90",), replies=0)
+        for number in range(silent)
+    )
+    lan = Client(*gone, KITCHEN, STUDY, waited=waited)
+    networks(config, monkeypatch, lan, Client(camera(GUEST), index=GUEST_INDEX, waited=waited))
+    clock = type(
+        "Clock",
+        (),
+        {
+            "time": staticmethod(lambda: 1000 + waited[0]),
+            "monotonic": staticmethod(lambda: 10 + waited[0]),
+        },
+    )()
+    monkeypatch.setattr(owner, "time", clock)
+    monkeypatch.setattr(native, "time", clock)
+    monkeypatch.setattr(
+        owner, "independent_snapshot", lambda *_args: (fresh(config, clock.time()), Intent(), READY)
+    )
+    store = Store(settings.state_dir)
+
+    def leased(candidates: dict[str, Any], identifier: str) -> bool:
+        now = clock.time()
+        current = fresh(config, now)
+        item = policy(config, identifier)
+        request = {
+            "active": True,
+            "policy_digest": discovery_digest(config, item),
+            "service_generation": current.services[item.service].generation,
+            "network_generation": current.network_generation,
+            "requested_at": now,
+        }
+        records = owner.lease_records(
+            config, item, request, candidates[identifier], current, Intent(), READY, now
+        )
+        return records is not None
+
+    owner.scan_pass(config, settings, store)
+    first = store.read("candidates.json")["policies"]
+    took = waited[0]
+    # Each of them costs one wait, and the fifth ends the scan of its type.
+    assert took == min(silent, 5) * settings.scan_seconds
+    imported = first["media-import"]
+    if silent <= 4:
+        assert "reason" not in imported and imported["skipped"] == silent
+        assert [item["name"] for item in imported["records"]] == [KITCHEN.name, STUDY.name]
+    else:
+        assert imported.get("reason") == "incomplete" and "skipped" not in imported
+        assert imported["records"] == []
+    assert leased(first, "media-import") is (silent <= 4)
+    assert leased(first, "camera-export")
+    # The scanner sleeps and the next pass takes as long again. Just before that pass
+    # replaces them, the candidates of the first are as old as the publisher ever holds them.
+    waited[0] += settings.poll_seconds
+    owner.scan_pass(config, settings, store)
+    assert waited[0] == 2 * took + settings.poll_seconds
+    assert leased(first, "media-import") is (silent <= 4)
+    assert leased(first, "camera-export")
