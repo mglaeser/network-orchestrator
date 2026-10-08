@@ -30,7 +30,7 @@ new native owner, or enable an optional behavior on an existing host.
 | Finding | Demonstrated failure | Correction / executable proof |
 |---|---|---|
 | Runtime vendor identity | A configurable nonexistent guest-job prefix allowed stopped evidence while the real vendor job could remain loaded. | Vendor-owned labels are fixed platform facts; reject invalid settings at parsing and observation boundaries. Runtime adversarial regressions. |
-| Partial fleet | With `fleet_start` omitted, one running API row bypassed the all-stopped guard; another API-stopped guest could be restarted while its real vendor job remained loaded. | Require independent fixed-vendor job absence for every stopped guest. Six failing-before cases plus an absence control in `test_runtime_partial_fleet_stop.py`. |
+| Partial fleet | With `fleet_start` omitted, one running API row bypassed the all-stopped guard; another API-stopped guest could be restarted while its real vendor job remained loaded. | Require independent fixed-vendor job absence for every stopped guest. Six failing-before cases plus an absence control in `test_runtime_partial_fleet_stop.py`. Five further cross-domain/denied-read counterexamples require absence in system, GUI and user domains independently of the current helper. |
 | Stopped peer | API-only stopped state skipped a tolerated peer during persistent-path writer checks, including when stronger service-manager evidence was selected. | Require the stopped-job proof for that exception; loaded peer jobs cannot be ignored. Runtime adversarial regressions. |
 | Durable pause | Recovery could lock one state directory while reading a different intent file, missing the operator's pause in the locked store. | Bind recovery intent to that store and keep invalid control paths unknown; redact unsafe-store failures. Runtime adversarial regressions. |
 | Interrupted rollback | A retry after the predecessor receipt was written released the installation hold despite removed jobs or changed installed/retained bytes. | Revalidate files and loaded jobs before releasing the hold. Six failing-before cases in `test_deployment_rollback_completion_readback.py`. |
@@ -121,6 +121,12 @@ deployment group passed 2,453 and the Bonjour group passed 1,167. Those green
 results did not prevent the independent counterexamples above. Baseline failures
 also include missing new APIs and deliberately changed vocabulary; they are not
 counted as that many independent bugs.
+
+The first combined CI also exposed a stale release-version example and two test
+fault selectors that matched the vendor API job before the intended guest. The
+examples now name this release; the selectors target the exact guest job and
+assert that every unaffected service remains present. Production PF behavior
+for the API-wide timeout was correct and was not relaxed.
 
 Required final verification is the unchanged three-Python macOS matrix (3.12,
 3.13, 3.14), format/lint/strict types, dependency audit, public privacy guard,
