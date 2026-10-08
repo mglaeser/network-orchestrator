@@ -585,10 +585,14 @@ def test_text_inside_a_mapped_list_is_not_converted(tmp_path):
     data["port_ranges"] = None
     result = import_sources(manifest(tmp_path, listed(ranges)))
     assert project_instance(result, data) == canonical_instance_bytes(base)
-    # The same text mapped by itself into that list stays text there.
+    # The same text mapped by itself into that list: a destination inside
+    # another mapped destination has two authors, and the import refuses it.
     ranges[0]["first"] = None
-    result = import_sources(manifest(tmp_path, listed(ranges), literal))
-    assert result.values == {"port_ranges": [ranges[0] | {"first": str(first)}]}
+    with pytest.raises(ImportError, match="unavailable"):
+        import_sources(manifest(tmp_path, listed(ranges), literal))
+    # A result that holds such text anyway keeps it text inside the list.
+    values = {"port_ranges": [ranges[0] | {"first": str(first)}]}
+    result = ImportResult(values, (), (), frozenset({"/port_ranges/0/first"}))
     with pytest.raises(InstanceError, match="closed versioned schema"):
         project_instance(result, data)
 
