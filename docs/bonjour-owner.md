@@ -177,7 +177,11 @@ error stream and in what the client prints before its event loop, that is
 before the first timestamp, and there not in the two lines that echo the
 arguments. The registration reader follows the same rule: the echo line and
 the replies are data, a reply that ends in `Error -65570` is a denial, and
-every other complete line is searched as before.
+every other complete line is searched as before. The echo line is data only
+where it is exactly the line the client prints for the record it was given,
+with the TXT as ShowTXTRecord shows it (781-813): a diagnostic on the error
+stream can follow a stdout line that a full block cut, so a cut echo is
+searched like any other line.
 
 A browse reply carries the instance name unescaped (`mDNSShared/uds_daemon.c`
 line 624 at the same revision), so a name can hold a line feed and continue on
@@ -321,7 +325,8 @@ revision above arm it with `exit(0)`. Clean is judged on the whole output,
 including what arrived after the last poll that saw the client running: it must
 end with a newline, show the line `Using interface <index>` for the requested
 interface exactly once, be at most 1 MiB and pass the content checks of a
-running client, that is, contain no `-65570`, `No Authorization`, `Error code`,
+running client, that is, contain outside the exact echo line of this record no
+`-65570`, `No Authorization`, `Error code`,
 `error code` or `Unknown interface`, no line with `DNSService` followed by
 `returned` or `failed`, and no `Got a reply for service` or
 `Got a reply for record` line other than the two timestamped confirmations of

@@ -451,6 +451,41 @@ def registration_argv(record: Record, lifetime_seconds: int = 120) -> list[str]:
     ]
 
 
+# ShowTXTRecord puts a backslash before each of these bytes and before NUL.
+_TXT_ESCAPED = b" &;`'\"|*?~<>^()[]{}$"
+
+
+def _echo_line(record: Record) -> bytes:
+    """The one line in which the client echoes the arguments of ``registration_argv``.
+
+    RegisterService prints the name, type and domain, the host, the port and,
+    where TXT was given, the word TXT and its display (``Clients/dns-sd.c``
+    lines 1501-1503 and 1524-1527 at the tag the owner guide cites).
+    ShowTXTRecord (lines 781-813) begins each non-empty entry with a space,
+    puts a backslash before a shell character and before NUL, writes a
+    backslash as four and any other byte below the space as ``\\xHH``.
+    """
+    line = bytearray(
+        f"Registering Service {record.name}.{record.service_type}.local."
+        f" host {record.hostname} port {record.port}".encode()
+    )
+    if record.txt:
+        line += b" TXT"
+        for entry in record.txt:
+            if entry:
+                line += b" "
+            for byte in entry:
+                if byte == 0 or byte in _TXT_ESCAPED:
+                    line += b"\\"
+                if byte == 0x5C:
+                    line += b"\\" * 4
+                elif byte >= 0x20:
+                    line.append(byte)
+                else:
+                    line += b"\\\\x%02X" % byte
+    return bytes(line)
+
+
 class Registration:
     """Only this object owns and signals its own spawned client process group."""
 
@@ -550,13 +585,16 @@ class Registration:
         expected_address = (
             f"Got a reply for record {self.record.hostname}: Name now registered and active"
         ).encode()
+        echo = _echo_line(self.record)
         callbacks = []
         searched = []
         pattern = re.compile(rf"^{_STAMP}  (Got a reply for (?:service|record) .+)$".encode())
         for line in lines:
-            if line.startswith(b"Registering Service "):
+            if line == echo:
                 # RegisterService echoes the name, host, port and TXT on this one
-                # line. Like a reply, it is data and holds no diagnostic.
+                # line. Like a reply, it is data and holds no diagnostic. Only the
+                # exact echo is: a diagnostic goes to the error stream and can
+                # follow a cut stdout line, so a cut echo is searched like any other.
                 continue
             if b"Got a reply for service " in line or b"Got a reply for record " in line:
                 callback = pattern.fullmatch(line)

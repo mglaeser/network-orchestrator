@@ -342,6 +342,87 @@ def test_running_client_that_does_not_confirm_times_out_after_five_seconds() -> 
     assert caught.value.reason == "timed-out"
 
 
+# The line in which the client echoes the record is data, so words of a
+# diagnostic in the record's own name or TXT fail nothing. Only the exact echo
+# is: a diagnostic on the error stream can follow a stdout line that a full
+# block cut, also the echo, and every line that is not the echo is searched.
+WORDS = media_record(
+    name="Error code display",
+    txt=(
+        b"note=Error",
+        b"code -65563",
+        b"No",
+        b"Authorization",
+        b"serial=A-65570",
+        b"DNSServiceRegister",
+        b"returned",
+        b"Unknown",
+        b"interface",
+    ),
+)
+GLUED = media_record(name="Error code display", txt=(b"note=Error", b"code -65563"))
+
+
+def echoed(record: Record) -> bytes:
+    """A clean registration output of ``record``, with the echo the client prints."""
+    service = f"Got a reply for service {record.name}.{record.service_type}.local.".encode()
+    return b"".join(
+        [
+            b"Using interface 7\n",
+            native._echo_line(record) + b"\n",
+            CONFIRMED[CONFIRMED.index(b"DATE: ") : CONFIRMED.index(b"22:03:18.100")],
+            LATER + service + ACTIVE,
+        ]
+    )
+
+
+def test_echo_line_is_the_line_the_client_prints_for_the_record() -> None:
+    # RegisterService (1501-1503, 1524-1527) and ShowTXTRecord (781-813): a space
+    # before each non-empty entry, a backslash before a shell character and
+    # before NUL, four for a backslash, \\xHH for another byte below the space.
+    record = media_record(txt=(b"a b", b"", b"c\\d", b"e\x1f\x7f\xff", b"&$\0"))
+    head = b"Registering Service Example speaker._airplay._tcp.local. host speaker.local. port 7000"
+    assert native._echo_line(record) == (
+        head + rb" TXT a\ b c\\\\d e\\x1F" + b"\x7f\xff" + rb" \&\$\\\x00"
+    )
+    assert native._echo_line(media_record(txt=(b"",))) == head + b" TXT"
+    assert native._echo_line(media_record(txt=())) == head
+
+
+def test_words_of_the_record_in_its_exact_echo_are_data() -> None:
+    running = running_registration(echoed(WORDS))
+    running.record = WORDS
+    assert running.poll() is True
+    ended = ended_registration(0, 30.0, echoed(WORDS))
+    ended.record = WORDS
+    with pytest.raises(native.RegistrationExpired):
+        ended.poll()
+
+
+@pytest.mark.parametrize(
+    ("diagnostic", "reason"),
+    [
+        (b"Error code -65563", "malformed"),
+        (b"DNSServiceRegister failed -65570", "local-network-denied"),
+    ],
+)
+def test_diagnostic_inside_a_cut_echo_is_read_at_every_byte(diagnostic: bytes, reason: str) -> None:
+    clean = echoed(GLUED)
+    start = clean.index(native._echo_line(GLUED))
+    for cut in range(start, start + len(native._echo_line(GLUED)) + 1):
+        output = clean[:cut] + diagnostic + b"\n" + clean[cut:]
+        running = running_registration(output)
+        running.record = GLUED
+        with pytest.raises(native.DiscoveryFailure) as caught:
+            running.poll()
+        assert (cut, caught.value.reason) == (cut, reason)
+        ended = ended_registration(0, 30.0, output)
+        ended.record = GLUED
+        with pytest.raises(native.DiscoveryFailure) as caught:
+            ended.poll()
+        assert (cut, isinstance(caught.value, native.RegistrationExpired)) == (cut, False)
+
+
 class Child:
     """Stands in for Registration; the test decides when and how its client ends."""
 
