@@ -515,8 +515,8 @@ def test_own_timer_expiry_replaces_only_that_client(
 
     first.end = native.RegistrationExpired()
     monotonic[0] = 130.0
-    # The record was confirmed, so the policy keeps its state while it is renewed.
-    assert manager.reconcile(media, two_records(), 7, 1030)
+    # The old confirmation cannot verify the replacement while it is renewed.
+    assert not manager.reconcile(media, two_records(), 7, 1030)
     assert len(Child.made) == 3
     replacement = Child.made[2]
     assert replacement.record == first.record
@@ -537,12 +537,12 @@ def test_renewal_grace_ends_with_the_replacement(config: Config) -> None:
     media = policy(config)
     manager.reconcile(media, two_records(), 7, 1000)
     Child.made[0].end = native.RegistrationExpired()
-    assert manager.reconcile(media, two_records(), 7, 1000)
+    assert not manager.reconcile(media, two_records(), 7, 1000)
     replacement = Child.made[2]
     # A replacement that ends on its own timer before it ever confirmed leaves
     # the record unconfirmed: the grace is not handed on to a third client.
     replacement.confirms = False
-    assert manager.reconcile(media, two_records(), 7, 1000)
+    assert not manager.reconcile(media, two_records(), 7, 1000)
     replacement.end = native.RegistrationExpired()
     assert not manager.reconcile(media, two_records(), 7, 1000)
     assert manager.renewals(media) == 0 and len(Child.made) == 4
@@ -565,7 +565,7 @@ def test_failing_replacement_is_a_child_failure_as_before(config: Config, reason
     media = policy(config)
     manager.reconcile(media, two_records(), 7, 1000)
     Child.made[0].end = native.RegistrationExpired()
-    assert manager.reconcile(media, two_records(), 7, 1000)
+    assert not manager.reconcile(media, two_records(), 7, 1000)
     Child.made[2].end = native.DiscoveryFailure(reason)
     with pytest.raises(native.DiscoveryFailure) as caught:
         manager.reconcile(media, two_records(), 7, 1000)
@@ -608,7 +608,7 @@ def lease(
     )
 
 
-def test_policy_stays_present_and_counts_confirmed_records_during_a_renewal(
+def test_policy_is_unknown_until_the_replacement_confirms(
     config: Config, settings: owner.BonjourSettings
 ) -> None:
     current = snapshot(config)
@@ -628,8 +628,8 @@ def test_policy_stays_present_and_counts_confirmed_records_during_a_renewal(
     assert tick() == ("present", "verified", 2)
     first, second = Child.made
     first.end = native.RegistrationExpired()
-    # One record is between two clients: the state is kept, the count is honest.
-    assert tick() == ("present", "verified", 1)
+    # One record is between two clients: a complete present observation is unavailable.
+    assert tick() == ("unknown", "unobserved", 0)
     assert first.closed and not second.closed and len(Child.made) == 3
     assert tick() == ("present", "verified", 2)
 
@@ -726,7 +726,7 @@ def test_clean_final_output_of_a_client_ended_at_its_lifetime_renews_that_record
     first, second = Scripted.made
     # The same end with nothing else printed stays the expiry of one record.
     first.end_on_timer()
-    assert tick() == ("present", "verified", 1)
+    assert tick() == ("unknown", "unobserved", 0)
     assert first.closed and not second.closed and len(Scripted.made) == 3
     assert Scripted.made[2].record == first.record and second in manager.children.values()
     assert tick() == ("present", "verified", 2)
@@ -755,7 +755,7 @@ sys.exit(0)  # ... exit(0)
 """
 
 
-def test_second_record_survives_and_policy_stays_present_across_native_expiry(
+def test_second_record_survives_and_renewal_gaps_are_unknown(
     config: Config,
     settings: owner.BonjourSettings,
     tmp_path: Any,
@@ -843,6 +843,6 @@ def test_second_record_survives_and_policy_stays_present_across_native_expiry(
     assert killed_sibling == []
     # No replacement was started beside the client it replaces.
     assert overlapping == []
-    # From the first complete confirmation on, the source was seen continuously
-    # and the policy never read unknown.
-    assert steady and set(steady) == {("present", "verified")}
+    # Source freshness does not prove a new registration. The renewal gaps are
+    # visible as unknown, while healthy siblings are never signalled.
+    assert steady and set(steady) == {("present", "verified"), ("unknown", "unobserved")}

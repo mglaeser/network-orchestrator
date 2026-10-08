@@ -851,7 +851,7 @@ def scan_policy(
     ready: frozenset[str],
     interfaces: dict[str, tuple[int, int]],
     now: float,
-    missed: Callable[[tuple[Record, ...]], tuple[Record, ...]] | None = None,
+    missed: MissedSources | None = None,
 ) -> tuple[tuple[Record, ...], int]:
     """The policy's projected records and the number of instances left out.
 
@@ -869,10 +869,17 @@ def scan_policy(
     guest_ipv4 = inspected if policy.direction == "export" and isinstance(inspected, str) else None
     left_out: list[str] = []
     unanswered: list[str] = []
-    with ThreadPoolExecutor(max_workers=min(8, len(policy.types))) as pool:
-        futures = [
-            pool.submit(
-                scan,
+    rejected: list[tuple[str, str]] = []
+    rejected_answers: list[tuple[str, str]] = []
+
+    def read_type(kind: str) -> tuple[Record, ...]:
+        # Retain the type with every refusal. A missing browse entry may be
+        # carried within its lease, but one explicitly read and rejected in
+        # this pass must never be resurrected from that older source.
+        omitted: list[str] = []
+        silent: list[str] = []
+        try:
+            return scan(
                 source,
                 index,
                 kind,
@@ -880,11 +887,17 @@ def scan_policy(
                 settings.scan_seconds,
                 now,
                 guest_ipv4=guest_ipv4,
-                skipped=left_out,
-                unanswered=unanswered,
+                skipped=omitted,
+                unanswered=silent,
             )
-            for kind in policy.types
-        ]
+        finally:
+            left_out.extend(omitted)
+            unanswered.extend(silent)
+            rejected.extend((name, kind) for name in omitted)
+            rejected_answers.extend((name, kind) for name in omitted if name not in silent)
+
+    with ThreadPoolExecutor(max_workers=min(8, len(policy.types))) as pool:
+        futures = [pool.submit(read_type, kind) for kind in policy.types]
         collected: list[Record] = []
         deadline = time.monotonic() + min(45, policy.max_age_seconds / 2)
         for future in futures:
@@ -895,6 +908,11 @@ def scan_policy(
                 # this pass that failed otherwise, a denial for example, or
                 # whose time is used up: every scan of the pass is looked at.
                 failure.unfinished = _only_unfinished(futures, deadline, left_out, unanswered)
+                # A different type's unfinished read must not hide this
+                # instance's explicit unusable answer in failed-pass carry.
+                if missed is not None:
+                    for key in rejected_answers:
+                        missed.known.pop(key, None)
                 raise
             if len(collected) > policy.max_records:
                 raise DiscoveryFailure("incomplete")
@@ -908,6 +926,8 @@ def scan_policy(
         raise DiscoveryFailure(_UNANSWERED, unfinished=silent, unanswered=silent)
     sources = tuple(collected)
     if missed is not None:
+        for key in rejected:
+            missed.known.pop(key, None)
         sources += missed(sources)
     projected = project_records(config, policy, sources, snapshot, ready, settings, now)
     return projected, len(left_out)
@@ -1170,8 +1190,8 @@ class Publisher:
                         # With an overlap its replacement already runs, and takes its place.
                         self.children[key] = successor
                         active = successor.active
-                    # A confirmed record keeps the policy's state while its
-                    # replacement confirms; Registration.poll bounds that wait.
+                    # Track the gap for diagnostics only. Historical
+                    # confirmation cannot prove the replacement is registered.
                     if ended.active:
                         self.renewing.add(key)
                     else:
@@ -1205,7 +1225,7 @@ class Publisher:
                 raise
             if active:
                 self.renewing.discard(key)
-            confirmed = (active or key in self.renewing) and confirmed
+            confirmed = active and confirmed
         return confirmed
 
     def _poll_successor(self, key: str) -> None:

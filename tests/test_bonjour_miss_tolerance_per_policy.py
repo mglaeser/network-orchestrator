@@ -122,12 +122,12 @@ def stating(config: Config, tolerances: dict[str, int]) -> Config:
     )
 
 
-def entry_digest(config: Config, item: dict[str, Any]) -> str:
-    """The version 4 envelope around one entry exactly as the policy file writes it."""
+def entry_digest(config: Config, item: dict[str, Any], version: int = 5) -> str:
+    """The versioned envelope around one entry exactly as the policy file writes it."""
     service = config.service(item["service"])
     return digest(
         {
-            "digest_version": 4,
+            "digest_version": version,
             "schema_version": config.schema_version,
             "discovery": item,
             "scope": asdict(config.scope(item["scope"])),
@@ -154,9 +154,10 @@ def test_shipped_policies_keep_their_canonical_form_and_both_digests(name: str) 
     assert config_digest(config) == BASE[name]["config_digest"]
     assert all("misses" not in item for item in canonical["discovery"])
     for item, as_written in zip(config.discovery, data["discovery"], strict=True):
-        assert discovery_digest(config, item) == BASE[name]["discovery"][item.id]
+        assert discovery_digest(config, item) == entry_digest(config, as_written)
+        assert discovery_digest(config, item) != BASE[name]["discovery"][item.id]
         # The literal ties the formula below to what the base tree hashed.
-        assert entry_digest(config, as_written) == BASE[name]["discovery"][item.id]
+        assert entry_digest(config, as_written, 4) == BASE[name]["discovery"][item.id]
 
 
 def test_entry_without_the_member_has_none_and_a_constructed_one_validates(
@@ -194,13 +195,16 @@ def test_entry_may_state_its_own_tolerance(identifier: str, misses: int) -> None
     assert "misses" not in entry(canonical, other)
     assert sha256(canonical) == BASE["network.json"]["canonical_sha256"]
     # A stated tolerance is a new input: another policy digest, another digest
-    # of that entry, and the entry that states nothing keeps the literal.
+    # of that entry, and the entry that states nothing keeps its current digest.
     base = BASE["network.json"]
     assert config_digest(config) != base["config_digest"]
     stated = discovery_digest(config, policy(config, identifier))
     assert stated != base["discovery"][identifier]
     assert stated == entry_digest(config, entry(data, identifier))
-    assert discovery_digest(config, policy(config, other)) == base["discovery"][other]
+    default = parsed(written())
+    assert discovery_digest(config, policy(config, other)) == discovery_digest(
+        default, policy(default, other)
+    )
     another = parsed(tolerating(identifier, 2 if misses == 1 else 1))
     assert discovery_digest(another, policy(another, identifier)) != stated
 

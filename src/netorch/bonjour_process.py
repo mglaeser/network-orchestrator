@@ -653,12 +653,27 @@ class Registration:
         # Sampled before the read, so the last line of a client that has ended
         # is in the buffer when its exit is judged.
         status = self.process.poll()
-        for key, _events in self.selector.select(0):
-            chunk = os.read(key.fd, 65536)
-            if chunk:
-                self.output.extend(chunk)
-            else:
-                self.selector.unregister(key.fileobj)
+        # A stopped client may have more than one pipe read left. Drain that
+        # bounded output before classifying its exit: a trailing conflict or
+        # removal must not be hidden behind an earlier clean block.
+        while ready := self.selector.select(0):
+            progress = False
+            for key, _events in ready:
+                if len(self.output) > MAX_OUTPUT:
+                    raise DiscoveryFailure("unavailable" if status is not None else "incomplete")
+                try:
+                    chunk = os.read(key.fd, min(65536, MAX_OUTPUT + 1 - len(self.output)))
+                except BlockingIOError:
+                    continue
+                if chunk:
+                    self.output.extend(chunk)
+                    progress = True
+                else:
+                    self.selector.unregister(key.fileobj)
+                if len(self.output) > MAX_OUTPUT:
+                    raise DiscoveryFailure("unavailable" if status is not None else "incomplete")
+            if status is None or not progress:
+                break
         if status is not None:
             # With -t the client arms dispatch_after(exitTimeout) { exit(0); } when
             # it enters its event loop (Clients/dns-sd.c:1315-1320 at the tag the
@@ -710,6 +725,9 @@ class Registration:
         # Pipe reads can split a native callback anywhere. A partial final
         # line is not a conflicting registration; retain it until its newline.
         lines = _lines(text[: text.rfind(b"\n") + 1])
+        interface_lines = [line for line in lines if line.startswith(b"Using interface ")]
+        if interface_lines and interface_lines != [f"Using interface {self.index}".encode()]:
+            raise DiscoveryFailure("identity-mismatch")
         expected_service = (
             f"Got a reply for service {self.record.name}."
             f"{self.record.service_type}.local.: Name now registered and active"

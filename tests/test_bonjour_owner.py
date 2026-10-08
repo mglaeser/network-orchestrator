@@ -669,7 +669,7 @@ def old_discovery_digest(config, item, version):
     )
 
 
-@pytest.mark.parametrize("old_version", [1, 2, 3])
+@pytest.mark.parametrize("old_version", [1, 2, 3, 4])
 @pytest.mark.parametrize("old_field", ["candidate", "request"])
 def test_discovery_owner_refuses_prior_lease_records(config, settings, old_field, old_version):
     current = snapshot(config)
@@ -702,7 +702,7 @@ def test_discovery_owner_refuses_prior_lease_records(config, settings, old_field
     )
 
 
-@pytest.mark.parametrize("old_version", [1, 2, 3])
+@pytest.mark.parametrize("old_version", [1, 2, 3, 4])
 @pytest.mark.parametrize("boundary", ["readback", "endpoint"])
 def test_discovery_owner_refuses_prior_readback_and_endpoint(
     config, settings, monkeypatch, boundary, old_version

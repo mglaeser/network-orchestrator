@@ -85,14 +85,16 @@ class DiscoveryAction:
 
 
 def discovery_digest(config: Config, item: Discovery) -> str:
-    """Bind resolved policy, dependencies and the v4 discovery native contract.
+    """Bind resolved policy, dependencies and the v5 discovery native contract.
 
     V2 bound related records by ASCII DNS hostname plus address and excluded
     both projection prefixes case-insensitively. V3 additionally accepts the
     native STARTING banner and preserves exact browse labels; prior approval
     cannot enable this corrected grammar. V4 binds the changes to record
     reading, selection and leasing made after 0.3.2 (docs/bonjour-owner.md);
-    a V3 approval cannot enable them.
+    a V3 approval cannot enable them. V5 requires a currently confirmed client
+    during renewal, complete final output and exact interface identity, and
+    never revives an explicitly rejected instance from missed-source memory.
     """
     service = config.service(item.service)
     resolved = asdict(item)
@@ -107,7 +109,7 @@ def discovery_digest(config: Config, item: Discovery) -> str:
         del resolved["misses"]
     return digest(
         {
-            "digest_version": 4,
+            "digest_version": 5,
             "schema_version": config.schema_version,
             "discovery": resolved,
             "scope": asdict(config.scope(item.scope)),

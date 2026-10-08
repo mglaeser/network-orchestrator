@@ -57,27 +57,27 @@ BASE_SEQUENCE = [
     "30 confirmed True renewing 0",
     "120 close Example speaker 1 ended",
     "120 start Example speaker 2 -t 120",
-    "120 confirmed True renewing 1",
+    "120 confirmed False renewing 1",
     "125 confirmed True renewing 0",
     "150 close Second speaker 1 ended",
     "150 start Second speaker 2 -t 120",
-    "150 confirmed True renewing 1",
+    "150 confirmed False renewing 1",
     "155 confirmed True renewing 0",
     "240 close Example speaker 2 ended",
     "240 start Example speaker 3 -t 120",
-    "240 confirmed True renewing 1",
+    "240 confirmed False renewing 1",
     "245 confirmed True renewing 0",
     "270 close Second speaker 2 ended",
     "270 start Second speaker 3 -t 120",
-    "270 confirmed True renewing 1",
+    "270 confirmed False renewing 1",
     "275 confirmed True renewing 0",
     "360 close Example speaker 3 ended",
     "360 start Example speaker 4 -t 120",
-    "360 confirmed True renewing 1",
+    "360 confirmed False renewing 1",
     "365 confirmed True renewing 0",
     "390 close Second speaker 3 ended",
     "390 start Second speaker 4 -t 120",
-    "390 confirmed True renewing 1",
+    "390 confirmed False renewing 1",
     "395 confirmed True renewing 0",
 ]
 
@@ -334,7 +334,7 @@ def test_record_is_confirmed_without_interruption_and_counted_once(
     Client.clock.elapsed = 0.0
     Client.made, Client.events = [], []
     plain = run(publisher(), item, clock, 1000, sources=2)
-    assert set(plain) == {(True, 0), (True, 2)}
+    assert set(plain) == {(True, 0), (False, 2)}
 
 
 def test_old_client_is_never_closed_before_its_own_end(config: Config, clock: Clock) -> None:
@@ -403,8 +403,8 @@ def test_replacement_that_has_not_confirmed_when_its_predecessor_ends_is_between
     Client.confirm_after = 4.0
     assert run(manager, item, clock, 120) == [(True, 0)] * 2
     # The first client has ended and the second has not confirmed yet: the
-    # policy keeps its state, and the record is left out of the count once.
-    assert run(manager, item, clock, 122) == [(True, 1)] * 2
+    # policy becomes unknown until that new client confirms.
+    assert run(manager, item, clock, 122) == [(False, 1)] * 2
     assert run(manager, item, clock, 125) == [(True, 0)] * 3
     assert len(Client.made) == 2
 
@@ -473,7 +473,7 @@ def test_policy_reads_present_with_every_record_counted_across_renewals(
     assert len(Client.made) == 2 * 3
     # Without the setting the same 250 seconds show the count of records between two clients.
     clock.elapsed = 0.0
-    assert facts(publisher(), 250) == {("present", "verified", 2), ("present", "verified", 0)}
+    assert facts(publisher(), 250) == {("present", "verified", 2), ("unknown", "unobserved", 0)}
 
 
 def test_failed_replacement_withdraws_the_policy_through_the_publisher_tick(
@@ -586,7 +586,7 @@ def test_client_that_lives_no_longer_than_the_overlap_is_replaced_after_its_end(
     config: Config, clock: Clock
 ) -> None:
     item = long_lease(config, 30)
-    assert set(run(publisher(30), item, clock, 100)) == {(True, 0), (True, 1)}
+    assert set(run(publisher(30), item, clock, 100)) == {(True, 0), (False, 1)}
     overlapping = list(Client.events)
     assert overlapping[:3] == [
         "0 start Example speaker 1 -t 30",
@@ -638,7 +638,7 @@ def test_both_clients_ended_while_the_publisher_stalled(config: Config, clock: C
     assert len(Client.made) == 2
     clock.elapsed = 240.0
     # Neither is running any more: one new client, as without the setting.
-    assert tick(manager, item, clock) and manager.renewals(item) == 1
+    assert not tick(manager, item, clock) and manager.renewals(item) == 1
     assert Client.events[2:] == [
         "240 close Example speaker 2 ended",
         "240 close Example speaker 1 ended",

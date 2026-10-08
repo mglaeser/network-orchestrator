@@ -105,6 +105,13 @@ leasing made after 0.3.2; each is described where this document covers that
 behavior. Version 1 to 3 requests, candidates and cached readbacks are
 rejected at the owner boundary in the same way.
 
+Discovery digest version 5 additionally binds truthful renewal health, complete
+final-pipe inspection, exact registration-interface identity, and the refusal
+to revive a source explicitly rejected in the current pass. Versions 1 to 4
+requests, candidates and readbacks are rejected by the enforcing owner. The
+new tests exercise each boundary with an actual prior digest. No transport
+approval or native qualification follows from this discovery version change.
+
 Discovery does not supply the audio/video return path. A verified UDP-return
 dependency is required by the canonical import policy, unless its entry says
 `"return_path": "independent"` ([configuration](configuration.md)). The owner
@@ -346,6 +353,14 @@ a request, candidate or readback made for the entry without it, or with
 another number, is refused. Either way the lease that the digest binds still
 bounds every record.
 
+An instance that the current completed pass explicitly resolved and left out
+is removed from missed-source memory by its exact name and service type. Its
+older value cannot be republished beside healthy records or revived by a later
+empty browse. This includes stale browse entries and unusable address, SRV or
+TXT answers; a record absent from the browse is the separate tolerated-miss
+case. A wholly unanswered failed pass follows only the explicit `failed_pass`
+setting below.
+
 The publisher refuses a whole candidate for one expired record. The scanner
 therefore keeps a missed record only while its lease lasts longer than a rest
 and two passes at their full time budget, counted from the start of the pass,
@@ -488,7 +503,8 @@ output, has ended on that timer: `Clients/dns-sd.c` lines 1315-1320 at the
 revision above arm it with `exit(0)`. Clean is judged on the whole output,
 including what arrived after the last poll that saw the client running: it must
 end with a newline, show the line `Using interface <index>` for the requested
-interface exactly once, be at most 1 MiB and pass the content checks of a
+interface exactly once with no foreign interface line, be at most 1 MiB and
+pass the content checks of a
 running client, that is, contain outside the exact echo line of this record no
 `-65570`, `No Authorization`, `Error code`,
 `error code` or `Unknown interface`, no line with `DNSService` followed by
@@ -501,10 +517,12 @@ print `Unknown interface` and the usage. This is the expiry of one record, not a
 failure. The publisher replaces that client alone, with the lease that is left
 and, unless the settings give `renewal_overlap_seconds` (below), only after the
 old client has ended, so that it never runs two clients for one record.
-Sibling registrations keep running. A record that was confirmed keeps
-the policy's state while its replacement confirms; the five-second confirmation
-limit bounds that, and the observation's `record_count` leaves the record out
-until then. Without that setting the record is not registered between the two
+Sibling registrations keep running. A replacement must independently confirm
+before the policy can again read `present / verified`; historical confirmation
+does not prove a live registration. During an unconfirmed replacement the
+policy reads `unknown / unobserved`, even if siblings are still registered.
+The five-second confirmation limit bounds that wait. Without the setting the
+record is not registered between the two
 clients: it leaves the network and returns at least every two minutes. A replacement that
 fails, and every other exit (another status, a signal, status 0 before the
 lifetime or with output that is not clean), is a registration-child failure as

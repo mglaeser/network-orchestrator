@@ -611,7 +611,23 @@ def test_without_the_setting_every_pass_writes_the_bytes_of_before(
 ) -> None:
     link = Link(monkeypatch, leased(config), replace(settings, miss_tolerance=3))
     written = run_of_passes(link)
-    assert fingerprints(written) == BEFORE
+    # This historical fixture predates discovery contract v5. Normalize only
+    # the reviewed digest migration; the enforcing-boundary tests separately
+    # require rejection of these old v4 approvals. Every other byte is retained.
+    from tests.test_bonjour_owner import old_discovery_digest
+
+    def previous_digest_bytes(blob: bytes) -> bytes:
+        for item in link.config.discovery:
+            blob = blob.replace(
+                discovery_digest(link.config, item).encode(),
+                old_discovery_digest(link.config, item, 4).encode(),
+            )
+        return blob
+
+    assert (
+        fingerprints([tuple(previous_digest_bytes(blob) for blob in step) for step in written])
+        == BEFORE
+    )
     # The run is what it says: the failed passes carry their reason and nothing else.
     reasons = [
         strict_loads(step[0])["policies"][IMPORT].get("reason")
