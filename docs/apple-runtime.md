@@ -109,6 +109,25 @@ authored once in the input table. Neither command creates an admission, changes
 application configuration, resumes intent or invokes PF. Review the generated
 files and promote them through the separately guarded deployment procedure.
 
+`enroll` writes only settings that the settings loader reads again: the bytes of
+the output file, its final newline included, are read back through the loader
+before the file is created. A mount that is neither a directory, a regular file
+nor a socket (a named pipe or a device, for example), a mount source that is not
+an absolute path free of `.` and `..` components, more than 128 mounts in one
+definition, and a result whose stored bytes exceed the 1 MiB the loader takes
+end the command with its redacted error and status 69, and no file is created.
+A memory-backed mount is such a case: the vendor records `tmpfs` or nothing as
+its source
+([`Filesystem`](https://github.com/apple/container/blob/1.5.0/Sources/ContainerResource/Container/Filesystem.swift#L74-L135),
+the same file at tags 1.2.0 and 1.4.1), so a definition with one cannot be
+enrolled. The source is empty only for `--mount type=tmpfs` at tag 1.2.0: the
+vendor's `Parser.mount` assigns `tmpfs` at tags 1.4.1
+([line 436](https://github.com/apple/container/blob/1.4.1/Sources/Services/ContainerAPIService/Client/Parser.swift#L436))
+and 1.5.0
+([line 437](https://github.com/apple/container/blob/1.5.0/Sources/Services/ContainerAPIService/Client/Parser.swift#L437)),
+and not at 1.2.0
+([lines 414-415](https://github.com/apple/container/blob/1.2.0/Sources/Services/ContainerAPIService/Client/Parser.swift#L414-L415)).
+
 `enroll` stores device numbers unless it is given `--identity volume-uuid`. With
 that option every mounted directory and file is stored with its volume
 identifier and without a device number, and so is every receipt that names a

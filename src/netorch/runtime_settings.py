@@ -388,8 +388,9 @@ def settings_to_dict(settings: RuntimeSettings) -> dict[str, Any]:
     if value["start_timeout_seconds"] is None:
         # Left out while unset: settings stored before the key existed keep their bytes.
         del value["start_timeout_seconds"]
+    if value["fleet_start"] is None:
+        # Left out while undeclared: settings without it keep their bytes and digests.
+        # Dropped before the bytes are taken, so that the size bound judges the stored form.
+        del value["fleet_start"]
     result: dict[str, Any] = strict_loads(canonical_bytes(value))
-    # Left out while undeclared: settings without it keep their bytes and digests.
-    if result["fleet_start"] is None:
-        del result["fleet_start"]
     return result

@@ -35,6 +35,7 @@ from .runtime_settings import (
     RuntimeSettings,
     contract_digest,
     load_settings,
+    parse_settings,
     settings_to_dict,
 )
 from .state import (
@@ -894,6 +895,17 @@ def _intent(settings: RuntimeSettings) -> Intent:
     return attribute_holds(intent, {contract.service for contract in settings.contracts})
 
 
+def _stored_enrollment(settings: RuntimeSettings) -> bytes:
+    """The bytes `enroll` writes for these settings, read back as the loader reads them.
+
+    `load_settings` parses exactly these bytes, the final newline included, so its
+    size bound is judged on the stored form. Raises the loader's `ValueError`.
+    """
+    payload = (canonical_json(settings_to_dict(settings)) + "\n").encode()
+    parse_settings(strict_loads(payload))
+    return payload
+
+
 def capture_enrollment(
     settings: RuntimeSettings, runner: Runner = run, *, identity_binding: str = "device"
 ) -> RuntimeSettings:
@@ -921,6 +933,10 @@ def capture_enrollment(
                 if stat.S_ISSOCK(meta.st_mode)
                 else "other"
             )
+            if kind == "other":
+                # A pipe, a device or a link. The settings loader reads three
+                # kinds only: this one would be stored and never loaded again.
+                raise RuntimeReadError("identity-mismatch")
             identity = FileIdentity(
                 path,
                 kind,
@@ -952,7 +968,16 @@ def capture_enrollment(
                 receipts=tuple(receipts),
             )
         )
-    return replace(settings, contracts=tuple(contracts))
+    captured = replace(settings, contracts=tuple(contracts))
+    # An enrollment is what the settings loader reads from the stored bytes. A
+    # mount source that is no canonical absolute path, more identities than a
+    # contract may list, or more bytes than the loader takes would be written
+    # and then refused by every later command.
+    try:
+        _stored_enrollment(captured)
+    except ValueError as exc:
+        raise RuntimeReadError("identity-mismatch") from exc
+    return captured
 
 
 def derive_policy(config: Config, settings: RuntimeSettings) -> Config:
@@ -1148,7 +1173,9 @@ def main(argv: list[str] | None = None) -> int:
                 if args.identity == "device"
                 else capture_enrollment(settings, identity_binding=args.identity)
             )
-            payload = (canonical_json(settings_to_dict(enrolled)) + "\n").encode()
+            # Written are the very bytes the settings loader has just read back: a
+            # payload it refuses ends here, before the output file exists.
+            payload = _stored_enrollment(enrolled)
             fd = os.open(args.output, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
             try:
                 with os.fdopen(os.dup(fd), "wb") as stream:

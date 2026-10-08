@@ -805,15 +805,13 @@ def test_enrolment_opens_directories_and_files_only(
         return VOLUME
 
     monkeypatch.setattr(runtime, "volume_uuid", provider)
-    bound = runtime.capture_enrollment(
-        settings, FakeRunner(settings, items), identity_binding="volume-uuid"
-    )
-    meta = pipe.lstat()
-    # What is neither a directory nor a file is described exactly as before.
-    assert bound.contract("camera").mounts[1] == FileIdentity(
-        str(pipe), "other", meta.st_uid, meta.st_dev, meta.st_ino
-    )
-    assert meta.st_ino not in asked
+    # What is neither a directory, a file nor a socket is refused unopened: the
+    # settings loader reads no such kind (tests/test_runtime_enrollment_kinds.py).
+    with pytest.raises(runtime.RuntimeReadError):
+        runtime.capture_enrollment(
+            settings, FakeRunner(settings, items), identity_binding="volume-uuid"
+        )
+    assert asked and pipe.lstat().st_ino not in asked
 
 
 def _receipt(path: Path) -> FileIdentity:
