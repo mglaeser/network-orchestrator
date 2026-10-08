@@ -6,11 +6,11 @@ import hashlib
 import os
 import re
 import stat
-from dataclasses import asdict
+from dataclasses import MISSING, asdict, fields
 from datetime import datetime
 from functools import lru_cache
 from importlib import resources
-from ipaddress import IPv4Address, IPv4Network
+from ipaddress import IPv4Address, IPv4Network, IPv6Address
 from pathlib import Path, PurePosixPath
 from typing import Any, cast
 
@@ -26,6 +26,7 @@ from .instance_model import (
     BoundedDecision,
     Component,
     ContractRef,
+    Deadlines,
     Decisions,
     Deviation,
     DiscoverySelection,
@@ -39,15 +40,17 @@ from .instance_model import (
     Platform,
     Ports,
     RecoveryDecision,
+    RestartBudget,
     Runtime,
     Supervision,
     Transport,
     VisibilityDecision,
     Workload,
 )
-from .profile_library import discovery_profile, strategy
+from .platform_contract import PF_ANCHOR_BYTES
+from .profile_library import AUTOMATIC_TYPES, discovery_profile, strategy
 from .requirements import REQUIREMENTS
-from .safety_contract import assess_bounded_safety
+from .safety_contract import RECOVERY_FAILURE_EXIT_CODE, assess_bounded_safety
 
 SECTIONS = (
     "host",
@@ -62,9 +65,29 @@ SECTIONS = (
     "acceptance",
     "deviations",
 )
-_ADDRESS = re.compile(r"(?<![0-9.])(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?:/[0-9]{1,2})?(?![0-9.])")
+# An address may end a sentence. Only a dot that continues into another component
+# makes it part of a longer token.
+_ADDRESS = re.compile(r"(?<![0-9.])(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?:/[0-9]{1,2})?(?![0-9])(?!\.\w)")
+# Hexadecimal groups joined by at least two colons, optionally ending in a dotted
+# quad. This only finds candidates; ``ipaddress`` decides what is an address.
+_ADDRESS6 = re.compile(
+    r"(?<![0-9A-Za-z])(?:[0-9A-Fa-f]{1,4}(?=:)|(?=::))(?::[0-9A-Fa-f]{0,4}){2,}"
+    r"(?:\.[0-9]{1,3}){0,3}(?![0-9A-Za-z])"
+)
 # C0, DEL and C1 controls plus the Unicode line and paragraph separators.
 _CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
+# Optional supervision vocabulary has one spelling for "not stated": absent. Leaving
+# these members out keeps the bytes and every digest of a document that states none.
+_OPTIONAL_SUPERVISION = ("component_exit_code", "restart_budget", "action_timeout_seconds")
+_DEADLINES = ("probe_seconds", "action_seconds")
+# What the retained supervisor can be told. Its Monit rule matches the reserved start
+# status only, a monitor's check timeout is at most 120 seconds, and the runtime
+# settings bound only the vendor start call, at most 120 seconds. Lock acquisition,
+# two pre-start observations and post-start readback have separate budgets: no
+# shared whole-action deadline is implemented. They also take every restart budget
+# this vocabulary can state (`restart_budget`, the same bounds).
+RETAINED_PROBE_DEADLINE_MAXIMUM = 120
+RETAINED_ACTION_DEADLINE_MAXIMUM: int | None = None
 
 
 class InstanceError(ValueError):
@@ -120,6 +143,13 @@ def _ports(data: dict[str, Any] | None) -> Ports | None:
     return None if data is None else Ports(**data)
 
 
+def _supervision(data: dict[str, Any]) -> Supervision:
+    budget = data.get("restart_budget")
+    return Supervision(
+        **{**data, "restart_budget": None if budget is None else RestartBudget(**budget)}
+    )
+
+
 def _construct(data: dict[str, Any]) -> Instance:
     host = data["host"]
     baseline = host["baseline"]
@@ -154,6 +184,7 @@ def _construct(data: dict[str, Any]) -> Instance:
                 item["automatic_port_range"],
                 item["recovery"],
                 tuple(Component(**value) for value in item["components"]),
+                Deadlines(**item["deadlines"]) if "deadlines" in item else None,
             )
             for item in data["workloads"]
         ),
@@ -169,14 +200,24 @@ def _construct(data: dict[str, Any]) -> Instance:
                 _ports(item["target_ports"]),
                 tuple(item["dependencies"]),
                 item["fallback_publication"],
+                item.get("source_scope", "lan"),
             )
             for item in data["transport"]
         ),
         tuple(
-            DiscoverySelection(**{**item, "dependencies": tuple(item["dependencies"])})
+            DiscoverySelection(
+                **{
+                    **item,
+                    **{
+                        key: tuple(item[key])
+                        for key in ("dependencies", "service_types")
+                        if key in item
+                    },
+                }
+            )
             for item in data["discovery"]
         ),
-        Supervision(**data["supervision"]),
+        _supervision(data["supervision"]),
         tuple(LifecycleTool(**item) for item in data["lifecycle_tools"]),
         Decisions(
             tuple(BoundedDecision(**item) for item in decision["bounded"]),
@@ -195,9 +236,22 @@ def _construct(data: dict[str, Any]) -> Instance:
     )
 
 
+def _stated(data: dict[str, Any], optional: tuple[str, ...]) -> dict[str, Any]:
+    return {key: value for key, value in data.items() if value is not None or key not in optional}
+
+
 def instance_to_dict(instance: Instance) -> dict[str, Any]:
     data = cast(dict[str, Any], strict_loads(canonical_bytes(asdict(instance))))
+    data["supervision"] = _stated(data["supervision"], _OPTIONAL_SUPERVISION)
+    for item in data["workloads"]:
+        if item["deadlines"] is None:
+            del item["deadlines"]
+        else:
+            item["deadlines"] = _stated(item["deadlines"], _DEADLINES)
     for item in data["transport"]:
+        if item["source_scope"] == "lan":
+            # The default has no spelling: one byte form per row, earlier digests unchanged.
+            del item["source_scope"]
         for key in ("ports", "target_ports"):
             value = item[key]
             if value is not None:
@@ -206,7 +260,30 @@ def instance_to_dict(instance: Instance) -> dict[str, Any]:
                     if value["range"] is not None
                     else {"first": value["first"], "last": value["last"]}
                 )
+    for item in data["discovery"]:
+        _selection_data(item)
+    for item in data["lifecycle_tools"]:
+        # An absent member is left out: earlier documents keep their bytes and digests.
+        if not item["starts_fleet"]:
+            del item["starts_fleet"]
     return data
+
+
+_SELECTION_DEFAULTS = {
+    item.name: item.default for item in fields(DiscoverySelection) if item.default is not MISSING
+}
+
+
+def _selection_data(selection: dict[str, Any]) -> dict[str, Any]:
+    """Leave out each optional member of a discovery selection that has its default.
+
+    A default has no spelling. A selection written before a member existed
+    therefore keeps its canonical bytes and its resolved digest.
+    """
+    for key, default in _SELECTION_DEFAULTS.items():
+        if selection[key] == default:
+            del selection[key]
+    return selection
 
 
 def canonical_instance_bytes(instance: Instance) -> bytes:
@@ -242,6 +319,20 @@ def resolve_ports(instance: Instance, ports: Ports | None) -> tuple[int, int] | 
     return ports.first, ports.last
 
 
+def selection_types(selection: DiscoverySelection) -> tuple[str, ...] | None:
+    """The DNS-SD service types a selection names, or ``None`` for the automatic form.
+
+    The generic export names none unless the selection lists them. Its automatic
+    form, whatever TCP services the workload announces, is implemented by no
+    retained owner. Whatever turns an instance into retained discovery policy
+    refuses ``None``; it never guesses a list.
+    """
+    if selection.service_types is not None:
+        return selection.service_types
+    library = discovery_profile(selection.profile, selection.version).service_types
+    return None if library == AUTOMATIC_TYPES else library
+
+
 def resolved_profile(instance: Instance, profile: Transport) -> dict[str, Any]:
     workload = instance.workload(profile.service)
     decision = next(
@@ -256,11 +347,19 @@ def resolved_profile(instance: Instance, profile: Transport) -> dict[str, Any]:
         "target_ports": resolve_ports(instance, profile.target_ports),
         "dependencies": list(profile.dependencies),
         "fallback_publication": profile.fallback_publication,
+        # Bound only where declared, so every resolved digest without it is unchanged.
+        **({} if profile.source_scope == "lan" else {"source_scope": profile.source_scope}),
         "lan": asdict(instance.host.lan),
         "workload": {
             "id": workload.id,
             "name": workload.name,
             "contract_sha256": workload.contract.sha256,
+            # Its own deadlines replace site defaults the envelope binds as ``supervision``.
+            **(
+                {}
+                if workload.deadlines is None
+                else {"deadlines": _stated(asdict(workload.deadlines), _DEADLINES)}
+            ),
         },
         "bounded_policy": None
         if decision is None
@@ -291,7 +390,7 @@ def resolved_profile_digest(instance: Instance, profile: Transport) -> str:
             "references": references,
             "names": resolved_names(instance),
             "framework": asdict(instance.framework),
-            "supervision": asdict(instance.supervision),
+            "supervision": _stated(asdict(instance.supervision), _OPTIONAL_SUPERVISION),
             "account": asdict(instance.host.account),
             "runtime": asdict(instance.host.runtime),
             "platform": asdict(instance.host.platform),
@@ -303,7 +402,7 @@ def resolved_discovery_digest(instance: Instance, selection: DiscoverySelection)
     return digest(
         {
             "resolved_discovery_version": 2,
-            "selection": asdict(selection),
+            "selection": _selection_data(asdict(selection)),
             "lan": asdict(instance.host.lan),
             "names": resolved_names(instance),
             "workload_contract": instance.workload(selection.service).contract.sha256,
@@ -313,8 +412,40 @@ def resolved_discovery_digest(instance: Instance, selection: DiscoverySelection)
                 )
                 for identifier in selection.dependencies
             },
+            **_independent_context(instance, selection),
         }
     )
+
+
+def _independent_context(instance: Instance, selection: DiscoverySelection) -> dict[str, Any]:
+    """What a selection otherwise binds through its required transport dependency.
+
+    The resolved digest of that dependency carries the target workload's
+    container name, the release pin, the supervision settings and the account,
+    runtime and platform context. An independent import may list no dependency
+    at all, so its envelope carries the same members itself. A selection without
+    the setting gets nothing here and keeps its digest.
+    """
+    if selection.return_path == "required":
+        return {}
+    workload = instance.workload(selection.service)
+    return {
+        "context": {
+            "workload_name": workload.name,
+            # In the form the transport envelope uses: its own deadlines where a
+            # workload states them, and no member for a supervision value left out.
+            **(
+                {}
+                if workload.deadlines is None
+                else {"workload_deadlines": _stated(asdict(workload.deadlines), _DEADLINES)}
+            ),
+            "framework": asdict(instance.framework),
+            "supervision": _stated(asdict(instance.supervision), _OPTIONAL_SUPERVISION),
+            "account": asdict(instance.host.account),
+            "runtime": asdict(instance.host.runtime),
+            "platform": asdict(instance.host.platform),
+        }
+    }
 
 
 def resolved_names(instance: Instance) -> dict[str, str]:
@@ -356,6 +487,20 @@ def check_plain_data(data: Any, float_keys: frozenset[str] = frozenset()) -> Non
         raise InstanceError("closed data strings cannot contain control characters")
 
 
+def _routed_ipv6(text: str) -> bool:
+    """Whether a candidate is an address a guest or receiver could be reached at."""
+    if text.endswith(":") and not text.endswith("::"):
+        text = text[:-1]  # a colon that ends a clause, not the address
+    try:
+        value = int(IPv6Address(text))
+    except ValueError:
+        return False  # a clock time or a hardware address has colons too
+    unique_local = value >> 121 == 0b1111110  # RFC 4193
+    global_unicast = value >> 125 == 0b001  # RFC 4291
+    documentation = value >> 96 == 0x20010DB8  # RFC 3849, 2001:db8::/32
+    return (unique_local or global_unicast) and not documentation
+
+
 def _check_data_strings(data: Any, allowed_addresses: set[str]) -> None:
     if isinstance(data, dict):
         for value in data.values():
@@ -379,6 +524,8 @@ def _check_data_strings(data: Any, allowed_addresses: set[str]) -> None:
         for address in _ADDRESS.findall(data):
             if address not in allowed_addresses:
                 raise InstanceError("instance cannot contain live guest or receiver addresses")
+        if any(_routed_ipv6(candidate) for candidate in _ADDRESS6.findall(data)):
+            raise InstanceError("instance cannot contain live guest or receiver addresses")
 
 
 def _timestamp(value: str | None) -> None:
@@ -415,6 +562,12 @@ def validate_instance(instance: Instance) -> None:
         len(resolved[key]) > 63 for key in ("bonjour_prefix", "import_prefix")
     ):
         raise InstanceError("namespace-derived names exceed native name bounds; pin explicit names")
+    # A derived anchor is the name the retained packet-rule owner would be
+    # installed with, so it is held to that owner's bound for the complete path
+    # (the namespace is ASCII: characters are bytes). A pinned anchor is not
+    # judged here: the schema lets a site state the name it really uses.
+    if instance.names.pf_anchor is None and len(resolved["pf_anchor"]) > PF_ANCHOR_BYTES:
+        raise InstanceError("namespace-derived names exceed native name bounds; pin explicit names")
     labels = [value for key, value in resolved.items() if key.endswith("label")]
     if (
         len(set(labels)) != len(labels)
@@ -445,9 +598,20 @@ def validate_instance(instance: Instance) -> None:
         identifiers = [item.id for item in items]
         if len(set(identifiers)) != len(identifiers):
             raise InstanceError("duplicate instance identifier")
+    if sum(item.kind == "supervisor" for item in instance.lifecycle_tools) > 1:
+        raise InstanceError("an instance declares at most one supervisor tool")
+    if any(
+        item.starts_fleet and (item.kind != "supervisor" or not item.container_api_access)
+        for item in instance.lifecycle_tools
+    ):
+        raise InstanceError("only a supervisor tool with container API access starts the fleet")
     container_names = [item.name for item in instance.workloads]
     if len(set(container_names)) != len(container_names):
         raise InstanceError("duplicate workload container name")
+    # The alias carries no parameter: it is the one LAN address inside one workload.
+    aliased = [item.service for item in instance.transport if item.strategy == "guest-lan-alias"]
+    if len(set(aliased)) != len(aliased):
+        raise InstanceError("a workload declares its LAN alias at most once")
     if {item.id for item in instance.transport}.intersection(
         item.id for item in instance.discovery
     ):
@@ -499,6 +663,10 @@ def validate_instance(instance: Instance) -> None:
                 or profile.ports.range != workload.automatic_port_range
             ):
                 raise InstanceError("UDP return must reference the one workload automatic range")
+            if profile.source_scope != "lan" and profile.strategy != "host-port-redirect":
+                raise InstanceError(
+                    "an unrestricted source is declared only for a host-port redirect"
+                )
             if profile.strategy == "host-port-redirect":
                 publications = [
                     item
@@ -534,12 +702,44 @@ def validate_instance(instance: Instance) -> None:
             selected = discovery_profile(selection.profile, selection.version)
             if selected.direction != selection.direction:
                 raise InstanceError("discovery profile direction mismatch")
+            chosen = selection.service_types
+            if chosen is not None:
+                listed = selected.service_types
+                if listed == AUTOMATIC_TYPES:
+                    # The generic export has no list of its own: one order, one spelling.
+                    # DNS compares a service type without regard to ASCII case.
+                    if list(chosen) != sorted(chosen) or len(
+                        {kind.lower() for kind in chosen}
+                    ) != len(chosen):
+                        raise InstanceError(
+                            "explicit export service types are distinct and in ascending order"
+                        )
+                elif (
+                    # The whole list is said by leaving the member out.
+                    chosen != tuple(kind for kind in listed if kind in chosen)
+                    or len(chosen) == len(listed)
+                    or (
+                        selected.eligibility_type is not None
+                        and selected.eligibility_type not in chosen
+                    )
+                ):
+                    raise InstanceError(
+                        "service types are a proper subset of the profile's, in its order, "
+                        "and keep the type eligibility is decided from"
+                    )
             dependencies = [instance.transport_profile(value) for value in selection.dependencies]
             matching = [value for value in dependencies if value.service == selection.service]
             required = (
                 "published-port" if selection.direction == "export" else "guest-udp-range-forward"
             )
-            if not any(value.strategy == required for value in matching):
+            if selection.return_path != "required":
+                # The setting lifts the requirement below and nothing else. A selection
+                # that lists a return path depends on it and cannot say otherwise.
+                if selection.direction != "import":
+                    raise InstanceError("only an import can be independent of the return path")
+                if any(value.strategy == "guest-udp-range-forward" for value in dependencies):
+                    raise InstanceError("an independent import lists no return-path dependency")
+            elif not any(value.strategy == required for value in matching):
                 raise InstanceError("discovery requires its own service's transport dependency")
             if selection.direction == "export" and not any(
                 value.strategy == "published-port" and value.protocol == "tcp" for value in matching
@@ -547,6 +747,11 @@ def validate_instance(instance: Instance) -> None:
                 # Every supported export profile emits TCP DNS-SD services.
                 # A UDP socket on the same numeric port is a different endpoint.
                 raise InstanceError("discovery export requires its own TCP publication")
+            if selection.misses == instance.supervision.discovery_misses:
+                # The instance-wide tolerance is said by leaving the member out.
+                raise InstanceError(
+                    "a selection's own miss tolerance differs from the instance-wide one"
+                )
         decision_ids = [item.profile for item in instance.decisions.bounded]
         if len(set(decision_ids)) != len(decision_ids):
             raise InstanceError("duplicate bounded decision")
@@ -655,6 +860,60 @@ def validate_instance(instance: Instance) -> None:
         _timestamp(owner_decision.signed_at)
         if (owner_decision.signed_by is None) != (owner_decision.signed_at is None):
             raise InstanceError("decision signature and timestamp must occur together")
+    supervision = instance.supervision
+    ensured = any(
+        component.recovery == "supervisor-ensure"
+        for item in instance.workloads
+        for component in item.components
+    )
+    if ensured != (supervision.component_exit_code is not None):
+        raise InstanceError(
+            "a supervisor-ensure component and the component exit code require each other"
+        )
+    if supervision.component_exit_code == supervision.failure_exit_code:
+        raise InstanceError("the component exit code must differ from the failure exit code")
+
+
+def _beyond(value: int | None, maximum: int | None) -> bool:
+    """Whether a stated deadline is more than the retained supervisor can be given."""
+    return value is not None and (maximum is None or value > maximum)
+
+
+def retained_supervision_gaps(instance: Instance) -> tuple[str, ...]:
+    """Name each stated member that the retained supervisor cannot honour.
+
+    An instance describes the supervisor of its site. The retained supervisor
+    implements part of that vocabulary: the reserved start status, no second
+    status, no in-guest ensure, every restart budget, a probe deadline up to its
+    monitor timeout, but no deadline for a whole start action. The runtime's
+    vendor-call timeout does not bound the lock wait and surrounding reads.
+    Therefore every explicitly stated whole-action deadline remains a gap.
+    Each result is a JSON
+    pointer into the canonical instance, in document order. A renderer for the
+    retained supervisor must refuse an instance for which the result is not
+    empty. Nothing is read, rendered or run here.
+    """
+    supervision = instance.supervision
+    gaps: list[str] = []
+    if _beyond(supervision.action_timeout_seconds, RETAINED_ACTION_DEADLINE_MAXIMUM):
+        gaps.append("/supervision/action_timeout_seconds")
+    if supervision.component_exit_code is not None:
+        gaps.append("/supervision/component_exit_code")
+    if supervision.failure_exit_code != RECOVERY_FAILURE_EXIT_CODE:
+        gaps.append("/supervision/failure_exit_code")
+    for index, workload in enumerate(instance.workloads):
+        gaps.extend(
+            f"/workloads/{index}/components/{position}/recovery"
+            for position, component in enumerate(workload.components)
+            if component.recovery == "supervisor-ensure"
+        )
+        deadlines = workload.deadlines
+        if deadlines is not None:
+            if _beyond(deadlines.action_seconds, RETAINED_ACTION_DEADLINE_MAXIMUM):
+                gaps.append(f"/workloads/{index}/deadlines/action_seconds")
+            if _beyond(deadlines.probe_seconds, RETAINED_PROBE_DEADLINE_MAXIMUM):
+                gaps.append(f"/workloads/{index}/deadlines/probe_seconds")
+    return tuple(gaps)
 
 
 def parse_instance(raw: bytes | str, *, require_canonical: bool = True) -> Instance:

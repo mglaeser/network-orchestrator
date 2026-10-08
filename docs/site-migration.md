@@ -29,11 +29,24 @@ application reacceptance and recaptured version-labelled fixtures.
 2. Keep a generated view while old inputs are authoritative. A re-import check
    must reproduce the committed bytes. This is a view, not a second authority.
 3. Compare candidate rendered inputs to frozen installed inputs byte for byte,
-   including headers/newlines. Verify current hashes, authoring provenance and
-   installed names. No comparison of text establishes packet behavior.
+   including headers/newlines. The candidates are rendered from the instance by
+   `netorch.render`, which uses each frozen literal file as its own template and
+   replaces only the mapped values, or by the site's own generator. The
+   renderer yields a comparison only for a file whose every value is classified
+   as rendered or as the owner's own constant; identical bytes of a file in
+   which nothing was replaced prove nothing. Verify current hashes, authoring
+   provenance and installed names. No comparison of text establishes packet
+   behavior.
 4. Before a flip, name the old embedded constants and files it removes, establish
-   rules 1–6, and show the synthetic instances still validate. A flip is one owner
-   in one reviewed commit, with no intentional input difference.
+   rules 1–6, and show the synthetic instances still validate. A program is
+   hashed and searched, never rendered: one that still holds an address, name or
+   path of the instance blocks its owner until the value lives in a literal file
+   that the program reads. The search is a tripwire, not a proof. A program that
+   computes a name from parts, or holds a single-word name or a port number,
+   passes it; what is established is that the literal inputs are reproduced from
+   the instance byte for byte and that the program that reads them is exactly
+   the reviewed one. A flip is one owner in one reviewed commit, with no
+   intentional input difference.
 5. After eligibility and a separate approved window, use that owner's established
    suspend/withdraw/readback procedure. Preserve names, state locations, pause,
    unrelated holders, runtime startup, application configuration and one writer.
@@ -50,9 +63,10 @@ conditions for a subsequent qualified release.
 ## Planned stop: bounded target or runtime-wide stop
 
 Take the operation's own durable suspension, keeping operator pause independent.
-The existing root owner withdraws only its owned rules and kills states for the
-old guest in both directions. Complete kernel readback must confirm retirement
-before a workload/runtime stop. Stop/start remains with the existing lifecycle
+The existing root owner withdraws only its owned rules and, while a state of a
+withdrawn rule remains, kills states for the old guest in both directions.
+Complete kernel readback must confirm retirement before a workload/runtime
+stop. Stop/start remains with the existing lifecycle
 owner. Obtain fresh network and workload generations, exact preserved contracts
 and current admission. Reapply only allowed admitted content, verify it, and let
 discovery require the subsequent verified transport cycle. Release only this
@@ -60,7 +74,11 @@ operation's suspension; never clear another holder or operator pause.
 
 Unknown withdrawal, an unavailable reader, an unexpected API all-stopped result
 or a failed stop causes an explicit partial state. It cannot authorize recovery,
-new exposure, a wider range or speculative rollback. The finite withdrawal bound
+new exposure, a wider range or speculative rollback. In the root owner the
+partial state is a write in doubt, which needs an acknowledgement; a
+precondition that is not met before anything was written defers only that
+profile to the next pass, with its reason in the owner's journal and report.
+The finite withdrawal bound
 needs measured scheduling/read/apply bounds; a nominal launchd interval is no
 upper bound. Shared-pool direct targets retain signed address-reuse risk.
 
@@ -83,6 +101,19 @@ to delete files, gates, journals, locks or kernel references.
 Native SSH, SMB, screen sharing and unrelated listeners/anchors remain separately
 owned. Ordinary guest egress remains vendor NAT. Existing application start-after-
 login and management tools remain explicit lifecycle writers; Monit is not a
-second fleet-bootstrap loop. Component failure does not default to restarting its
-parent workload. See [safety contract](safety-contract.md), [legacy import](legacy-import.md)
-and [testing](testing.md).
+second fleet-bootstrap loop unless the runtime settings declare
+[`fleet_start`](apple-runtime.md#starting-a-fully-stopped-fleet), and even then
+it starts proven-stopped workloads only. It starts the vendor runtime only where
+the same declaration carries
+[`runtime_start`](apple-runtime.md#starting-the-vendor-runtime), and then under
+three conditions: the launch file an operator's own start left behind is
+exactly the one the vendor's command writes for the declared roots, both roots
+are given to that command, and the service manager itself says the API job is
+not loaded. A site whose present supervisor is the only starter of its
+workloads after a boot cannot flip that owner before the first declaration is
+accepted there; if nothing else starts the vendor runtime there either, it also
+needs the second, whose native acceptance is still open, and the start command
+itself stays refused in this release.
+Component failure does not default to restarting its parent workload. See
+[safety contract](safety-contract.md), [legacy import](legacy-import.md) and
+[testing](testing.md).

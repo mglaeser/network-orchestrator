@@ -9,15 +9,25 @@ directory and `gui/UID` domain. The independent forwarding job is installed only
 by a separate administrator invocation in `system`. Its fixed command pulls the
 root-owned forwarding snapshot. The coordinator cannot call it or supply a plan.
 
-Periodic tasks use `StartInterval`, `RunAtLoad` and a throttle. Long-lived Bonjour
+Periodic tasks use `StartInterval`, `RunAtLoad` and a throttle. Every job is
+rendered with `ThrottleInterval` 10, and by `launchd.plist(5)` launchd does not
+start a job more often than its throttle. A periodic job therefore declares an
+interval of at least 10 seconds; the manifest refuses a shorter one, which would
+name a schedule the job does not get. Long-lived Bonjour
 and Monit processes use `KeepAlive` without a competing interval. Jobs get a
 minimal environment, private umask and separate logs. Launchd creates a process;
 it does not supply Bonjour privacy consent or prove application readiness.
 
+Every job is rendered with the launchd key `ProcessType`. Its value is
+`Background` unless the job's manifest entry sets the optional member
+`process_type` to `"standard"`, which renders `Standard`. No other class can be
+rendered.
+
 The installer checks ownership of existing files and whether a new label is
-already loaded before any stop operation. It uses `bootout`, `bootstrap` and
-`print` only for its declared jobs. It never changes Apple runtime launch jobs,
-Login Items, automatic login or application LaunchAgents. Hardware acceptance
-must use the actual user job identity after login and reboot.
+already loaded before any stop operation, and before a rollback it makes the
+same two checks for a job that only the previous release has. It uses `bootout`,
+`bootstrap` and `print` only for its declared jobs. It never changes Apple
+runtime launch jobs, Login Items, automatic login or application LaunchAgents.
+Hardware acceptance must use the actual user job identity after login and reboot.
 
 Native reference: [launchd.plist(5)](https://keith.github.io/xcode-man-pages/launchd.plist.5.html).

@@ -67,14 +67,19 @@ class DiscoveryProfile:
     service_types: tuple[str, ...]
     transformations: tuple[str, ...]
     proving_tests: tuple[str, ...]
+    # The record type an import decides a receiver's eligibility from.
+    eligibility_type: str | None = None
 
 
+# The generic export names no service type of its own. Its one token stands for
+# whatever TCP services the workload announces; no retained owner enumerates them.
+AUTOMATIC_TYPES = ("auto-tcp",)
 DISCOVERY_PROFILES = (
     DiscoveryProfile(
         "published-tcp-export",
         1,
         "export",
-        ("auto-tcp",),
+        AUTOMATIC_TYPES,
         (),
         ("genuine-record", "publication-identity"),
     ),
@@ -102,6 +107,7 @@ DISCOVERY_PROFILES = (
         ),
         ("ipv4-only", "genuine-apple-model", "exclude-own-projection"),
         ("cold-application-scan", "receiver-change", "heard-audio"),
+        "_airplay._tcp",
     ),
 )
 

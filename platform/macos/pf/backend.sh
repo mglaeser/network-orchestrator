@@ -1,66 +1,152 @@
 #!/bin/bash
 # Explicit privileged mutation boundary. Never source policy or caller files.
+#
+# Keep this file valid for the bash 3.2 that macOS installs as /bin/bash. Under
+# `set -e` that version ends the script after a failing simple command but not
+# after a failing `[[ ... ]]`, so no check below relies on it: every `[[ ... ]]`
+# is the condition of an `if` or is followed by its own `|| exit`/`|| return`,
+# and every function call and pipeline that must succeed says so as well.
 set -Eeuo pipefail
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 export LC_ALL=C
 umask 077
 [[ "$EUID" == 0 && "$(/usr/bin/uname -s)" == Darwin ]] || exit 77
-[[ $# -ge 2 && "$2" =~ ^com\.apple/netorch\.[a-z][a-z0-9-]{0,62}$ ]] || exit 64
+[[ $# -ge 2 && "$2" =~ ^com\.apple/(netorch\.[a-z][a-z0-9-]{0,62}|[a-z][a-z0-9.-]{0,62})$ ]] || exit 64
 op="$1"; anchor="$2"; shift 2
 pf() { /sbin/pfctl "$@"; }
 normalize() { /usr/bin/awk '{$1=$1; if (NF) print}'; }
+# A listing that names no anchor: states, status, references, the main hooks.
+# pfctl can end such a listing with exit status 0 after only a warning, and an
+# empty answer would then pass for an empty table. So besides the exit status,
+# anything on standard error fails the read, except the two notices about ALTQ
+# that pfctl writes on every call. Standard output is passed on unchanged.
+#
+# The two refusals are told apart by the status. A listing that failed returns
+# 1. A listing that ended with status 0 and a line that is not one of the two
+# notices returns 76, a status nothing else here uses, after writing the number
+# of such lines, and nothing else, to standard error. The lines themselves are
+# the tool's text and do not leave this function. Every operation that reads
+# such a listing passes the status on.
+#
+# The inputs of the translation-order check are read under the same rule: the
+# children of the parent anchor, and the translations and children of a sibling.
+# Those anchors exist (the parent is the one both hooks name, a sibling was
+# listed a moment before), and there the empty answer is the one that counts as
+# proof, so a read that only warned must not pass for it. pfctl of this lineage
+# answers a listing of a missing anchor with a line on standard error and exit
+# status 0.
+unexpected() {
+  /usr/bin/grep -Fxv -e 'No ALTQ support in kernel' -e 'ALTQ related functions disabled'
+}
+counted() { /usr/bin/awk 'length($0) { n++ } END { print n + 0 }'; }
+listing() {
+  local warnings status
+  status=0
+  { warnings="$( { pf "$@" 1>&3; } 2>&1 )" || status=$?; } 3>&1
+  if [[ "$status" != 0 ]]; then return 1; fi
+  # grep reports 1 when it passed nothing on; a higher status is its own failure.
+  warnings="$(printf '%s\n' "$warnings" | unexpected)" || status=$?
+  if [[ "$status" -gt 1 ]]; then return 1; fi
+  if [[ -z "$warnings" ]]; then return 0; fi
+  printf '%s\n' "$warnings" | counted >&2 || return 1
+  return 76
+}
+# Reads of the owned anchor cannot use that rule. The anchor does not exist
+# before its first load, the kernel then refuses the listing, and what pfctl
+# writes about that is not published: an empty anchor and a missing one must
+# read alike. These reads check the exit status only.
+owned() { pf -a "$anchor" -s nat 2>/dev/null | normalize; }
 shape() {
   local filters children tables
   filters="$(pf -a "$anchor" -s rules 2>/dev/null)" || return 1
   children="$(pf -a "$anchor" -s Anchors 2>/dev/null)" || return 1
   tables="$(pf -a "$anchor" -s Tables 2>/dev/null)" || return 1
-  [[ -z "$filters" && -z "$children" && -z "$tables" ]]
+  if [[ -n "$filters" || -n "$children" || -n "$tables" ]]; then return 1; fi
 }
+# `grep -q` leaves at its first match. Fed through a pipe, a writer that has not
+# finished then dies of SIGPIPE, and `pipefail` reports a check that succeeded
+# as failed. A here-string is complete before grep starts.
 hooks() {
   local rules
-  rules="$(pf -s nat 2>/dev/null)"
-  printf '%s\n' "$rules" | /usr/bin/grep -Eq '^rdr-anchor "com\.apple/\*"( all)?$'
-  printf '%s\n' "$rules" | /usr/bin/grep -Eq '^nat-anchor "com\.apple/\*"( all)?$'
+  rules="$(listing -s nat)" || return $?
+  /usr/bin/grep -Eq '^rdr-anchor "com\.apple/\*"( all)?$' <<<"$rules" || return 1
+  /usr/bin/grep -Eq '^nat-anchor "com\.apple/\*"( all)?$' <<<"$rules" || return 1
 }
+# Owner, mode and link count are what the caller's private write guarantees.
+# The group is not compared: a new file takes the group of its directory, which
+# need not be 0, and with mode 0600 the group has no access to the file.
 safe_file() {
-  [[ -f "$1" && ! -L "$1" && "$(/usr/bin/stat -f '%u:%g:%Lp:%l' "$1")" == 0:0:600:1 ]]
+  if [[ ! -f "$1" || -L "$1" ]]; then return 1; fi
+  [[ "$(/usr/bin/stat -f '%u:%Lp:%l' "$1")" == 0:600:1 ]] || return 1
 }
 case "$op" in
   inspect)
-    [[ $# == 0 ]]; hooks; shape
-    pf -a "$anchor" -s nat 2>/dev/null | normalize ;;
+    if [[ $# != 0 ]]; then exit 64; fi
+    hooks || exit $?
+    shape || exit 1
+    owned || exit 1 ;;
   normalize)
-    [[ $# == 1 ]]; safe_file "$1"
-    pf -a "$anchor" -n -v -f "$1" 2>/dev/null | normalize ;;
+    if [[ $# != 1 ]]; then exit 64; fi
+    safe_file "$1" || exit 1
+    pf -a "$anchor" -n -v -f "$1" 2>/dev/null | normalize || exit 1 ;;
   replace)
-    [[ $# == 2 ]]; safe_file "$1"; safe_file "$2"; hooks; shape
-    expected="$(pf -a "$anchor" -n -v -f "$1" 2>/dev/null | normalize)"
-    live="$(pf -a "$anchor" -s nat 2>/dev/null | normalize)"
+    if [[ $# != 2 ]]; then exit 64; fi
+    safe_file "$1" || exit 1
+    safe_file "$2" || exit 1
+    hooks || exit $?
+    shape || exit 1
+    expected="$(pf -a "$anchor" -n -v -f "$1" 2>/dev/null | normalize)" || exit 1
+    live="$(owned)" || exit 1
     [[ "$expected" == "$live" ]] || exit 73
     # Parse candidate before any mutation. The parent holds the persistent lock.
-    candidate="$(pf -a "$anchor" -n -v -f "$2" 2>/dev/null | normalize)"
-    shape
-    [[ "$(pf -a "$anchor" -s nat 2>/dev/null | normalize)" == "$live" ]] || exit 73
+    candidate="$(pf -a "$anchor" -n -v -f "$2" 2>/dev/null | normalize)" || exit 1
+    shape || exit 1
+    # Read again immediately before loading. The status of this read is checked
+    # before the comparison: a failed read must not pass for an empty anchor.
+    current="$(owned)" || exit 1
+    [[ "$current" == "$live" ]] || exit 73
     pf -a "$anchor" -f "$2" >/dev/null 2>&1 || true
-    shape
-    after="$(pf -a "$anchor" -s nat 2>/dev/null | normalize)"
+    shape || exit 1
+    after="$(owned)" || exit 1
     [[ "$after" == "$candidate" ]] || exit 74
     # Exact candidate readback is authoritative even when pfctl reports an error.
     printf '%s\n' "$after" ;;
   states)
-    [[ $# == 0 ]]; pf -s states 2>/dev/null ;;
+    if [[ $# != 0 ]]; then exit 64; fi
+    listing -s states || exit $? ;;
   drain)
-    [[ $# == 1 && "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]
+    if [[ $# != 1 ]]; then exit 64; fi
+    [[ "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 64
     # Scoped source/destination invalidation; never flush global state.
-    pf -k "$1" >/dev/null 2>&1
-    pf -k 0.0.0.0/0 -k "$1" >/dev/null 2>&1 ;;
+    pf -k "$1" >/dev/null 2>&1 || exit 1
+    pf -k 0.0.0.0/0 -k "$1" >/dev/null 2>&1 || exit 1 ;;
   enable)
-    [[ $# == 0 ]]; pf -E 2>&1 ;;
+    if [[ $# != 0 ]]; then exit 64; fi
+    pf -E 2>&1 || exit 1 ;;
   enabled)
-    [[ $# == 0 ]]; pf -s info 2>/dev/null | /usr/bin/grep -Eq '^Status: Enabled([[:space:]]|$)' ;;
+    if [[ $# != 0 ]]; then exit 64; fi
+    info="$(listing -s info)" || exit $?
+    /usr/bin/grep -Eq '^Status: Enabled([[:space:]]|$)' <<<"$info" || exit 1 ;;
   references)
-    [[ $# == 0 ]]; pf -s References 2>/dev/null ;;
-  release)
-    [[ $# == 1 && "$1" =~ ^[0-9]{1,20}$ ]]; pf -X "$1" >/dev/null 2>&1 ;;
+    if [[ $# != 0 ]]; then exit 64; fi
+    listing -s References || exit $? ;;
+  # Read-only inputs of the owner's check of the translation order. Nothing is
+  # judged here: the order of the hooks, the number of siblings and what counts
+  # as empty are decided by the caller. A sibling is somebody else's anchor and
+  # its name comes from a listing: one component below the same parent, of
+  # letters, digits, `_`, `.` and `-`, is all that pfctl is ever given, and only
+  # for these two listings.
+  translation-hooks)
+    if [[ $# != 0 ]]; then exit 64; fi
+    listing -s nat || exit $? ;;
+  siblings)
+    if [[ $# != 0 ]]; then exit 64; fi
+    listing -a "${anchor%/*}" -s Anchors || exit $? ;;
+  sibling)
+    if [[ $# != 1 ]]; then exit 64; fi
+    [[ "$1" =~ ^com\.apple/[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$ ]] || exit 64
+    if [[ "$1" == "$anchor" ]]; then exit 64; fi
+    listing -a "$1" -s nat || exit $?
+    listing -a "$1" -s Anchors || exit $? ;;
   *) exit 64 ;;
 esac

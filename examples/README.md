@@ -1,4 +1,28 @@
-# Synthetic deployment starters
+# Synthetic examples
+
+## Read-only instances
+
+| File | Role |
+|---|---|
+| [instance.json](instance.json) | Canonical instance with a native publication, a bounded UDP return range, an export and an Apple-media import |
+| [instance-structural.json](instance-structural.json) | A second synthetic host with one native publication and one export, no bounded transport |
+| [contracts/](contracts) | The workload contract files those two instances reference by relative path and SHA-256 |
+
+These are the inputs of the seven read-only `netorch-host` verbs described in
+[instances](../docs/instances.md). Both validate. Their release pins are zero
+placeholders and they carry no acceptance record; `netorch-host check` exits 1
+for either. They are valid data, not accepted installations.
+
+## Retained version 0.2 deployment starters
+
+The remaining files belong to the retained version 0.2 owner and installer
+mechanisms. In this release their public entry points refuse native activation,
+admission, installation, recovery, publication and initial provisioning with
+status 78 (`stage-not-qualified`) before they read an input or create state.
+Validation, simulation, bundle building and planning still run. Existing
+installed owners stay in place; see the
+[read-only workflow](../docs/getting-started.md) and the
+[migration gates](../docs/site-migration.md).
 
 These files describe one coherent **example**, using RFC 5737 documentation
 addresses, synthetic paths and reserved `example.invalid` image names. They

@@ -8,25 +8,32 @@ this module never stops, deletes or replaces a container or edits its applicatio
 from __future__ import annotations
 
 import argparse
+import hashlib
 import math
 import os
 import re
 import sys
 import time
+import unicodedata
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
 from .apple_runtime import Reader, Runner, RuntimeReadError, check_identity
-from .codec import canonical_json, digest, strict_load, strict_loads
+from .codec import canonical_json, digest, read_bounded_file, strict_load, strict_loads
 from .config import load_config, to_dict
 from .model import Config
 from .process import OutputLimit, ProcessTimeout, run
-from .runtime_settings import RuntimeSettings, load_settings, settings_to_dict
+from .runtime_settings import RuntimeContract, RuntimeSettings, load_settings, settings_to_dict
 from .state import intent_from_dict, intent_to_dict
 from .storage import Busy, Store, UnsafeState
 from .workflow_gate import NOT_QUALIFIED, StageNotQualified, require_mutation_qualified
 
+# `--publish-socket` is deliberately absent. While the vendor's `create` builds
+# its configuration it removes an existing file or directory at the host path,
+# unless that is a socket, and creates missing parent directories (apple/container
+# `Parser.publishSocket` at tags 1.2.0, 1.4.1 and 1.5.0). A recipe cannot name a
+# host path with that effect until socket paths are enrolled identities.
 _OPTIONS = {
     "--cpus",
     "--memory",
@@ -49,14 +56,37 @@ _OPTIONS = {
     "--kernel-arg",
     "--label",
     "--mount",
-    "--publish-socket",
-    "--sysctl",
     "--volume",
 }
 _BOOL_OPTIONS = {"--init", "--read-only", "--rosetta", "--ssh", "--virtualization"}
+# Vendor tags whose `create` defines `--kernel-arg` (apple/container
+# `Sources/Services/ContainerAPIService/Client/Flags.swift`: line 283 at 1.2.0,
+# line 287 at 1.4.1 and 1.5.0). The same file defines no sysctl option.
+_KERNEL_ARG_VERSIONS = {"1.2.0", "1.4.1", "1.5.0"}
 _ID = re.compile(r"[a-z][a-z0-9-]{0,62}\Z")
-_IMAGE = re.compile(r"[A-Za-z0-9._:/-]+@sha256:[0-9a-f]{64}\Z")
+_IMAGE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]*@sha256:[0-9a-f]{64}\Z")
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
+# An environment file as the vendor reads it (apple/container `Parser.envFile`,
+# the same text at tags 1.2.0 and 1.5.0): UTF-8, cut into lines at each of
+# Foundation's newline characters, leading white space dropped, a line that
+# begins with `#` skipped, the name ending at the first `=`. A line without `=`
+# takes the value that name has in the environment of the calling process.
+_ENV_FILE_BYTES = 1_048_576
+_ENV_LINE_END = re.compile("[\n\x0b\x0c\r\x85\u2028\u2029]")
+# A name here is printable ASCII without a space or `=`; the vendor refuses a
+# space or a tab inside a name and takes every other character.
+_ENV_NAME = re.compile(r"[!-<>-~]+\Z")
+# The vendor looks for `#` and `=` as whole characters, which in Swift are
+# grapheme clusters: a combining mark, a joiner or a modifier behind `=` makes
+# the two one other character and the line a bare name. A character of these
+# general categories never extends the one before it, the two SARA AM vowels
+# excepted (Unicode 15.0 to 17.0, `GraphemeBreakProperty.txt`). Every other
+# category, an unassigned character included, is refused in that position.
+_ENV_STANDS_ALONE = frozenset(
+    {"Lu", "Ll", "Lt", "Lo", "Nd", "Nl", "No", "Pc", "Pd", "Ps", "Pe", "Pi", "Pf", "Po"}
+    | {"Sm", "Sc", "So", "Zs"}
+)
+_ENV_SARA_AM = frozenset({"\u0e33", "\u0eb3"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,6 +167,51 @@ def parse_workloads(value: Any) -> tuple[Workload, ...]:
     return tuple(workloads)
 
 
+def _whole_character(following: str) -> bool:
+    """Whether the `#` or `=` before this text is a character of its own."""
+    first = following[:1]
+    return first.isascii() or (
+        unicodedata.category(first) in _ENV_STANDS_ALONE and first not in _ENV_SARA_AM
+    )
+
+
+def _literal_line(line: str) -> bool:
+    """Blank, a comment, or `NAME=value` with a name; leading spaces and tabs aside."""
+    entry = line.lstrip(" \t")
+    if not entry:
+        return True
+    if entry.startswith("#"):
+        return _whole_character(entry[1:])
+    name, separator, value = entry.partition("=")
+    return bool(separator) and bool(_ENV_NAME.fullmatch(name)) and _whole_character(value)
+
+
+def _literal_environment(raw: bytes) -> bool:
+    """Whether the vendor would take nothing but literals from this environment file."""
+    try:
+        text = raw.decode("utf-8", "strict")
+    except UnicodeDecodeError:
+        return False
+    return "\0" not in text and all(map(_literal_line, _ENV_LINE_END.split(text)))
+
+
+def _enrolled_environment_file(contract: RuntimeContract, path: str) -> None:
+    """Judge the file through its hashed receipt: what is read is what was enrolled.
+
+    The refusal names neither a line nor its position: the file may hold secrets.
+    """
+    enrolled = {
+        item.sha256
+        for item in contract.receipts
+        if item.path == path and item.kind == "file" and item.sha256 is not None
+    }
+    raw = read_bounded_file(path, maximum=_ENV_FILE_BYTES)
+    if len(raw) > _ENV_FILE_BYTES or hashlib.sha256(raw).hexdigest() not in enrolled:
+        raise RuntimeReadError("identity-mismatch")
+    if not _literal_environment(raw):
+        raise ValueError("environment file lines must be blank, comments or literal NAME=value")
+
+
 def recipe_digest(workloads: tuple[Workload, ...]) -> str:
     return digest(
         {
@@ -190,8 +265,8 @@ def create_arguments(config: Config, settings: RuntimeSettings, workload: Worklo
             ):
                 raise ValueError("mount requires an unambiguous absolute bind source")
             mount_sources.add(values["source"])
-        if option.flag == "--kernel-arg" and settings.accepted_version != "1.5.0":
-            raise ValueError("kernel-arg requires its reviewed 1.5.0 CLI contract")
+        if option.flag == "--kernel-arg" and settings.accepted_version not in _KERNEL_ARG_VERSIONS:
+            raise ValueError("kernel-arg requires a vendor version whose source defines it")
         if option.flag in {"--kernel", "--env-file"} and not any(
             item.path == option.value and item.kind == "file" and item.sha256 is not None
             for item in contract.receipts
@@ -300,12 +375,28 @@ def plan_workloads(
         else:
             action = "create-stopped"
         create_arguments(config, settings, workload)  # Validate the complete CLI before any write.
+        # Like that validation, the two checks below judge the recipe of every
+        # row, whatever its action: one that is only retained is checked as well.
+        for option in workload.options:
+            if option.flag == "--env-file" and option.value is not None:
+                _enrolled_environment_file(contract, option.value)
         # Creation must not initiate an unbounded registry download. The pinned
         # image is fetched by an explicit preparatory vendor operation, then its
-        # cached existence is verified before any workload write.
-        images = strict_loads(reader.native(["image", "inspect", workload.image]))
-        if not isinstance(images, list) or len(images) != 1 or not isinstance(images[0], dict):
-            raise RuntimeReadError("incomplete")
+        # cached existence is verified before any workload write. The vendor's
+        # `create` fetches a custom init image the same way, so it is looked up too.
+        # The answer shows that the name is in the local store, not that the
+        # platform's content is complete or that the stored image has that digest.
+        for image in (
+            workload.image,
+            *(
+                option.value
+                for option in workload.options
+                if option.flag == "--init-image" and option.value is not None
+            ),
+        ):
+            images = strict_loads(reader.native(["image", "inspect", image]))
+            if not isinstance(images, list) or len(images) != 1 or not isinstance(images[0], dict):
+                raise RuntimeReadError("incomplete")
         # Plans intentionally omit argv/environment/arguments: private recipes
         # may contain application secrets. Only content digests are displayed.
         steps.append({"service": workload.service, "name": contract.name, "action": action})
@@ -478,7 +569,8 @@ def provision_workloads(
     holder = "provision-" + expected_digest[:32]
     with store.lock():
         intent = intent_from_dict(store.read("intent.json"))
-        if not intent.operator_paused or intent.damaged or intent.suspensions:
+        # A hold on any service is maintenance in progress, like a suspension.
+        if not intent.operator_paused or intent.damaged or intent.suspensions or intent.holds:
             raise ValueError(
                 "initial provisioning requires operator pause and no competing maintenance"
             )

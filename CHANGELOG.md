@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.4.0 — reviewed extraction and retained owner contracts
+
+- Review and integrate the 86 proposals #24–109 with exact-head dispositions,
+  combined interaction tests and additional independent counterexamples.
+- Extend static literal import/rendering, supervisor and workload vocabulary,
+  service-scoped holds, restart budgets, optional vendor recovery, native
+  definitions, PF scope/lifetime controls and per-policy discovery settings.
+- Keep one-author promotion conservative: lexical program inventory is not
+  consuming-program conformance and cannot authorize an owner flip.
+- Correct stale Bonjour renewal and rejected-record resurrection, strengthen
+  registration readback, and advance the discovery contract to version 5.
+- Revalidate retained and installed jobs before finishing interrupted rollback.
+  Constrain vendor job identities and preserve pause through runtime recovery.
+- Parse native extension replacement inventories without hiding malformed rows.
+  Distinguish hosted runner topology assumptions from general macOS tests.
+- Rename unproven fulfilment to `unverified` in report/plan/check schema version 2;
+  add reusable preflight evidence and the read-only `supervision-gaps` command.
+- Keep whole-action deadline gaps explicit; a vendor call timeout does not bound
+  the surrounding observation, locking and validation work.
+- Extend meaningful mock, property, process and macOS userspace coverage. Keep
+  the three required macOS Python jobs and their coverage gate; allow 45 minutes.
+- No dependency or action pin changes. Native mutation remains gated, the
+  qualified platform matrix remains empty, and no existing owner is replaced.
+
 ## 0.3.2 — repeated adversarial review
 
 - Integrate all fifteen reviewed follow-up PRs with independent counterexamples

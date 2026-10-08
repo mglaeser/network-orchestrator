@@ -93,7 +93,10 @@ def test_instance_literal_before_a_full_stop_is_reported() -> None:
     ]
 
 
-def test_instance_literal_that_continues_after_the_dot_is_not_reported() -> None:
+def test_port_literal_that_continues_after_the_dot_is_not_reported() -> None:
+    # A name with further labels is still that name; a number that continues
+    # after a dot is another number.
     literals = (HostLiteral("name", "example-server"), HostLiteral("port", "45678"))
     text = "example-server.local example-server.json 45678.5 1.45678. 45678.x"
-    assert scan_text(text, path="docs/example.md", literals=literals, generic=False) == ()
+    findings = scan_text(text, path="docs/example.md", literals=literals, generic=False)
+    assert [(f.kind, f.column) for f in findings] == [("name", 1), ("name", 22)]

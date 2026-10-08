@@ -65,6 +65,9 @@ class Profile:
     safety: Safety
     owner: str | None = None
     fallback_publication: str | None = None
+    # "lan": the rule matches the scope's LAN prefix. "any": every source; only
+    # a structural host redirect behind its own publication may declare it.
+    source_scope: str = "lan"
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,6 +81,23 @@ class Discovery:
     dependencies: tuple[str, ...]
     max_age_seconds: int
     max_records: int
+    return_path: str = "required"
+    # Consecutive completed passes that may miss a record before it is
+    # withdrawn, 1 to 8. None: the discovery owner's own setting decides.
+    misses: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class DiscoveryNames:
+    """Prefixes of the first label of every host name a discovery owner projects.
+
+    One pair for the whole policy, not one per declaration: the loop exclusion
+    refuses both prefixes in both directions for every declaration, and each
+    declaration's discovery digest binds a pair that differs from this default.
+    """
+
+    export_prefix: str = "netorch-container-"
+    import_prefix: str = "netorch-lan-"
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,6 +109,7 @@ class Config:
     services: tuple[Service, ...]
     profiles: tuple[Profile, ...]
     discovery: tuple[Discovery, ...]
+    discovery_names: DiscoveryNames = DiscoveryNames()
 
     def scope(self, identifier: str) -> Scope:
         for item in self.scopes:

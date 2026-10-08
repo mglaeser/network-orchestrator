@@ -46,7 +46,8 @@ def literal_assignments(text: str) -> dict[str, str]:
     for number, line in enumerate(literal_lines(text), 1):
         if not line or line.startswith("#"):
             continue
-        match = re.fullmatch(r"([A-Z][A-Z0-9_]*)=(.*)", line)
+        # A name in either case, as a shell and a plain key=value reader take it.
+        match = re.fullmatch(r"([A-Za-z_][A-Za-z0-9_]*)=(.*)", line)
         if match is None:
             raise DeriveError(f"Underivable owner expression on line {number}")
         key, expression = match.groups()

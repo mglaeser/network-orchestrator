@@ -90,6 +90,14 @@ class Component:
 
 
 @dataclass(frozen=True, slots=True)
+class Deadlines:
+    """Where one workload differs from the site's probe and start-action deadlines."""
+
+    probe_seconds: int | None = None
+    action_seconds: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class Workload:
     id: str
     name: str
@@ -98,6 +106,7 @@ class Workload:
     automatic_port_range: str | None
     recovery: str
     components: tuple[Component, ...]
+    deadlines: Deadlines | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,6 +134,8 @@ class Transport:
     target_ports: Ports | None
     dependencies: tuple[str, ...]
     fallback_publication: str | None
+    # The LAN prefix unless "any"; the default has no spelling in an instance.
+    source_scope: str = "lan"
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,6 +146,17 @@ class DiscoverySelection:
     version: int
     direction: str
     dependencies: tuple[str, ...]
+    misses: int | None = None
+    service_types: tuple[str, ...] | None = None
+    return_path: str = "required"
+
+
+@dataclass(frozen=True, slots=True)
+class RestartBudget:
+    """Start actions for one workload within a period before the supervisor stops acting."""
+
+    starts: int
+    window_seconds: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,6 +168,9 @@ class Supervision:
     discovery_misses: int
     read_timeout_seconds: int
     failure_exit_code: int
+    component_exit_code: int | None = None
+    restart_budget: RestartBudget | None = None
+    action_timeout_seconds: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,6 +180,9 @@ class LifecycleTool:
     container_api_access: bool
     starts_runtime: bool | None
     version: str | None
+    # Written only as true, on the one supervisor tool that starts the workloads
+    # after a boot; left out of the canonical form otherwise.
+    starts_fleet: bool = False
 
 
 @dataclass(frozen=True, slots=True)

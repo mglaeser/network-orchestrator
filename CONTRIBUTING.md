@@ -7,18 +7,28 @@ configuration must remain data.
 
 ## Local checks
 
-Use a managed Python 3.12 or newer in a virtual environment:
+Use a managed Python 3.12, 3.13 or 3.14, the versions CI runs, in a virtual
+environment:
 
 ```sh
 python3 -m venv .venv
 .venv/bin/python -m pip install --require-hashes -r requirements-dev-lock.txt
 .venv/bin/python -m pip install --no-deps --no-build-isolation -e .
-.venv/bin/python -m pytest --cov=netorch --cov-branch --cov-report=term-missing
+.venv/bin/python -m pytest -m 'not acceptance' --cov=netorch --cov-branch --cov-report=term-missing
 .venv/bin/ruff check .
 .venv/bin/ruff format --check .
 .venv/bin/mypy
+.venv/bin/python -m netorch.privacy_check --root . --exceptions schemas/privacy-exceptions.json
 .venv/bin/python -m build --no-isolation
+.venv/bin/pip-audit -r requirements-dev-lock.txt --strict
 ```
+
+The `netorch.privacy_check` line is the public host-data guard that CI runs. It
+scans tracked and not yet committed files, new tests included, and reports a
+finding by path, line, kind and value hash without echoing the value. Prefer
+rewriting the line; an exception in `schemas/privacy-exceptions.json` must name
+the exact path, kind, value SHA-256 and a written reason. See
+[runnable CI checks](docs/legacy-import.md#runnable-ci-checks).
 
 Tests should prove behavior across a boundary or a failure mode. Avoid tests that
 only repeat implementation details. When changing a reader, include complete,
@@ -31,7 +41,8 @@ property test when operation order can affect safety.
 - A changed resolved profile cannot reuse an old admission digest.
 - The user executor cannot invoke a root owner.
 - Only the operator can clear operator pause; only a suspension holder can
-  release its suspension.
+  release its suspension, and only the holder of a hold on a service can
+  release that hold.
 - Unknown state does not authorize recovery or imply absence.
 - A historical receipt cannot imply current applied state.
 - Stale instance or network generations cannot be treated as current ownership.

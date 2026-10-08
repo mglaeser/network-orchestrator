@@ -91,7 +91,9 @@ an empty array. All owners must agree on the live network-generation identity.
 Version, reason, freshness and complete-read checks are mandatory. Do not report
 absent because a command returned empty output; establish that the invocation and
 snapshot were complete. Treat implausible all-stopped runtime lists, consent denial
-and API/helper restarts according to the platform acceptance contract.
+and API/helper restarts according to the platform acceptance contract. An
+all-stopped list is unknown unless independent evidence for each stopped
+workload is declared and holds.
 
 ## User-owned reconciliation
 
@@ -202,7 +204,11 @@ Discovery observations use `Snapshot.profiles[discovery_id]`; transport and
 discovery IDs are disjoint. Their `data` contains `policy_digest` (the resolved
 discovery digest), `interface_confirmed` (a boolean), `service_generation`, and
 `network_generation`. Include them in observation responses as well as fixed
-operation readback. Exact current generations are required for both inactive and
+operation readback. The bundled owner also reports `record_count`, the number of
+records it has registered and confirmed for the declaration. `present` means the
+declaration is active and its registrations are complete; with `record_count`
+0 that is "active, nothing to publish", not evidence that anything is
+discoverable. Exact current generations are required for both inactive and
 active reconciliation. Complete absence with a confirmed interface permits
 activation only after transport dependencies already have verified readback in
 the initial snapshot. Unknown, stale, generation-changed or unconfirmed evidence

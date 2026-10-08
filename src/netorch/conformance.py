@@ -60,6 +60,32 @@ class ByteComparison:
         }
 
 
+@dataclass(frozen=True)
+class InventoryCheck:
+    """A source that is pinned by its hash and searched as text, never evaluated or rendered.
+
+    ``netorch.render`` makes one for every program of a manifest. ``scanned`` is
+    false when the bytes could not be searched as text; ``embedded_literals``
+    counts the places that hold one of the instance's specific string settings.
+    Neither a zero count nor a pinned hash proves how a program consumes data.
+    """
+
+    id: str
+    owner: str
+    sha256: str
+    scanned: bool
+    embedded_literals: int
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "owner": self.owner,
+            "sha256": self.sha256,
+            "scanned": self.scanned,
+            "embedded_literals": self.embedded_literals,
+        }
+
+
 def compare_bytes(
     identifier: str, captured: bytes, rendered: bytes, *, owner: str | None = None
 ) -> ByteComparison:
@@ -164,21 +190,34 @@ def promote_owner(
     owner: str,
     sources: ImportResult,
     comparisons: tuple[ByteComparison, ...],
+    inventory: tuple[InventoryCheck, ...] = (),
 ) -> dict[str, Any]:
     """Produce the single owner flip only after fresh source and byte parity checks.
 
     The caller must validate the full instance with the closed instance parser;
     this operation changes only that owner's provenance, never desired values.
+    Inventory/search results remain diagnostics, never consumer-conformance
+    evidence. A source-inventory program blocks this automatic operation even
+    if its hash is pinned and no instance strings were found: that cannot prove
+    the program reads the rendered inputs or has no independent numeric values.
     """
     record = _authoring(instance, owner)
     if record["mode"] != "generated" or record["source_sha256"] != sources.owner_digest(owner):
         raise ConformanceError("Generated owner digest does not match freshly captured sources")
     receipt_hashes = {r.id: r.sha256 for r in sources.receipts if r.owner == owner}
     owner_sources = set(receipt_hashes)
-    if any(issue.source in owner_sources for issue in sources.underivable):
-        raise ConformanceError("Owner has unresolved static inputs")
+    formats = {r.id: r.format for r in sources.receipts if r.owner == owner}
+    programs = {key for key in owner_sources if formats[key] == "source-inventory"}
+    if any(check.owner != owner for check in inventory):
+        raise ConformanceError("Inventory checks are not bound to this owner")
     if any(c.owner != owner for c in comparisons):
         raise ConformanceError("Byte comparisons are not bound to this owner")
+    if programs or any(issue.source in owner_sources for issue in sources.underivable):
+        raise ConformanceError(
+            "Owner has unresolved static inputs; consumer conformance is unproven"
+        )
+    if inventory:
+        raise ConformanceError("Inventory checks do not establish consumer conformance")
     if (
         not comparisons
         or {c.id for c in comparisons} != owner_sources

@@ -32,7 +32,12 @@ Unknown never initiates activation or workload recovery. This planner chooses
 the conservative option of retiring a known exposure at the first unknown
 identity. `unknown_limit` is the maximum retry tolerance permitted to an
 independent owner, rather than a promise that this planner retains an exposure
-for that many passes.
+for that many passes. The root owner carries such a retirement out, with one
+exception that its installation can choose and that this planner does not
+know: a loaded rule that ends at the host's own address can be
+[kept and withheld](pf-owner.md#host-paths-while-runtime-evidence-is-unknown)
+while a pass only lacks runtime evidence for it, under the conditions named
+there. `unknown_limit` does not bound that.
 
 ## Admission binds content
 
@@ -45,7 +50,9 @@ never constitute admission. Future approval timestamps inhibit activation.
 Direct guest targets require a bounded safety declaration and an explicit risk
 acknowledgement. They do not claim that periodic observation can eliminate the
 address-reuse race. A host redirect uses a structural host socket target, while
-still requiring its service identity to be verified.
+still requiring its service identity to be verified. A host redirect declared
+with an unrestricted source is planned only while its admission also carries
+the acknowledgement; without it the profile stays `risk-unacknowledged`.
 
 An external-root owner must obtain its own protected admission and observe its
 own target. Copying this user-space admission document into a root job is not a
@@ -57,22 +64,67 @@ privilege; a declaration alone cannot prove arbitrary code is unprivileged.
 ## Pause is independent of operation ownership
 
 `Intent` has a monotonically increasing revision, an operator pause, an
-operation-to-holder suspension map, and a damaged flag. It is stored outside the
-installed release directory.
+operation-to-holder suspension map, a map of holds (service, then operation,
+then holder), and a damaged flag. It is stored outside the installed release
+directory.
 
 | Operation | Effect | Preserves |
 | --- | --- | --- |
-| `pause` | Sets the operator pause; increments revision on change. | Every owned suspension. |
-| `resume` | Clears only the operator pause; increments revision on change. | Every owned suspension. |
-| `suspend(operation, holder)` | Adds the named suspension; another holder cannot replace it. | Operator pause and other suspensions. |
-| `release(operation, holder)` | Removes only that holder's matching suspension. | Operator pause and other suspensions. |
+| `pause` | Sets the operator pause; increments revision on change. | Every owned suspension and hold. |
+| `resume` | Clears only the operator pause; increments revision on change. | Every owned suspension and hold. |
+| `suspend(operation, holder)` | Adds the named suspension; another holder cannot replace it. | Operator pause, other suspensions and holds. |
+| `release(operation, holder)` | Removes only that holder's matching suspension. | Operator pause, other suspensions and holds. |
+| `hold(service, operation, holder)` | Adds the named hold on one service; another holder cannot replace it. | Operator pause, suspensions and other holds. |
+| `unhold(service, operation, holder)` | Removes only that holder's matching hold; a service without a hold is no longer held. | Operator pause, suspensions and other holds. |
 | Reopen/reinstall | Reads the durable state without resetting it. | All intent. |
 | Unreadable/old-format/unknown-version state | Effective pause with `damaged=true`. | A requirement for explicit owner repair. |
 
-The effective inhibit is the union of operator pause, any suspension, and damage.
-Nothing expires by elapsed time. A process crash cannot clear a suspension.
-Determining that a dead holder can be removed is a platform/operator decision;
-there is no age-based automatic release.
+The effective inhibit for a service is the union of operator pause, any
+suspension, damage and a hold on that service. The first three stop every
+service; a hold stops one and never narrows the other three.
+Nothing expires by elapsed time. A process crash cannot clear a suspension or a
+hold. Determining that a dead holder can be removed is a platform/operator
+decision; there is no age-based automatic release.
+
+### Holding one service
+
+A hold does for one service what the pause does for the site: its forwarding
+profiles are withdrawn and drained, its discovery records are withdrawn, its
+recovery probe reports 69 and its guarded start refuses. Every other service is
+planned, recovered and published as before. A hold does not stop a guest;
+whoever placed it does. One hold is placed by the retained runtime owner
+itself: where its settings state a restart budget and a workload has spent it,
+the guarded start holds that service with the operation `restart-budget` and
+the holder `supervisor` instead of starting it again
+([Apple runtime](apple-runtime.md#restart-budget)). A reconciliation that leaves a transport profile of a
+held service blocked does not end `committed`: it ends `inhibited`, or
+`waiting-external-owner` while a native publication of that service is still
+present, as it does for a paused site. The other services' actions are applied
+in the same run.
+
+```text
+netorch hold --state-dir <state> --config <policy> --service <service> \
+  --operation <operation> --holder <holder>
+netorch unhold --state-dir <state> --service <service> \
+  --operation <operation> --holder <holder>
+```
+
+`hold` adds inhibition and is available like `pause` and `suspend`. It refuses a
+service that the policy does not name, so that a mistyped name cannot stop the
+site, and prints the stored intent with its new revision. `unhold` removes an
+inhibitor and is blocked in this stage like `release`. One stored file carries
+at most 64 held services with at most 8 holds each.
+
+The stored file is unchanged while no hold exists: `schema_version` 1 with its
+five keys, byte for byte. Only while at least one hold exists is it
+`schema_version` 2 with a sixth key, `holds`. Exactly these two shapes are read;
+version 2 without a hold, version 1 with `holds` and everything else are damage.
+A release from before holds therefore reads a file that contains one as damaged,
+which inhibits everything there: under an older reader a hold can widen to a
+full stop and is never ignored. Every reader also treats a hold on a service
+that its own policy does not name as damage. Two sides can disagree about names
+while an installation is in progress, and the hold must not be lost at one of
+them.
 
 ## Pure profile decisions
 
@@ -89,7 +141,7 @@ own the redirect without letting either fabricate the other's readback.
 | Condition | Decision |
 | --- | --- |
 | New profile, complete absence and no exact admission | `pending`; no activation. |
-| Operator paused, suspended or damaged | Inhibit activation; retire any established exposure. |
+| Operator paused, suspended or damaged, or the profile's service held | Inhibit activation; retire any established exposure. |
 | Service absent or unknown, stale/future snapshot, missing network generation, changed contract or invalid endpoint | Inhibit activation; retire any established exposure. |
 | Profile readback unknown or incomplete | No activation and no verified readiness. |
 | Structural host redirect's corresponding publication is missing, gated or unverified | Inhibit the redirect until the actual same-service publication verifies readiness. |
@@ -106,7 +158,9 @@ and establish ownership before touching retained states.
 Retirement retains the old observed target and generation. A second fresh read
 must show the old rule absent and its retained states empty before a replacement
 can activate. Merely removing a rule or changing a receipt does not establish
-that packet states are gone.
+that packet states are gone. Which states are retained states of a profile is
+the owner's definition: for the [PF owner](pf-owner.md), those that the
+withdrawn rule itself can have created.
 
 Discovery dependencies require `Plan.ready_profiles`, which contains only
 verified `noop` profiles. Planning or completing a write does not by itself

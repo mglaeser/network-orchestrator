@@ -25,14 +25,74 @@ from .derive import DeriveError, literal_assignments, literal_lines
 
 _ID = re.compile(r"[a-z][a-z0-9-]{0,63}")
 _SHA = re.compile(r"[0-9a-f]{64}")
-_SECRET_KEY = re.compile(
-    r"(?:^|[_-])(env|environment|password|passwd|token|secret|credential|credentials|authorization|private_?key|api_?key)(?:$|[_-])",
-    re.I,
+# The closed credential words. Each is tried on its own: one may begin another
+# (``env`` and ``environment``), and either may be the one that ends at a boundary.
+# At one place a word matches in one way only, so its one end decides.
+_SECRET_WORDS = tuple(
+    re.compile(word, re.I)
+    for word in (
+        "env",
+        "environment",
+        "token",
+        "secret",
+        "credential",
+        "credentials",
+        "authorization",
+        "private[_-]?key",
+        "api[_-]?key",
+        "pass[_-]?phrase",
+    )
 )
+# A password word also ends a compound name such as PGPASSWORD: letters and
+# digits may stand before it. "pass" alone is no listed word, so "compass" and
+# "bypass_cache" stay ordinary data; "bypassWord" spells a password word after
+# "by" and is refused.
+_PASSWORD_WORDS = tuple(re.compile(word, re.I) for word in ("password", "passwd", "passphrase"))
+_LETTERS_AND_DIGITS = re.compile(r"[a-z0-9]*", re.I)
+_SEPARATOR = re.compile(r"[_-]")
+# A word may begin at the second group of either expression: at a capital that
+# stands between a capital and a lower-case letter (the last capital of an
+# acronym), and at a capital that follows a lower-case letter or a digit.
+# Neither expression repeats anything: a scan reads at most three characters at
+# a place, however long a run of capitals is. The first finds the places that
+# ``([A-Z]+)([A-Z][a-z])`` finds.
+_WORD_STARTS = (re.compile(r"([A-Z])([A-Z][a-z])"), re.compile(r"([a-z0-9])([A-Z])"))
 _FORMATS = {"json", "plist", "toml", "literal-env", "text-list", "source-inventory"}
+# The two formats without types: every scalar read from them is text, so they
+# can never supply a number. JSON, TOML and a property list tell a number from text.
+_UNTYPED_FORMATS = frozenset({"literal-env", "text-list"})
 # Decisions, acceptance records, deviations, provenance and the release pin are
 # written by a person; a static import never fills them.
 _AUTHORED_SECTIONS = frozenset({"decisions", "acceptance", "deviations", "authoring", "framework"})
+# The one spelling of a number that an integer slot takes from text: no sign,
+# no leading zero, at most ten digits.
+_INTEGER_TEXT = re.compile(r"0|[1-9][0-9]{0,9}")
+# Entry keys that only ``netorch.render`` reads; an import neither copies nor evaluates them.
+_RENDER_KEYS = frozenset({"composed", "translated", "constants", "unexamined", "independent"})
+# A program is recorded by hash and supplies no value; it is not an unread data input.
+INVENTORY_ONLY = "executable-source-not-evaluated"
+# The dialect whose keywords the integer-slot walk reads. The validator judges a
+# subschema that names another dialect by that dialect's rules.
+_DIALECT = "https://json-schema.org/draft/2020-12/schema"
+# Schema keywords whose effect on a member the integer-slot walk does not judge.
+# A node that carries one of them is never an integer slot and never leads to one.
+_UNJUDGED = frozenset(
+    {
+        "patternProperties",
+        "prefixItems",
+        "additionalItems",
+        "unevaluatedProperties",
+        "unevaluatedItems",
+        "allOf",
+        "not",
+        "if",
+        "then",
+        "else",
+        "dependentSchemas",
+        "$ref",
+        "$dynamicRef",
+    }
+)
 
 
 class ImportError(ValueError):
@@ -42,12 +102,35 @@ class ImportError(ValueError):
 def _secret_key(key: str) -> bool:
     """Recognize closed credential words across common data-key spellings.
 
-    This filters known key names, not arbitrary secret values. Preserve word
-    boundaries so harmless substrings such as ``monkey`` stay ordinary data.
+    This filters known key names, not arbitrary secret values. A word counts
+    only where it both starts and ends at a possible word boundary, so the
+    letters of a word inside a longer one, as in ``tokenizer`` or ``MAXTOKEN``,
+    stay ordinary data. A possible boundary inside the word, as in ``passWord``
+    or ``APIkey``, does not hide it. A password word may also start after
+    letters and digits that follow a possible boundary, as in ``PGPASSWORD``.
     """
-    words = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", key)
-    words = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", words).replace("-", "_")
-    return _SECRET_KEY.search(words) is not None
+    # The start and the end of the key. The end is taken before one final line
+    # feed, where a word could always end.
+    bounds = {0, len(key.removesuffix("\n"))}
+    for separator in _SEPARATOR.finditer(key):
+        bounds.update(separator.span())
+    for expression in _WORD_STARTS:
+        bounds.update(found.start(2) for found in expression.finditer(key))
+    # A password word may also start after letters and digits that follow a
+    # boundary. A run of them is read once, from its first boundary.
+    compound: set[int] = set()
+    for start in sorted(bounds):
+        if start not in compound:
+            run = _LETTERS_AND_DIGITS.match(key, start)
+            assert run is not None
+            compound.update(range(start, run.end() + 1))
+    return any(
+        found.end() in bounds
+        for starts, words in ((bounds, _SECRET_WORDS), (compound, _PASSWORD_WORDS))
+        for start in starts
+        for word in words
+        if (found := word.match(key, start))
+    )
 
 
 @dataclass(frozen=True)
@@ -70,6 +153,9 @@ class ImportResult:
     values: dict[str, Any]
     receipts: tuple[SourceReceipt, ...]
     underivable: tuple[Issue, ...]
+    # Destination pointers, spelled as the mapping spells them, whose value is
+    # text read from a format without types. The generated view leaves it out.
+    untyped: frozenset[str] = frozenset()
 
     def owner_digest(self, owner: str) -> str:
         records = [{"id": r.id, "sha256": r.sha256} for r in self.receipts if r.owner == owner]
@@ -159,7 +245,8 @@ def _pointer(pointer: object) -> list[str]:
     if pointer == "/" or "~" in pointer or any(not p for p in pointer[1:].split("/")):
         raise ImportError("Unsupported JSON pointer")
     parts = pointer[1:].split("/")
-    if any(part.isdecimal() and len(part) > 1 and part.startswith("0") for part in parts):
+    # One spelling per index: no leading zero and no digit outside ASCII.
+    if any(part.isdecimal() and not re.fullmatch(r"0|[1-9][0-9]*", part) for part in parts):
         raise ImportError("Ambiguous JSON pointer index")
     return parts
 
@@ -180,6 +267,32 @@ def _lookup(data: Any, pointer: str) -> Any:
     return value
 
 
+def _claim(claimed: dict[str, Any], pointer: str) -> None:
+    """Record one mapped destination of a manifest; every setting has one author.
+
+    The mappings alone decide, not the values they yield: a null, an absent or
+    an underivable value does not make room for a second mapping. A destination
+    inside another mapped destination has two authors as well.
+    """
+    *containers, last = _pointer(pointer)
+    node = claimed
+    for part in containers:
+        node = node.setdefault(part, {})
+        if node is None:
+            raise ImportError("Mapping container is unavailable")
+    if last in node:
+        raise ImportError("Mapped value has more than one author")
+    node[last] = None
+
+
+def _member(node: list[Any], part: str) -> Any:
+    """The one list member whose ``id`` is the pointer segment, if every member carries one."""
+    if not node or any(not isinstance(item, dict) or "id" not in item for item in node):
+        return None
+    matches = [item for item in node if item["id"] == part]
+    return matches[0] if len(matches) == 1 else None
+
+
 def _fill(data: dict[str, Any], pointer: str, value: Any) -> None:
     parts = _pointer(pointer)
     node: Any = data
@@ -188,6 +301,9 @@ def _fill(data: dict[str, Any], pointer: str, value: Any) -> None:
             node = node.setdefault(part, {})
         elif isinstance(node, list) and part.isdecimal() and int(part) < len(node):
             node = node[int(part)]
+        elif isinstance(node, list) and (member := _member(node, part)) is not None:
+            # The member a renderer addresses; a position names another one after an insertion.
+            node = member
         else:
             raise ImportError("Mapping container is unavailable")
     last = parts[-1]
@@ -318,11 +434,13 @@ def import_sources(manifest: str | Path) -> ImportResult:
     if not isinstance(entries, list) or not 1 <= len(entries) <= 128:
         raise ImportError("A bounded static source list is required")
     values: dict[str, Any] = {}
+    claimed: dict[str, Any] = {}
     receipts: list[SourceReceipt] = []
     issues: list[Issue] = []
+    untyped: set[str] = set()
     seen: set[str] = set()
     for entry in entries:
-        if not isinstance(entry, dict) or set(entry) != {
+        if not isinstance(entry, dict) or set(entry) - _RENDER_KEYS != {
             "id",
             "owner",
             "path",
@@ -353,7 +471,8 @@ def import_sources(manifest: str | Path) -> ImportResult:
         for selector, pointer in mapping.items():
             if any(_secret_key(part) for part in _pointer(selector) + _pointer(pointer)):
                 raise ImportError("Credential and environment values are not instance data")
-        if fmt == "source-inventory" and mapping:
+            _claim(claimed, pointer)
+        if fmt == "source-inventory" and (mapping or _RENDER_KEYS & set(entry)):
             raise ImportError("Executable owner sources cannot provide desired settings")
         capture = Path(source_path)
         if not capture.is_absolute():
@@ -364,7 +483,7 @@ def import_sources(manifest: str | Path) -> ImportResult:
             raise ImportError("Static source digest changed; capture requires explicit review")
         receipts.append(SourceReceipt(sid, owner, sha, fmt))
         if fmt == "source-inventory":
-            issues.append(Issue(sid, "executable-source-not-evaluated"))
+            issues.append(Issue(sid, INVENTORY_ONLY))
             continue
         try:
             source = _decode(raw, fmt)
@@ -391,7 +510,9 @@ def import_sources(manifest: str | Path) -> ImportResult:
                 continue
             _safe_projection(value)
             _fill(values, pointer, value)
-    return ImportResult(values, tuple(receipts), tuple(issues))
+            if fmt in _UNTYPED_FORMATS and isinstance(value, str):
+                untyped.add(pointer)
+    return ImportResult(values, tuple(receipts), tuple(issues), frozenset(untyped))
 
 
 def generated_bytes(result: ImportResult) -> bytes:
@@ -403,13 +524,104 @@ def check_generated_view(manifest: str | Path, generated: str | Path) -> bool:
     return generated_bytes(import_sources(manifest)) == read_static(generated)
 
 
+def _choices(nodes: list[Any]) -> list[dict[str, Any]]:
+    """Schema nodes, each ``anyOf``/``oneOf`` node replaced by its alternatives.
+
+    A node that the walk does not judge is replaced by the open schema, which
+    is never an integer slot and never leads to one.
+    """
+    flat: list[dict[str, Any]] = []
+    for node in nodes:
+        if (
+            not isinstance(node, dict)
+            or isinstance(node.get("type"), list)
+            or node.get("$schema", _DIALECT) != _DIALECT
+            or not _UNJUDGED.isdisjoint(node)
+        ):
+            # A boolean schema says nothing about a type. The walk does not judge
+            # a list-valued ``type``, another dialect or a keyword of ``_UNJUDGED``.
+            flat.append({})
+        elif "anyOf" in node or "oneOf" in node:
+            flat.extend(_choices([*node.get("anyOf", []), *node.get("oneOf", [])]))
+        else:
+            flat.append(node)
+    return flat
+
+
+def _integer_slot(schema: Any, pointer: str) -> bool:
+    """Whether a closed schema admits nothing but an integer, or null, at ``pointer``.
+
+    The walk follows ``properties`` on a node whose ``type`` is ``"object"``,
+    ``items`` on a node whose ``type`` is ``"array"``, and ``anyOf``/``oneOf``.
+    It leaves an alternative out as one that cannot hold the member only where
+    its ``type`` is ``"null"``, or where it is such an object, does not list the
+    member and has ``additionalProperties: false``. It answers no, so that the
+    value stays as it is and the instance parser decides, for an alternative
+    that leaves the member open and for every node it meets, on the way or at
+    the member, that it does not judge: a boolean schema, a list-valued
+    ``type``, a ``$schema`` that names another dialect than draft 2020-12, or a
+    keyword of ``_UNJUDGED``. Any other keyword is not read: in that dialect it
+    can only narrow what a node admits.
+    """
+    nodes = _choices([schema])
+    for part in _pointer(pointer):
+        members: list[Any] = []
+        for node in nodes:
+            kind = node.get("type")
+            if kind == "object" and part in node.get("properties", {}):
+                members.append(node["properties"][part])
+            elif kind == "array" and "items" in node:
+                # A list member is named by its position or, where every member
+                # carries one, by its `id`.
+                members.append(node["items"])
+            elif kind != "null" and not (
+                kind == "object" and node.get("additionalProperties") is False
+            ):
+                return False
+        nodes = _choices(members)
+    integer = False
+    for node in nodes:
+        listed = node.get("enum", [node["const"]] if "const" in node else [])
+        if node.get("type") == "integer" or (listed and all(type(v) is int for v in listed)):
+            integer = True
+        elif node.get("type") != "null":
+            return False
+    return integer
+
+
+def _slot_value(schema: Any, pointer: str, value: Any, unreadable: list[str]) -> Any:
+    """Text for an integer slot becomes that integer; nothing else is converted.
+
+    Text for such a slot that is not a plain decimal integer is returned as it
+    is, and the slot is added to ``unreadable`` for the caller to refuse.
+    """
+    if not isinstance(value, str) or not _integer_slot(schema, pointer):
+        return value
+    if not _INTEGER_TEXT.fullmatch(value):
+        unreadable.append(pointer)
+        return value
+    return int(value)
+
+
 def project_instance(result: ImportResult, template: dict[str, Any]) -> bytes:
-    """Fill explicit null slots and validate the independently closed instance model."""
-    from .instance import canonical_instance_bytes, parse_instance
+    """Fill explicit null slots and validate the independently closed instance model.
+
+    An assignment file and a data list hold text only. Text that was read from
+    one of them and mapped by itself to a slot that the instance schema types as
+    an integer is converted from its plain decimal form. Nothing else is
+    converted: a string from JSON, TOML or a property list stays a string. Text
+    for such a slot that is not a plain decimal integer is refused by field name
+    after every refusal that does not depend on the text.
+    A program receipt does not block: the program is recorded by hash and
+    supplies no value. Data that could not be read still does.
+    """
+    from .instance import canonical_instance_bytes, instance_validator, parse_instance
 
     if not _AUTHORED_SECTIONS.isdisjoint(result.values):
         raise ImportError("Authored instance sections cannot be filled by an import")
     data = copy.deepcopy(template)
+    schema = instance_validator().schema
+    unreadable: list[str] = []
 
     def apply(node: Any, prefix: str) -> None:
         if isinstance(node, dict):
@@ -417,12 +629,22 @@ def project_instance(result: ImportResult, template: dict[str, Any]) -> bytes:
                 pointer = f"{prefix}/{key}"
                 if isinstance(value, dict):
                     apply(value, pointer)
+                elif pointer in result.untyped:
+                    _fill(data, pointer, _slot_value(schema, pointer, value, unreadable))
                 else:
                     _fill(data, pointer, value)
         else:
             raise ImportError("Generated projection must be an object")
 
     apply(result.values, "")
-    if result.underivable:
+    programs = {receipt.id for receipt in result.receipts if receipt.format == "source-inventory"}
+    if any(
+        issue.reason != INVENTORY_ONLY or issue.source not in programs
+        for issue in result.underivable
+    ):
         raise ImportError("Unresolved owner inputs cannot become a complete instance")
+    if unreadable:
+        raise ImportError(
+            f"Text mapped to integer field {unreadable[0]} is not a plain decimal integer"
+        )
     return canonical_instance_bytes(parse_instance(canonical_bytes(data) + b"\n"))

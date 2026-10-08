@@ -24,6 +24,8 @@ class Job:
     keep_alive: bool
     working_directory: str
     log_directory: str
+    # Optional. Absent means "background", the class every job had before.
+    process_type: str = "background"
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,6 +37,8 @@ class Monitor:
     timeout_seconds: int
     cycles: int
     recovery_code: int
+    # Optional. Absent: the recovery command runs once per failure episode.
+    recovery_repeat_cycles: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

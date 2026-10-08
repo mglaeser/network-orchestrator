@@ -137,7 +137,7 @@ def test_runtime_identity_must_be_explicit_unprivileged_account(key, value):
         ("name", "\n"),
         ("gateway", None),
         ("helper_domain", "gui/1002"),
-        ("helper_domain", "user/1001"),
+        ("helper_domain", "user/1002"),
         ("helper_label", "unsafe\0"),
         ("helper_uid", -1),
         ("helper_uid", True),

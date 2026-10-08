@@ -10,6 +10,16 @@ CANDIDATE_RUNTIME_VERSION = "1.5.0"
 CONTAINERIZATION_VERSION = "0.47.0"
 RECOVERY_EXIT_CODE = 42
 LAUNCHD_INTERVAL_FLOOR = 10
+# The most bytes of a PF anchor name, for one component and for the complete
+# path. The kernel refuses to create a component of 64 bytes or more (xnu
+# `bsd/net/pf_ruleset.c`, `pf_find_or_create_ruleset`, with `PF_ANCHOR_NAME_SIZE`
+# of `bsd/net/pfvar.h`, tag xnu-12377.121.6). Apple does not publish its pfctl.
+# The nearest published source of that tool (FreeBSD `contrib/pf/pfctl/pfctl.c`,
+# `pfctl_rules`, releases 8.4.0 and 9.3.0) copies the whole `-a` argument, parent
+# anchors and slashes included, into a buffer of that size and stops at 64 bytes
+# or more. Until a real pfctl has answered, the complete path is therefore held
+# to the bound of one component. No fact row: the reports do not state it.
+PF_ANCHOR_BYTES = 63
 # A populated hardware acceptance ledger is required; candidate parsing is not
 # a mutation support declaration, and this framework ships no host acceptance.
 ACCEPTED_PLATFORMS: tuple[tuple[str, str, str], ...] = ()

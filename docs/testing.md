@@ -21,9 +21,11 @@ wheel from outside the checkout.
 
 The macOS job also compiles synthetic PF previews with `pfctl -n -f`; it never
 loads or enables rules. This checks hosted Darwin grammar, not production hook
-order, retained states or packet behavior. The fixed backend has a Bash syntax
-check, and installed-wheel smoke tests include all executable owner modules and
-packaged schema/backend resources.
+order, retained states or packet behavior. One test marked `darwin` runs the
+same dry run without privilege on the rendered host redirect, with the LAN
+prefix and with the unrestricted source; it is skipped on other systems. The
+fixed backend has a Bash syntax check, and installed-wheel smoke tests include
+all executable owner modules and packaged schema/backend resources.
 
 A separate job enforces the tracked-file public host-data guard, Ruff lint/format, strict mypy and dependency advisory
 checks. A scheduled advisory lookup does not update or deploy anything.
@@ -77,13 +79,13 @@ ranges, injected clocks, closed synthetic observations and fake owners.
 | Area | Required claims |
 |---|---|
 | Instance/import | Canonical byte equality, literal-only extraction, exact source/owner conformance, no executable/live-endpoint data, two privacy guards |
-| Host view | Six verbs make no writes, owner calls or network probes; synthetic/unsigned/stale/wrong-context evidence cannot qualify native support |
+| Host view | Seven verbs make no writes, owner calls or network probes; synthetic/unsigned/stale/wrong-context evidence cannot qualify native support |
 | Input | Duplicate keys at every depth, nonfinite values, booleans in numeric fields, unknown fields/versions and invalid types are rejected |
 | Policy | Duplicate IDs, bad references, overlapping claims, wrong address scopes and incompatible guest/return ranges are rejected |
 | Content | Canonical key ordering preserves digests; authority-relevant content changes invalidate admission |
 | Observation | Only complete fresh reads prove present/absent; timeout, denial, busy, malformed, stale and contradictory results stay unknown |
 | Planning | Unknown never starts recovery; stale generations cannot activate; no-op requires exact current readback |
-| Pause | Operator pause survives holder release, crash, reinstall and rollback; a holder cannot release another hold |
+| Pause | Operator pause survives holder release, crash, reinstall and rollback; a holder cannot release another hold; a hold on one service inhibits that service only and inhibits everything for a reader that cannot place it |
 | Execution | Every injected partial failure stops subsequent writes, preserves phase and requires fresh evidence |
 | Privilege | User execution cannot invoke external-root; a user admission cannot supply root authority |
 | Transport | NAT and target-less RDR remain separate; each rendered rule stays within admitted interface/protocol/port scope |
@@ -104,18 +106,57 @@ native network effects.
 
 ### Apple runtime and lifecycle
 
-Fake readers cover declared nested/flat Apple CLI formats, version identity,
+Fake readers cover the nested Apple CLI format, version identity,
 container definition/enrollment, persistent file inodes, helper process/launchd
 identity, interface addresses, network and started-instance generations, live
 automatic socket ranges and inspection races. Tests reject wrong mounts/contracts,
 unknown resource shapes, duplicate attachments/publications, other guest writers,
 all-stopped outage ambiguity, timeout and successful incomplete output.
+With `fleet_start` declared they cover the evidence for each stopped guest
+instead: the API job read before and after the pass, a runtime job loaded in
+either domain of the account, and every missing or unfamiliar answer as unknown.
+Six `darwin` contract tests ask the hosted runner's real service manager for a
+missing job and for a loaded one, and run the reader of the API job, its `ps`
+call included, on running jobs of that runner.
+With `runtime_start` declared they cover the start of the vendor runtime: the
+probe's three answers, every condition of the launch file, of the two pinned
+roots and of the proven absence missing in turn without a vendor call, the one
+call with its exact arguments and environment, and every readback that does
+not hold as unknown without a second call. The vendor's start command is a fake
+that does what its source does with its options and environment, the copy of
+the account's configuration included. A second module covers the rule that a
+start changes no configuration (equal, different, absent on either side, a
+link, a directory, a pipe, a file beyond the bound, a second home in the user
+database, and no byte of either file in any output), the exact comparison of a
+printed job, the characters refused in a declared path, and single conditions
+of the start: the readback of an activation, the operation lock around the
+readback, and a launch file exchanged between its identity check and its
+open. Five further
+`darwin` contract tests show, on the hosted runner only, the list of disabled
+services, the launch file, arguments and environment of running jobs, the
+state line of a loaded job without a process, the session name, and that the
+launch-file decoder reads what the system's `plutil` writes.
 
-Recovery rechecks independently proven stopped state, pause and admission before
-starting. It never recreates running/unknown definitions. Only the workload probe
+The volume-bound identity makes no native call in these tests: its decoder is
+given constructed replies, its entry point a stand-in library that records the
+one request, and the reader a provider that answers from the descriptor. Three
+`darwin` tests make the real call on hosted macOS: a directory and a file in it
+report one identifier, that identifier is the one `diskutil` reports for the
+data volume, and a pipe is refused. They are evidence for the runner image that
+ran them.
+
+Recovery rechecks independently proven stopped state, pause and the network
+generation before starting; it reads no admission. It never recreates
+running/unknown definitions. Only the workload probe
 can return reserved status 42, and only for a proven stopped enrolled workload
 with gates permitting start. Unknown, timeout, denial, signal and networking
-health failures cannot initiate a start.
+health failures cannot initiate a start. With a restart budget in the settings,
+tests with an injected calendar clock cover the count of each workload within
+the period, a start that is cut off or not confirmed, the hold that replaces
+the start beyond the budget and its release, and a record or a clock that
+cannot be relied on, which both engage the hold. They also cover a record that
+cannot be read and a hold that cannot be stored, neither of which lets a start
+through, and the default clock.
 
 Initial workload tests exercise digest-bound planning and exact fixed CLI create
 arguments for missing declared workloads, image pins, range equality, persistent
@@ -155,7 +196,11 @@ capture, content/implementation-bound admission, activation rechecks, actual
 readback parser contracts, healthy no-op passes and withdrawal/state-drain ordering.
 Fake kernels inject foreign drift, partial loads, stale generations, busy locks,
 truncated rules/states, source swaps, denied target validation and interrupted
-journals. The native Bash backend is syntax/argument tested with fake effects.
+journals. The native Bash backend itself is executed by the host's `/bin/bash`
+against a fake `pfctl`: argument guards, rule-file checks, the drift and readback
+exits of a replacement, state invalidation and failed or warning listings. That
+is bash 5 on a Linux machine and the system's bash 3.2 on macOS; the
+`NETORCH_TEST_BASH` environment variable names another shell binary for them.
 No fake PF result is presented as Darwin grammar or state semantics acceptance.
 
 ### Provisioning and recovery
@@ -165,8 +210,8 @@ They verify byte/hash inventory, source capture races, no extra files, fixed roo
 job commands, separate user/root domains, private permissions, generated Monit
 syntax contracts and owned job protection. Fake launchctl/Monit/PF effects test
 installation, upgrade, no-op, first-install failure, predecessor recovery and
-committed rollback at each phase. Current pause and unrelated holder suspensions
-survive. Unknown journals, changed predecessors, foreign jobs and rewritten
+committed rollback at each phase. Current pause, holds and unrelated holder
+suspensions survive. Unknown journals, changed predecessors, foreign jobs and rewritten
 source artifacts inhibit recovery.
 
 Package tests validate wheels outside the checkout and exercise module/CLI entry
@@ -193,6 +238,9 @@ fixture provenance. Required evidence can include:
   just above the admitted range; no out-of-range translation.
 - Native PF hook precedence, owned NAT/RDR grammar/readback and retained-state
   invalidation after a generation change.
+- For a host redirect with an unrestricted source: the first packet from a
+  source outside the LAN prefix, through the forwarding router, and its reply.
+  A LAN client proves nothing about that setting.
 - Original client identity for the direct DNS path and explicit degraded identity
   for a configured native-publication fallback.
 - Direct guest address reuse with a non-target workload, when shared pools are

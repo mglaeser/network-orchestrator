@@ -4,7 +4,7 @@ Netorch is a macOS-only policy and orchestration layer over existing owners. It 
 not confer privilege or replace an operating system packet implementation.
 
 Version 0.3 adds the canonical host model in `netorch.instance_model`, strict loading
-in `netorch.instance`, and the six-verb read-only `netorch.host_cli` entrypoint.
+in `netorch.instance`, and the seven-verb read-only `netorch.host_cli` entrypoint.
 The profile/platform/requirements registries are closed code libraries. The
 native-qualified support matrix is empty; public native mutation entrypoints
 refuse before reading state or calling tools. These new interfaces are documented
@@ -21,10 +21,12 @@ The retained owner policy model is in `netorch.model`. These frozen dataclasses 
   or `bounded`. `statement` is a nonempty risk declaration for bounded policies.
 - `Profile(id, service, scope, kind, protocol, ports: PortRange,
   target_ports: PortRange | None, safety: Safety, owner: str | None = None,
-  fallback_publication: str | None = None)`; kind is `publication`,
-  `host-redirect`, `guest-direct` or `udp-return`; protocol `tcp` or `udp`.
+  fallback_publication: str | None = None, source_scope: str = "lan")`; kind is
+  `publication`, `host-redirect`, `guest-direct` or `udp-return`; protocol `tcp`
+  or `udp`; source scope `lan` or `any`.
 - `Discovery(id, owner, service, scope, direction, types: tuple[str, ...],
-  dependencies: tuple[str, ...], max_age_seconds, max_records)`.
+  dependencies: tuple[str, ...], max_age_seconds, max_records,
+  misses: int | None = None)`; `misses` is 1 to 8.
 - `Config(schema_version, site, scopes, owners, services, profiles, discovery)`;
   collection fields are tuples, with `scope(id)`, `owner(id)`, `service(id)`,
   `profile(id)` and `profile_owner(profile_or_id)` lookup methods.
@@ -33,6 +35,12 @@ Configuration syntax is the dataclass field names. Optional `automatic_ports` an
 `target_ports` and `fallback_publication` may be omitted; `statement` may be null
 for structural policies. Fallback is allowed only for guest-direct and must bind
 an exact same-service native publication; see [configuration](configuration.md).
+`source_scope` may be omitted and `to_dict` leaves the default `lan` out; `any`
+is allowed only for a structural host redirect, uses profile digest version 3
+and binds `netorch.config.backing_publication(config, profile)`.
+A discovery entry's `misses` may be omitted and `to_dict` leaves it out while it
+is `None`; stated, it is that entry's own miss tolerance and a member of its
+discovery digest; see [configuration](configuration.md).
 `netorch.config.load_config(path)` and `parse_config(text)` return a `Config`.
 `netorch.config.to_dict(config)` returns JSON data.
 `netorch.config.profile_digest(config, profile)` binds the resolved profile, scope,
@@ -58,9 +66,11 @@ State/plan interfaces live in `netorch.state` and `netorch.planner`:
   `target_generation`, `network_generation` and actual `states` list.
 - `Admission(profile, digest, approved_by, approved_at, risk_acknowledged)`;
   admissions map IDs to entries and bind exact resolved content.
-- `Intent(revision, operator_paused, suspensions, damaged=False)` stores operator
-  pause independently from operation-ID -> holder records. Methods preserve pause,
-  enforce suspension ownership, and increment the revision on change.
+- `Intent(revision, operator_paused, suspensions, damaged=False, holds={})` stores
+  operator pause independently from operation-ID -> holder records and from
+  service -> operation-ID -> holder holds. Methods preserve pause, enforce
+  suspension and hold ownership, and increment the revision on change. `blocked`
+  is the site-wide inhibition; `blocks(service)` adds a hold on that service.
 - `Action(profile, owner, operation, reason, target_ipv4=None,
   target_generation=None, effective_strategy=None)`; operations are
   `activate`, `withdraw`, `drain`, `noop`, `pending`, `blocked`.

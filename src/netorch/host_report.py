@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+import os
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from functools import lru_cache
@@ -25,11 +26,12 @@ from .instance import (
     resolved_names,
     resolved_profile_digest,
 )
-from .instance_model import Instance
+from .instance_model import DiscoverySelection, Instance
 from .platform_contract import ACCEPTED_PLATFORMS, FACTS, candidate_matches
 from .profile_library import STRATEGIES, discovery_profile, strategy
 from .requirements import REQUIREMENTS, Requirement
 from .safety_contract import assess_bounded_safety, assessment_to_dict
+from .workload_contract import check_contract_facts
 
 REASONS = (
     "complete",
@@ -326,10 +328,36 @@ def observation_view(observation: Observation | None, now: float, maximum: float
     }
 
 
+def _inside_data_directory(data_directory: Path, data_path: str) -> bool:
+    """Whether the directory that holds a contract file lies in the data directory.
+
+    Both are resolved, so a data directory that is itself reached through a
+    symbolic link reads as before, and so does a linked directory inside it that
+    stays inside. The last component is not resolved: read_data refuses a final
+    symbolic link, a second hard link and anything but a regular file, as before.
+    """
+    root = Path(os.path.realpath(data_directory, strict=True))
+    directory = Path(os.path.realpath((data_directory / data_path).parent, strict=True))
+    return directory.is_relative_to(root)
+
+
 def verify_contracts(instance: Instance, data_directory: Path) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     for item in instance.workloads:
         try:
+            if not _inside_data_directory(data_directory, item.contract.data_path):
+                # Not read. The hash would still pin the content, but a file
+                # elsewhere is not what a reviewer of the data directory reviewed.
+                # The row names no path, like every other row.
+                results.append(
+                    {
+                        "service": item.id,
+                        "state": "unknown",
+                        "reason": "contract-outside-data-directory",
+                        "sha256": item.contract.sha256,
+                    }
+                )
+                continue
             raw = read_data(data_directory / item.contract.data_path)
             data = strict_loads(raw)
             check_plain_data(data)
@@ -344,8 +372,10 @@ def verify_contracts(instance: Instance, data_directory: Path) -> list[dict[str,
             if any(
                 ".." in Path(mount["source"]).parts or not Path(mount["source"]).is_absolute()
                 for mount in data["mounts"]
+                if "source" in mount
             ):
                 raise InstanceError("workload mount path is not absolute data")
+            check_contract_facts(data)
             results.append(
                 {
                     "service": item.id,
@@ -354,7 +384,11 @@ def verify_contracts(instance: Instance, data_directory: Path) -> list[dict[str,
                     "sha256": item.contract.sha256,
                 }
             )
-        except (OSError, ValueError):
+        except (OSError, ValueError, RecursionError):
+            # RecursionError: Python 3.12 resolves a symbolic link by recursion,
+            # so the resolution above ends with it on a chain of about a thousand
+            # links. Later versions resolve the chain and the kernel then refuses
+            # it on the read. The row is the same either way.
             results.append(
                 {
                     "service": item.id,
@@ -366,6 +400,18 @@ def verify_contracts(instance: Instance, data_directory: Path) -> list[dict[str,
     return results
 
 
+def _has_return_path(instance: Instance, selection: DiscoverySelection) -> bool:
+    """Whether audible playback can be asked of an import at all.
+
+    It can where the importing workload also declares a UDP return profile,
+    listed by the selection or admitted on its own.
+    """
+    return selection.direction == "import" and any(
+        item.service == selection.service and item.strategy == "guest-udp-range-forward"
+        for item in instance.transport
+    )
+
+
 def _applicable(instance: Instance, requirement: Requirement) -> bool:
     strategies = {item.strategy for item in instance.transport}
     condition = requirement.applicability
@@ -375,12 +421,15 @@ def _applicable(instance: Instance, requirement: Requirement) -> bool:
         "components": any(item.components for item in instance.workloads),
         "transport": bool(instance.transport),
         "root-transport": bool(strategies - {"published-port", "guest-lan-alias"}),
+        # Every scope but the default one asks for the packet from outside.
+        "any-source": any(item.source_scope != "lan" for item in instance.transport),
         "bounded": any(
             strategy(item.strategy, item.version).gate == "bounded" for item in instance.transport
         ),
         "bounded-udp": "guest-udp-range-forward" in strategies,
         "exports": any(item.direction == "export" for item in instance.discovery),
         "imports": any(item.direction == "import" for item in instance.discovery),
+        "media-audio": any(_has_return_path(instance, item) for item in instance.discovery),
         "discovery": bool(instance.discovery),
         "resolver": any(item.application_profile == "resolver" for item in instance.workloads),
         "api-writers": any(item.container_api_access for item in instance.lifecycle_tools),
@@ -401,9 +450,16 @@ def _acceptance(
         for item in instance.discovery
         if requirement.applicability == "discovery"
         or (requirement.applicability == "imports" and item.direction == "import")
+        or (requirement.applicability == "media-audio" and _has_return_path(instance, item))
         or (requirement.applicability == "exports" and item.direction == "export")
     }
-    if requirement.applicability in {"transport", "root-transport", "bounded", "bounded-udp"}:
+    if requirement.applicability in {
+        "transport",
+        "root-transport",
+        "any-source",
+        "bounded",
+        "bounded-udp",
+    }:
         relevant = {
             item.id
             for item in instance.transport
@@ -412,6 +468,7 @@ def _acceptance(
                 requirement.applicability == "root-transport"
                 and item.strategy not in {"published-port", "guest-lan-alias"}
             )
+            or (requirement.applicability == "any-source" and item.source_scope != "lan")
             or (
                 requirement.applicability == "bounded"
                 and strategy(item.strategy, item.version).gate == "bounded"
@@ -519,6 +576,16 @@ def _acceptance(
     return bool(relevant) and relevant <= matched
 
 
+def _unambiguous_start_status(code: int) -> bool:
+    """Whether only a completed probe produces this status.
+
+    1 to 31 is also how a probe ended by a signal can be reported, and holds the
+    generic failures 1 and 2. 64 to 78 holds the statuses the framework's own
+    tools return for unknown and for errors.
+    """
+    return 32 <= code <= 63 or 79 <= code <= 125
+
+
 def _base_assessment(
     instance: Instance,
     requirement: Requirement,
@@ -540,6 +607,17 @@ def _base_assessment(
         "EXIT-STRATEGIES",
         "CURRENT-OBSERVATIONS",
     }
+    if identifier == "UNKNOWN-NO-RECOVERY" and not all(
+        code is None or _unambiguous_start_status(code)
+        for code in (
+            instance.supervision.failure_exit_code,
+            instance.supervision.component_exit_code,
+        )
+    ):
+        return (
+            "not-fulfilled",
+            "A declared start status can also be produced by a signal or by a tool's own failure.",
+        )
     if identifier in pure:
         return (
             "fulfilled-verified",
@@ -559,14 +637,14 @@ def _base_assessment(
             ("fulfilled-verified", "Exact local release artifact matches its declared SHA-256.")
             if release_verified
             else (
-                "fulfilled-unverified",
+                "unverified",
                 "Release pin declared; exact local artifact has not been verified.",
             )
         )
     if identifier == "WORKLOAD-CONTRACTS":
         return (
             (
-                "fulfilled-unverified",
+                "unverified",
                 "Content references verified; installed definition parity still needs acceptance.",
             )
             if contracts and all(item["state"] == "present" for item in contracts)
@@ -595,7 +673,7 @@ def _base_assessment(
                 covered.add(section)
         return (
             (
-                "fulfilled-unverified",
+                "unverified",
                 "Authoring declared; generated source/conformance checks require evidence.",
             )
             if covered == required
@@ -668,7 +746,7 @@ def _base_assessment(
         ):
             return "not-fulfilled", "A bounded decision is invalid or has a future signature."
         return (
-            "fulfilled-unverified",
+            "unverified",
             "Configured T/K and residual do not establish the whole-pass withdrawal bound.",
         )
     if identifier == "BOOT-RECOVERY":
@@ -686,6 +764,14 @@ def _base_assessment(
             )
         if decision.accepted is not True or decision.max_dns_ready_seconds is None:
             return "not-fulfilled", "Unattended recovery and its DNS-ready limit are undecided."
+        if sum(item.starts_fleet for item in instance.lifecycle_tools) != 1 or not any(
+            item.starts_runtime is True for item in instance.lifecycle_tools
+        ):
+            return (
+                "not-fulfilled",
+                "Unattended recovery is accepted but no declared tool starts the workloads "
+                "(or the runtime) after a boot.",
+            )
         if not off and baseline is not False:
             return (
                 "not-fulfilled",
@@ -729,7 +815,7 @@ def _base_assessment(
         if negative is not None and (negative.state == "absent" or negative.value is False):
             return "not-fulfilled", "Host evidence reports this prerequisite as absent."
     return (
-        "fulfilled-unverified",
+        "unverified",
         "Declared capability requires its proving test at the recorded host tier.",
     )
 
@@ -800,6 +886,13 @@ def build_report(
     evidence_directory: Path | None = None,
 ) -> dict[str, Any]:
     contracts = verify_contracts(instance, data_directory)
+    # Only the shipped matrix says whether the declared platform can be accepted at
+    # all. Until it lists that platform, no retained record counts for PLATFORM-SUPPORT.
+    listed = (
+        instance.host.platform.macos_version,
+        instance.host.platform.macos_build,
+        instance.host.runtime.version,
+    ) in ACCEPTED_PLATFORMS
     rows: list[dict[str, Any]] = []
     for requirement in REQUIREMENTS:
         if not _applicable(instance, requirement):
@@ -812,10 +905,10 @@ def build_report(
                 requirement.id
                 not in {
                     "BOUNDED-IDENTITY",
-                    "PLATFORM-SUPPORT",
                     "IMPORT-VISIBILITY",
                     "LIFECYCLE-WRITERS",
                 }
+                and (requirement.id != "PLATFORM-SUPPORT" or listed)
                 and status != "not-fulfilled"
                 and _acceptance(instance, requirement, evidence, now, evidence_directory)
             ):
@@ -876,6 +969,8 @@ def build_report(
                 "id": item.id,
                 "strategy": item.strategy,
                 "strategy_version": item.version,
+                # Shown only where declared; a row without it is LAN-scoped.
+                **({} if item.source_scope == "lan" else {"source_scope": item.source_scope}),
                 "gate": strategy(item.strategy, item.version).gate,
                 "desired_digest": expected,
                 "owner_desired_digest": None if current is None else current.desired_digest,
@@ -934,7 +1029,10 @@ def build_report(
                 + layers["discovery"]["state"]
                 + ", dependencies-"
                 + (
-                    "present"
+                    # An independent import may list none; nothing is then present.
+                    "none"
+                    if not dependencies
+                    else "present"
                     if all(value["transport"]["state"] == "present" for value in dependencies)
                     else "unknown"
                 ),
@@ -944,6 +1042,8 @@ def build_report(
                 "observation_authority": "owner-reported; never root admission authority",
             }
         )
+        if selection.service_types is not None:
+            discovery_rows[-1]["service_types"] = list(selection.service_types)
     observed_platform = [
         fact_view(evidence, key, now)
         for key in ("macos_version", "macos_build", "runtime_version", "hardware_class")
@@ -956,12 +1056,7 @@ def build_report(
     accepted = (
         next(item for item in rows if item["id"] == "PLATFORM-SUPPORT")["status"]
         == "fulfilled-verified"
-        and (
-            instance.host.platform.macos_version,
-            instance.host.platform.macos_build,
-            instance.host.runtime.version,
-        )
-        in ACCEPTED_PLATFORMS
+        and listed
     )
     current_ready = (
         evidence.source != "synthetic"
@@ -1055,7 +1150,8 @@ def build_report(
         and current_ready
     )
     return {
-        "schema_version": 1,
+        # Version 1 prefixed the status `unverified` with `fulfilled-`.
+        "schema_version": 2,
         "instance": instance.instance,
         "instance_digest": instance_digest(instance),
         "contract_digest": instance_contract_digest(instance),
@@ -1086,7 +1182,7 @@ def build_report(
         "workloads": workload_rows,
         "requirements": rows,
         "deviations": [asdict(item) for item in instance.deviations],
-        "lifecycle_tools": [asdict(item) for item in instance.lifecycle_tools],
+        "lifecycle_tools": instance_to_dict(instance)["lifecycle_tools"],
         "retirement": [
             asdict(item)
             for item in STRATEGIES

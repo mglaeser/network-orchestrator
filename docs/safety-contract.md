@@ -10,9 +10,10 @@ running native tools. These assessments are report data, never admission.
 | Review rule | Existing enforcement | What still needs host evidence |
 |---|---|---|
 | Resolved-content admission | Root binds the complete resolved profile, scope, workload contract, strategy, backend, observer, Python implementation and dependency versions. A changed digest stays pending. | Render/install conformance and the explicit host admission. |
+| Hard bounds and the one declared exception | Every rule is rendered on its scope's interface, within its scope's LAN prefix and in a reviewed shape. One exception is declared: a structural host redirect matches sources outside the prefix only when its policy says `source_scope: "any"` and root admitted that digest with an acknowledgement of its own. Neither alone loads the wider rule. | A first packet through every root-admitted profile (`ROOT-HARD-BOUNDS`). For an unrestricted source also a first packet from a source outside the LAN prefix (`ANY-SOURCE-INGRESS`, method `external-first-packet`); a LAN client proves nothing about that setting. A signed deviation stands in for neither. |
 | No unprivileged call into root | Root independently pulls protected inputs. The user executor only observes its report. No privileged RPC or sudoers entry exists. | User-domain runtime/API clients remain able to redirect admitted ports by changing the runtime; record this residual. |
-| Bounded guest identity | Fresh helper and guest identities fence activation. Changed generations withdraw before later activation; unknown retires immediately. Old guest states are drained from and to the address. | Native allocator/reset, first-packet/reply and state invalidation acceptance; a signed age/count decision per bounded profile. |
-| Pause and suspensions | Separate durable operator pause and holder-owned operation records survive reinstall and rollback. Damage inhibits. | Native reboot/restore acceptance does not follow from model tests. |
+| Bounded guest identity | Fresh helper and guest identities fence activation. Changed generations withdraw before later activation; unknown retires immediately. While a state that the withdrawn rule can have created remains (its protocol, the old target with a port of the profile, and a peer inside the LAN prefix; the host's own LAN address is such a peer only in a row that names no address outside the prefix), states from and to the old address are invalidated and the profile stays retired until a readback shows none. An invalidation that fails or a state table that cannot be read during it ends the pass `failed`. | Native allocator/reset, first-packet/reply and state invalidation acceptance; a signed age/count decision per bounded profile. |
+| Pause, suspensions and holds | Separate durable operator pause, holder-owned operation records and holder-owned holds on single services survive reinstall and rollback. Damage inhibits. | Native reboot/restore acceptance does not follow from model tests. |
 | Unknown and readiness | Complete typed observations, age decay, exact dependency readback and independent Bonjour leases. Unknown never calls workload recovery. | Consent and application evidence in the actual launch context; a warm-cache reload is not inward-discovery proof. |
 
 The renderer emits only the reviewed bounded rule shapes. It does not open a
@@ -28,6 +29,17 @@ maximum unknown-pass tolerance **K**, a residual statement, the signer and the
 UTC signature time. The existing owner is stricter than a larger K: its
 effective value is **1**, because the first unknown retires known exposure.
 The report exposes both values; it does not add a delayed-withdrawal algorithm.
+
+A root installation can decide to
+[keep host paths](pf-owner.md#host-paths-while-runtime-evidence-is-unknown)
+on a pass whose read of their service ran out of time, or whose evidence for
+them is merely too old. T and K are then still what they were for
+every rule that names a guest address, which is what they bound: such a rule is
+retired by the first unknown. A rule that ends at the host's own address is not
+counted by any K under that decision. That is the host redirect and the
+fallback form of a bounded profile; it can stay loaded, and not ready, for as
+long as the conditions of the owner guide hold, and the report's values do not
+describe it.
 
 The conditional operational window is:
 
@@ -48,7 +60,7 @@ Setting T does not cause the kernel to expire a PF rule automatically.
 
 `assess_bounded_safety` returns `not-fulfilled` for an unsigned or future
 decision, a bound exceeding T, or an absolute no-misdelivery requirement.
-Configured limits without proving evidence are `fulfilled-unverified`. Even
+Configured limits without proving evidence are `unverified`. Even
 with finite evidence and a valid signature, the strongest bounded outcome is
 `accepted-residual`, with `zero_misdelivery_guaranteed=false`. No framework
 report can close an absolute *never* requirement for a shared guest-address
@@ -79,14 +91,22 @@ repeat the native contract tests whenever the runtime dependency changes.
 
 For a targeted workload or runtime-wide stop, the administrator/lifecycle owner:
 
-1. Takes its own durable suspension, preserving operator pause and other holders.
+1. Takes its own durable suspension, or for one workload its own hold on that
+   service, preserving operator pause and other holders.
 2. Lets the independently scheduled PF owner withdraw the exact owned rules.
-3. Verifies readback and invalidation of states from and to each old guest target.
+3. Verifies readback, and that no state of a withdrawn rule remains for an old
+   guest target; such states are invalidated from and to that address.
 4. Stops the workload/runtime only after quiescence is established.
 5. Starts it through its existing declared lifecycle owner.
 6. Obtains fresh runtime, helper, workload and publication identities.
-7. Releases only its own suspension; restores only unchanged admitted policy.
+7. Releases only its own suspension or hold; restores only unchanged admitted policy.
 8. Verifies transport and discovery separately, then completes host acceptance.
+
+A suspension withdraws every service for the duration. A hold withdraws the one
+service and leaves recovery, forwarding and discovery of the others in place.
+Steps 2 and 3 need no call into root for a hold: the PF owner's published report
+names the hold and the revision of the user-side file its pass read
+([PF owner](pf-owner.md), [state contract](state-machine.md)).
 
 A runtime CLI, API bridge or management UI can bypass this planned sequence.
 Such a restart is unplanned and uses the bounded withdrawal path; it is not
@@ -99,9 +119,17 @@ saved addresses or states.
 The reserved recovery failure code remains **42**, above the signal range.
 `recovery_exit_code` returns it only for a fresh, complete absence after the
 initial PF/Bonjour readiness gate. Unknown, stale, future, timeout and cold-start
-observations return uncertainty code1. A supervisor must match **42 exactly**,
+observations return uncertainty code1. The one cold start that returns 42 is a
+fresh absence that the caller states was established with the declared
+fleet-start evidence (`fleet_start_proven`). A supervisor must match **42 exactly**,
 never every nonzero exit status. This pure helper does not modify live Monit
-rules or start a recovery loop.
+rules or start a recovery loop. The executable workload probe reports the same
+uncertainty as status 69, not 1 ([Apple runtime](apple-runtime.md)); neither
+value is 42. An instance may describe a site whose own
+supervisor starts on another status (`supervision.failure_exit_code`, 1 to 125);
+that changes neither this helper nor the retained supervisor, and the report
+shows `UNKNOWN-NO-RECOVERY` as `not-fulfilled` for a declared status in 1 to 31
+or 64 to 78, as [instances.md](instances.md) describes.
 
 Reader compatibility is separate from mutation qualification. Existing readers
 recognize several CLI envelope versions; that does not prove support on a
@@ -136,10 +164,10 @@ The allowed public surface is:
 | Validate, render, build, simulate, review admission and plan | Available; static output does not authorize installation. |
 | Observe, inspect health and capture enrollment | Available as bounded reads; enrollment output is unadmitted data. |
 | Prepare a protected deployment bundle | Static preparation only; installing the bundle is blocked. |
-| Pause, take an independent suspension, request exact scoped withdrawal | Available through the existing validation and ownership checks. |
+| Pause, take an independent suspension, hold one service, request exact scoped withdrawal | Available through the existing validation and ownership checks. |
 | Execute reconciliation or start scanner/publisher processes | Blocked. |
 | Install, admit, recreate/provision workloads or recover/start a service | Blocked. |
-| Resume, release a suspension, acknowledge an interrupted activation journal | Blocked; these can remove an activation inhibitor. |
+| Resume, release a suspension or a hold, acknowledge an interrupted activation journal | Blocked; these can remove an activation inhibitor. |
 
 Endpoint requests receive the same classification before their complete
 existing authorization checks: observation and explicit withdrawal/drain are

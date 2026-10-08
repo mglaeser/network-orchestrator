@@ -15,7 +15,7 @@ from typing import Any
 
 from .config import config_digest, profile_digest, validate_config
 from .model import Config, Profile
-from .state import Admission, Intent, Observation, Snapshot, snapshot_digest
+from .state import Admission, Intent, Observation, Snapshot, attribute_holds, snapshot_digest
 
 OPERATIONS = frozenset({"activate", "withdraw", "drain", "noop", "pending", "blocked"})
 ACTION_REASONS = frozenset(
@@ -26,6 +26,7 @@ ACTION_REASONS = frozenset(
         "admission-future",
         "paused",
         "suspended",
+        "held",
         "intent-damaged",
         "endpoint-unknown",
         "endpoint-absent",
@@ -157,13 +158,20 @@ def _profile_plan(
         return inhibit("paused")
     if intent.suspensions:
         return inhibit("suspended")
+    if profile.service in intent.holds:
+        # The same retirement as a pause, for this service's profiles only.
+        return inhibit("held")
 
     admission = admissions.get(profile.id)
     if admission is None or admission.profile != profile.id or admission.digest != digest:
         return inhibit("not-admitted", "pending")
     if admission.approved_at > now:
         return inhibit("admission-future", "pending")
-    if profile.safety.kind == "bounded" and not admission.risk_acknowledged:
+    # Repeated on every pass: an approval record without the acknowledgement
+    # never activates a bounded target or a rule that matches every source.
+    if (
+        profile.safety.kind == "bounded" or profile.source_scope != "lan"
+    ) and not admission.risk_acknowledged:
         return inhibit("risk-unacknowledged", "pending")
     if snapshot.network_generation is None:
         return inhibit("network-unknown")
@@ -265,6 +273,7 @@ def plan(
     validate_config(config)
     if any(key != value.profile for key, value in admissions.items()):
         raise ValueError("admission key does not match profile")
+    intent = attribute_holds(intent, {service.id for service in config.services})
     actions = tuple(
         action
         for profile in sorted(config.profiles, key=lambda p: p.id)

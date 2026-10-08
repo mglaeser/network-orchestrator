@@ -18,6 +18,8 @@ from typing import Any
 from .state import Observation
 
 EFFECTIVE_UNKNOWN_LIMIT = 1
+# Also the ThrottleInterval of every generated launchd job, and therefore the
+# least interval a periodic job of a deployment manifest may declare.
 LAUNCHD_INTERVAL_FLOOR_SECONDS = 10
 RECOVERY_FAILURE_EXIT_CODE = 42
 UNKNOWN_CHECK_EXIT_CODE = 1
@@ -143,7 +145,7 @@ def assess_bounded_safety(
             value for value in durations if value is not None
         )
     reasons = []
-    status = "fulfilled-unverified"
+    status = "unverified"
     if signed_by is None or signature_at is None:
         reasons.append("residual-unsigned")
         status = "not-fulfilled"
@@ -190,19 +192,25 @@ def recovery_exit_code(
     now: float,
     max_age_seconds: float,
     initial_owners_ready: bool = False,
+    fleet_start_proven: bool = False,
 ) -> int:
     """Only fresh complete absence after initial readiness gets failure code42.
 
     This is a check result, not recovery. Unknown, timeout and cold-start gates
     yield ordinary uncertainty code1, which a supervisor must never recover on.
     The caller must separately establish dependency readiness from owner reports.
+    A cold start is no longer uncertain when the absence itself was established
+    with the declared fleet-start evidence: the enrolled API job before and after
+    the read, and no runtime job for the workload in the service manager.
     """
     if type(initial_owners_ready) is not bool:
         raise ValueError("initial readiness must be boolean")
+    if type(fleet_start_proven) is not bool:
+        raise ValueError("fleet-start proof must be boolean")
     current = observation.at(now, max_age_seconds)
     if current.state == "present":
         return 0
-    if current.state == "absent" and initial_owners_ready:
+    if current.state == "absent" and (initial_owners_ready or fleet_start_proven):
         return RECOVERY_FAILURE_EXIT_CODE
     return UNKNOWN_CHECK_EXIT_CODE
 

@@ -11,8 +11,8 @@ The same external tables can describe an entire site's custom container-networki
 setup. Installation is explicit, domain-separated and journalled; a successful
 public build does not change a production host.
 
-Use [getting started](getting-started.md) for the end-to-end command sequence,
-[provisioning](provisioning.md) for the bundle transaction, and the
+Use [getting started](getting-started.md) for the read-only workflow of this
+release, [provisioning](provisioning.md) for the bundle transaction, and the
 [runtime](apple-runtime.md), [workload](workloads.md),
 [Bonjour](bonjour-owner.md) and [PF](pf-owner.md) guides for owner contracts.
 
@@ -33,7 +33,8 @@ site/
   deployment.json          domains, jobs, monitors, paths and artifact hashes
 user-state/
   admissions.json          user profile approvals
-  intent.json              durable operator pause and holder suspensions
+  intent.json              durable operator pause, holder suspensions and service holds
+  recovery-starts.json     starts issued by recovery; only with a restart budget
   journal.json             reconciliation phases
   installation-journal.json installation phases
   installation-receipt.json retained reviewed release identity
@@ -44,8 +45,33 @@ root-state/
   live.json and journal.json known exposure and interrupted phase evidence
 ```
 
-All owner inputs are bounded, strictly parsed, protected single-link regular
-files. Settings and mutable private state use mode 0600 and private directories.
+All owner inputs are bounded and strictly parsed. How far a reader also protects
+the file depends on the input:
+
+- The state store opens the records of a state directory (intent, journals,
+  receipts and the root owner's records) without following a final symbolic
+  link. They must be single-link regular files of mode 0600 owned by the calling
+  user, in a private mode 0700 directory of that user. The Apple runtime owner
+  holds the intent and admissions that runtime settings name to this whole
+  rule, the directory included, whenever it reads them for `probe`, `start` or
+  an activation request. The provider bindings and the Bonjour settings, with
+  the admissions and intent they name, are held to the rule for the file; the
+  directory that holds them is not examined.
+- Bundle sources and bundle files are also opened without following a final
+  symbolic link and must be single-link regular files that group and others
+  cannot write. The PF owner's `install` reads its policy, settings and backend
+  inputs once, in the same way, as single-link regular files that must not
+  change while they are read; it does not check their mode.
+- `netorch` reads `--config`, `--admissions`, `--snapshot` and `--intent` as
+  general data through the bounded reader, which requires a regular file,
+  follows a final symbolic link and checks neither owner, mode nor link count.
+  The same reader serves a deployment `--manifest`, the `intent.json` of a
+  reconciliation preview, a `snapshot-file` binding, the policy path named in
+  Bonjour or runtime settings, and the Apple runtime and workload commands for
+  their settings file and a recipe file.
+
+Keep settings and mutable private state in mode 0600 files and private
+directories whichever reader applies.
 Root code, policy, admissions and ancestors must be administrator-owned and
 protected against user replacement. A separately protected read-only root report
 contains typed networking observations, not credentials or raw inspect output.
@@ -91,7 +117,6 @@ reviewed user bindings:
 
 ```sh
 netorch validate --config /operator/site/network.json
-netorch init-state --state-dir /operator/state/netorch
 netorch observe --config /operator/site/network.json \
   --bindings /operator/site/bindings.json
 netorch reconcile --config /operator/site/network.json \
@@ -100,7 +125,13 @@ netorch reconcile --config /operator/site/network.json \
   --state-dir /operator/state/netorch
 ```
 
-Initial intent is paused. Reconciliation is a plan until
+`netorch init-state --state-dir /operator/state/netorch` creates the state
+directory with a paused initial intent. This release refuses it with status 78
+(`stage-not-qualified`) before anything is created, so it writes no initial
+intent; a state directory left by an earlier installation is read as it is. The
+preview never initializes state: an absent or unreadable `intent.json` is
+planned as damaged intent, which inhibits activation, and an unreadable
+`--admissions` file ends the command with status 65. Reconciliation is a plan until
 `--execute-user-owners` is explicitly supplied; it cannot execute external-root
 actions. Provider paths are trusted local bindings, not network-policy commands.
 Real fixed owner endpoints independently validate requests and current evidence.
@@ -131,6 +162,46 @@ and closed inventory. Validation rerenders managed job bytes and rejects extra
 files or changed content. Settings artifacts are copied byte-exact; only command
 arguments and working directories support fixed `{release}`/`{state}` placeholders.
 
+A job may carry the optional member `process_type`. It has two values:
+`"background"` renders the launchd key `ProcessType` as `Background`, and
+`"standard"` renders it as `Standard`. Any other value, including `null`, is
+refused. A job without the member is rendered as `Background`, which is what
+every job was rendered as before the member existed. Writing `"background"` out
+is the same manifest as leaving the member out: it has the same canonical form,
+release identifier and bundle digest. A manifest that does not use `"standard"`
+therefore keeps its digests and its plist bytes, while one that uses it is a
+different release, which earlier versions refuse as a violation of the closed
+schema. Which class a job needs on a given host is the site's decision; the
+manifest only selects what is rendered.
+
+A periodic job's `interval_seconds` is a whole number from 10 to 86400. Every
+job is rendered with the launchd key `ThrottleInterval` 10, and by
+`launchd.plist(5)` launchd does not start a job more often than its throttle. A
+shorter interval would describe a schedule the job does not get, and the root
+forwarding owner, whose settings must name the same interval as its job, would
+be told a pass interval it does not have. Earlier versions accepted 5 to 9. The
+manifest's `schema_version` stays 1: the rendered job always carried the
+ten-second throttle, so a shorter interval never did what it said, and the
+stricter rule enforces the contract that existed. The refusal is the general
+one for a manifest that violates its closed schema and does not name the
+interval. Change the interval to 10 or more and install that release.
+
+This version refuses such a manifest wherever it reads one as a release to
+install, to keep or to restore: in `deploy validate` and `deploy build`, in a
+rendered bundle, and in the receipt and the predecessor record of an installed
+release. An installation whose current release declares such an interval can
+therefore not be upgraded, rolled back or recovered by this version, a release
+that declares one cannot be restored by a rollback or a recovery, and a failed
+first installation of one cannot be recovered; each of these is refused before
+anything is changed. An upgrade to such a release that failed over a valid
+release is recovered: recovery restores the valid release and reads from the
+failed release's record only the installation boundaries it compares. Where
+such a release is installed, install a release whose periodic jobs declare 10
+seconds or more with the version that still accepts the old one, and only then
+install this version; the replaced release stays recorded as predecessor and
+cannot be rolled back to afterwards. A manifest that is still valid keeps its
+canonical form, its digests and its generated job bytes.
+
 Review plans, exact hashes and existing ownership before installation. Artifact
 hashes in examples are deliberately all zero; they cannot approve actual files.
 The source package and executable paths require their own reviewed installation.
@@ -153,9 +224,39 @@ the operator or grant admission.
 The generated coordinator, Bonjour service and Monit jobs run in the declared
 user domain. Bonjour's separate publisher/watchdog owns its registration children
 and checks independent dependency evidence; the endpoint cannot supply fabricated
-records. Heartbeat failure cannot restart a healthy container. Only the workload
-probe's reserved status 42 can permit a separately guarded proven-stopped start.
+records. Heartbeat failure cannot restart a healthy container. Only the reserved
+status 42 of a workload probe, or of the one runtime probe, can permit a
+separately guarded start: of that proven-stopped workload, or of the vendor
+runtime under the conditions of
+[Starting the vendor runtime](apple-runtime.md#starting-the-vendor-runtime).
 Signals, timeouts, denial and unknown results do not meet that condition.
+
+A monitor has one of four roles. `workload` and `runtime` monitors may carry a
+recovery command; `discovery` and `forwarding` monitors cannot, so a networking
+failure starts nothing. At most one monitor has the role `runtime`: it watches
+the vendor runtime itself with `runtime-probe` and may run `runtime-start`,
+which starts no workload and acts only under the conditions of
+[Starting the vendor runtime](apple-runtime.md#starting-the-vendor-runtime). A
+manifest without such a monitor keeps its canonical bytes, its release
+identifier and its rendered Monit file.
+
+Monit runs the recovery command once when that rule first matches. If the attempt
+starts nothing, Monit does not run it again while the probe keeps returning 42.
+A workload or runtime monitor may therefore set the optional integer
+`recovery_repeat_cycles` (1 to 360). Its rule is then rendered with
+`repeat every N cycles`, and Monit runs the command again every N cycles for as
+long as the probe returns 42. The rule has no attempt budget and no Monit restart
+action: every attempt is the same guarded start of a workload that two fresh
+observations prove stopped, or of the vendor runtime that two fresh reads prove
+not loaded. A monitor without a recovery command cannot set it.
+Without the setting the generated file is byte-identical to what earlier
+versions rendered, and a manifest that does not use it keeps its digests.
+
+A budget of starts, where one is wanted, is a setting of that guarded start and
+not of the rule ([`restart_budget`](apple-runtime.md#restart-budget) of the
+runtime settings): once it is spent the start holds the service instead, the
+probe no longer returns 42 and the rule stops matching until an operator
+releases the hold.
 
 Local Network consent must be accepted in the actual LaunchAgent identity and
 launch context. Terminal/SSH success does not prove this context. Record consent
@@ -235,6 +336,12 @@ architecture, privacy readiness and measured time to first valid answer. The
 framework does not enable automatic login, change FileVault, power settings or
 router DNS. These remain explicit native/application-owner decisions.
 
+What the root forwarding owner does after a reboot is such a decision as well:
+the optional `cold_start` member of its settings, described under
+[After a reboot](pf-owner.md#after-a-reboot). Without it the owner leaves its
+remembered rules to an administrator, and forwarding stays withdrawn after a
+reboot until `withdraw` and `resume`.
+
 Runtime upgrades and container recreation require separate maintenance and
 reacceptance. Versioned reader fixtures cover declared shapes, not future unknown
 schemas. Preserve image pins, persistent mounts, kernel arguments and application
@@ -255,18 +362,36 @@ netorch deploy rollback --state-dir /operator/state/netorch --scope user \
 ```
 
 Use root-owned execution and the manifest's root state directory for root scope.
+An installation stopped by an interrupt, a kill or lost power is recovered with
+the same command; [provisioning](provisioning.md) lists what it accepts.
 Recovery fences an interrupted installation and its verified predecessor;
-rollback fences a committed current release. They restore only verified owned job
+rollback fences a committed current release and refuses while an installation or
+recovery is unfinished. A rollback that failed is repeated with the same command
+and digest. They restore only verified owned job
 bytes, preserve current negative intent/admissions and do not replay stored guest
 addresses. Root replacement first suspends and withdraws through its independently
 owned boundary. Damaged intent, changed release/job bytes, unknown journals or
 unavailable predecessor inhibit recovery.
 
-Operator pause and holder suspension are separate and never expire. A transaction
-releases only its own hold. `acknowledge-journal` acknowledges an exact inspected
+Installation, recovery and rollback keep every hold on a single service
+([state contract](state-machine.md)), as they keep the pause. A release from
+before holds reads an intent file that contains one as damaged: its installer
+refuses to install, and after a rollback to such a release every owner of it
+stays inhibited until the holds are released by a release that knows them.
+Release holds before rolling back that far where possible, and place the first
+hold only after every scope runs a release that knows holds.
+
+Operator pause, holder suspensions and holds on single services are separate and
+never expire. A transaction releases only its own suspension.
+`acknowledge-journal` acknowledges an exact inspected
 reconciliation journal; it does not repair, approve or resume. Receipts are history,
 not kernel truth. A kernel lock reporting busy is a retry condition, not permission
-to delete its inode.
+to delete its inode. Root installation, rollback and recovery apply that to the
+forwarding owner: an owner command that exits 75 has done nothing and is repeated
+every 0.5 seconds for at most 5 seconds, because the scheduled pass, and the job
+an installation has just loaded, hold the owner's lock while they run. An owner
+that is still busy after that fails the operation in its recorded phase, as any
+other status does at once. Status 75 from `launchctl` or Monit is never repeated.
 
 Retain required recovery material outside immutable releases. Clean up only after
 checking installed jobs, settings, release receipts and rollback references. Never

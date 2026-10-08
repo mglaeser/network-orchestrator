@@ -2,7 +2,7 @@
 
 Version 0.3 is a macOS-only, read-only extraction stage. It supplies a closed
 instance model, static legacy import, byte conformance checks, a requirements
-registry and a six-verb host view. It preserves existing installed networking
+registry and a seven-verb host view. It preserves existing installed networking
 owners. It does not migrate a host, grant admission, upgrade the runtime or
 certify physical behavior. The native-qualified support matrix is empty.
 
@@ -27,7 +27,7 @@ flowchart LR
     P --> I[Private instance: canonical choices, contracts, decisions, ledger]
     L[Existing literal owner inputs] --> S[Static import; no execution]
     S --> I
-    I --> V[Unprivileged validate / preflight / status / plan / check / report]
+    I --> V[Unprivileged validate / preflight / status / plan / check / report / supervision-gaps]
     H[Local host state: observations, admissions, receipts, journals, gates] --> V
     OS[Fixed local macOS reads; explicit collect-local] --> V
     V --> R[Read-only view; no actions or owner calls]
@@ -53,7 +53,9 @@ contains fixed behavior names and versions; `platform_contract` keeps upstream
 facts and candidate versions separate from an empty hardware-qualified matrix.
 `requirements` provides stable requirement IDs, applicability and proving tests.
 `legacy_import` parses literal JSON/plist/TOML/environment/list data without
-sourcing it; code is inventoried by hash and otherwise underivable. `conformance`
+sourcing it; code is inventoried by hash and otherwise underivable. `render`
+produces the rendered side for literal inputs by replacing the mapped values
+inside the captured file; it writes nothing. `conformance`
 compares captured and rendered bytes, including whitespace and provenance.
 `host_report` joins declared data to typed retained evidence. `macos_preflight`
 uses bounded fixed local readers, not network probes. `workflow_gate` refuses
@@ -75,8 +77,9 @@ transport is withdrawn. Unknown cannot authorize recovery. A reserved status 42
 is meaningful only after a complete proven-stopped check and allowed gates.
 
 Operator pause and operation-owned suspension are durable independent records.
-The effective gate is their union; no timer expires them. Installation and
-rollback preserve the current pause and unrelated holders. Unreadable or old
+The effective gate is their union; no timer expires them. A hold is a third
+record of the same kind that inhibits one service only. Installation and
+rollback preserve the current pause, holds and unrelated holders. Unreadable or old
 state inhibits operation. Signatures in a ledger are owner attestations bound
 to retained evidence; they are not authenticated root admissions.
 
@@ -85,7 +88,7 @@ to retained evidence; they are not authenticated root admissions.
 | Path | Mechanism | Classification and limits |
 |---|---|---|
 | LAN to published port | Workload-specific Apple Container forwarder | Vendor/native; publication identity must match the announcing service |
-| LAN ingress to an existing host publication | Owned scoped PF redirect | Native PF plus existing custom owner; structural same-service target |
+| LAN ingress to an existing host publication | Owned scoped PF redirect | Native PF plus existing custom owner; structural same-service target. Sources outside the LAN prefix only where the profile declares an unrestricted source and root acknowledges it separately |
 | Direct DNS ingress with client identity | Owned direct-to-guest PF redirect | Bounded shared-pool address risk; separate publication does not replace it |
 | Dynamic UDP return | Static-port outbound NAT and target-less inbound RDR | Existing custom PF shapes; LAN-wide, one admitted range, multiple receivers |
 | Application LAN alias | Existing workload setup, ordinary vendor NAT | Named application contract; preserve current behavior and deviations |

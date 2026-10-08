@@ -136,6 +136,17 @@ def deviation(
 
 def accept_unattended_recovery(data: dict[str, Any]) -> None:
     data["decisions"]["unattended_recovery"] = {"accepted": True, "max_dns_ready_seconds": 60}
+    # An accepted recovery names who starts the workloads and the runtime after a boot.
+    data["lifecycle_tools"].append(
+        {
+            "id": "example-supervisor",
+            "kind": "supervisor",
+            "container_api_access": True,
+            "starts_runtime": True,
+            "starts_fleet": True,
+            "version": None,
+        }
+    )
 
 
 @pytest.mark.parametrize("observed_at", [NOW, STALE, FUTURE])
@@ -157,9 +168,7 @@ def test_unobserved_and_undeclared_filevault_is_not_fulfilled(data: dict[str, An
     assert status(report(data, stale_off), "BOOT-RECOVERY") == "not-fulfilled"
 
 
-@pytest.mark.parametrize(
-    ("declared", "expected"), [(True, "not-fulfilled"), (False, "fulfilled-unverified")]
-)
+@pytest.mark.parametrize(("declared", "expected"), [(True, "not-fulfilled"), (False, "unverified")])
 def test_declared_filevault_baseline_decides_without_a_current_observation(
     data: dict[str, Any], declared: bool, expected: str
 ) -> None:
@@ -181,7 +190,7 @@ def test_current_filevault_off_observation_keeps_the_row_unverified(data: dict[s
     accept_unattended_recovery(data)
     data["host"]["baseline"]["filevault"] = True
     current_off = [fact("filevault", "off")]
-    assert status(report(data, current_off), "BOOT-RECOVERY") == "fulfilled-unverified"
+    assert status(report(data, current_off), "BOOT-RECOVERY") == "unverified"
 
 
 NEGATIVE = [
@@ -213,10 +222,10 @@ def test_reported_negative_fact_keeps_its_requirement_not_fulfilled(
 def test_positive_or_missing_fact_leaves_the_declared_row_unchanged(
     data: dict[str, Any], key: str, requirement: str
 ) -> None:
-    assert status(report(data), requirement) == "fulfilled-unverified"
-    assert status(report(data, [fact(key, True)]), requirement) == "fulfilled-unverified"
+    assert status(report(data), requirement) == "unverified"
+    assert status(report(data, [fact(key, True)]), requirement) == "unverified"
     unknown = [fact(key, None, state="unknown")]
-    assert status(report(data, unknown), requirement) == "fulfilled-unverified"
+    assert status(report(data, unknown), requirement) == "unverified"
 
 
 def test_acceptance_record_does_not_override_a_negative_fact(
@@ -247,7 +256,7 @@ def test_release_pin_stays_verified_for_the_pinned_installed_artifact(
     assert status(report(data, same, release_verified=True), "FRAMEWORK-PIN") == (
         "fulfilled-verified"
     )
-    assert status(report(data, same), "FRAMEWORK-PIN") == "fulfilled-unverified"
+    assert status(report(data, same), "FRAMEWORK-PIN") == "unverified"
     unknown = [fact("installed_framework_sha256", None, state="unknown")]
     assert status(report(data, unknown, release_verified=True), "FRAMEWORK-PIN") == (
         "fulfilled-verified"
@@ -259,7 +268,7 @@ def test_instance_wide_record_never_satisfies_a_per_profile_requirement(
 ) -> None:
     attest(data, tmp_path, "DISCOVERY-IMPORT", "cold-application-scan", 5)
     result = report(data, platform(), evidence_directory=tmp_path)
-    assert status(result, "DISCOVERY-IMPORT") == "fulfilled-unverified"
+    assert status(result, "DISCOVERY-IMPORT") == "unverified"
     attest(data, tmp_path, "DISCOVERY-IMPORT", "cold-application-scan", 5, "example-import")
     result = report(data, platform(), evidence_directory=tmp_path)
     assert status(result, "DISCOVERY-IMPORT") == "fulfilled-verified"
@@ -286,7 +295,7 @@ def test_unaccepted_deviation_makes_its_row_not_fulfilled(
     data: dict[str, Any], record: dict[str, Any]
 ) -> None:
     before = status(report(data), record["requirement"])
-    assert before in {"fulfilled-unverified", "fulfilled-verified"}
+    assert before in {"unverified", "fulfilled-verified"}
     data["deviations"].append(record)
     result = report(data)
     assert status(result, record["requirement"]) == "not-fulfilled"
@@ -411,7 +420,7 @@ def test_generic_deviation_cannot_replace_mandatory_qualification_or_provenance(
         fact("local_network_identity", "example-identity"),
     ]
     assert status(report(data, facts), requirement) in {
-        "fulfilled-unverified",
+        "unverified",
         "fulfilled-verified",
     }
     data["deviations"].append(deviation(requirement))

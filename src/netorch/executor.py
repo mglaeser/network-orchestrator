@@ -155,6 +155,7 @@ def execute(
                 "verified",
                 "paused",
                 "suspended",
+                "held",
                 "service-absent",
             }
             if complete:

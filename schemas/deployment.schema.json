@@ -217,7 +217,7 @@
             },
             {
               "type": "integer",
-              "minimum": 5,
+              "minimum": 10,
               "maximum": 86400
             }
           ]
@@ -240,6 +240,12 @@
         },
         "log_directory": {
           "$ref": "#/$defs/path"
+        },
+        "process_type": {
+          "enum": [
+            "background",
+            "standard"
+          ]
         }
       }
     },
@@ -263,7 +269,8 @@
           "enum": [
             "workload",
             "discovery",
-            "forwarding"
+            "forwarding",
+            "runtime"
           ]
         },
         "check_argv": {
@@ -291,6 +298,11 @@
         },
         "recovery_code": {
           "const": 42
+        },
+        "recovery_repeat_cycles": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 360
         }
       }
     }

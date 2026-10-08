@@ -79,10 +79,23 @@ hashes and new label absence, stops only owned jobs, installs generated plists,
 loads them and reads launchd back. Its own suspension is released only after the
 entire operation succeeds. It does not resume the operator or create admissions.
 
+`launchctl bootout` can return before launchd has removed the job, and loading
+the same label again can fail until it has. In either scope, installation,
+rollback and failed-upgrade recovery therefore wait after stopping a loaded job
+that they load again: they read the job with `launchctl print` at once and then
+every 0.25 seconds until launchd reports it absent, and load it only then. No
+further read is started once 20 seconds have passed for that job; the operation
+then goes on and loads the job as it did before this wait existed. The wait
+never fails an operation. A job that was not loaded, or that is stopped and not
+loaded again, is not waited for.
+
 Existing root jobs, application state, image pins, mounts, kernel arguments,
 container resources and Apple runtime configuration are untouched. A caller
 must use the separately documented explicit workload operation for a genuinely
 new container; networking installation never implies container recreation.
+That operation creates only what its recipe grammar covers; a definition that
+a workload contract describes, such as one with a named-volume mount, is not
+thereby creatable.
 
 ## Prepare and explicitly install root scope
 
@@ -155,7 +168,9 @@ deny-only ACL support; it cannot supply privileged authority.
 ## Partial failure, recovery and rollback
 
 Every operation keeps an installation journal separate from reconciliation
-journals. Failure records its phase and stops further work. No speculative
+journals. Failure, including an interrupt, records its phase and stops further
+work. A kill, a dropped session or lost power cannot record anything; the journal
+then keeps the in-progress phase it had reached. No speculative
 automatic rollback, container stop, global PF flush, lock deletion or runtime
 restart runs. The operator inspects current evidence before an explicit recovery:
 
@@ -168,15 +183,45 @@ netorch deploy rollback --state-dir /operator/state/netorch --scope user \
 
 Recovery of a failed upgrade verifies the retained predecessor and exact failed
 journal, accepts only old or new owned job bytes, restores predecessor files/jobs
-and preserves current intent. A failed first installation removes only verified
-new job files and leaves its private staged release and gated root snapshot as
-evidence. No application or administrator admission data is deleted.
+and preserves current intent. It writes the receipt back as the failed
+installation found it: the journal holds that receipt, so the restored release
+still names its own predecessor and can be rolled back to it. A failed first
+installation removes only verified new job files and leaves its private staged
+release and gated root snapshot as evidence. No application or administrator
+admission data is deleted.
+
+Recovery accepts a journal in `failed`, a journal left in an in-progress
+installation phase, which it treats as the failed phase, and a journal left in
+`recovering` by a recovery that was itself stopped. It reads the journal under
+the lock the installer holds from its first read to its last write, so an
+in-progress phase read there was left by a process that is gone; while one
+runs, recovery reports busy. Three stops need no more than the same command
+with the bundle's digest:
+
+- before the first journal write, when only the user suspension exists:
+  recovery releases that suspension, reports `hold-released` and changes
+  nothing else. It does so only when no installation journal is open and the
+  suspension is held by exactly that digest;
+- while the release is being staged: no job has changed, the incomplete release
+  is not read as evidence and is retained;
+- after the user suspension was released but before the journal was closed:
+  recovery takes the suspension again for its own run. A suspension held by
+  another holder, or damaged intent, still inhibits recovery.
 
 Rollback is an explicit reversal of a **committed** release. It verifies all
 retained files, fences the exact current digest and restoration boundaries, and
 restores the previous jobs. Root rollback also uses its own owner installer to
 restore reviewed desired policy/backend; it never clears admissions or pause.
-Only one predecessor is retained in the receipt to bound journal growth. Older
+Only one predecessor is retained in the receipt to bound journal growth: the
+receipt of a new release names the release it replaced without that release's
+own predecessor, and an installation journal holds the replaced receipt as it
+was, with its one predecessor and nothing older. A journal written by an earlier
+version holds the replaced receipt without its predecessor; recovering such a
+journal restores the release as that version did, with no release to roll back
+to. With the record of the release being installed the journal holds up to
+three release records. An installation whose journal would not fit the state
+store's bound for one record (1 MiB) is refused before it takes its suspension
+or opens a journal, so nothing is changed and nothing needs recovery. Older
 release files can be retained according to the site's separate cleanup policy.
 A committed rollback revalidates the predecessor's interpreter and platform
 contract before any transition or native effect. Retained receipts do not prove
@@ -185,17 +230,51 @@ interpreter; relocating or replacing that runtime is a separate maintenance step
 
 A release rollback is not an application-data restore or kernel-state proof.
 
+Rollback reads the installation journal before it writes anything. A failed or
+unfinished installation or recovery belongs to `recover`: rollback refuses and
+leaves that journal unchanged. Its own journal records the scope and the bundle
+digests of both releases, so a rollback that failed or was stopped is repeated
+with the same command and digest. The repeat accepts a job file of either of
+the two releases, tolerates a job it had already removed, boots out the jobs of
+both releases before it loads the predecessor's. If the predecessor's receipt
+is already in place, it revalidates that release's retained and installed job
+bytes and requires every restored label to be currently loaded before releasing
+its hold and closing the journal. A receipt alone is not fresh evidence after
+an interruption. Changed files or an absent/unreadable job leave the hold and
+journal unchanged for inspection; completion does not repair them. A first
+attempt still requires the current release's exact job bytes. A journal left
+by a failed rollback of an earlier version has no scope or digests and is not
+resumed.
+
+Without a receipt there is no release to roll back, and rollback refuses. A job
+that only the previous release has is new to the installation. Rollback checks
+it as an installation checks a new job, before it takes its suspension, writes
+its journal or stops anything: a file of that job's name in the launchd
+directory refuses the rollback, and so does a label of that name that
+`launchctl print` does not report absent. Only a repeated rollback accepts such
+a file, and only with the previous release's exact bytes. Its first attempt
+writes that file before it loads the job, so with the file launchd is not asked
+about the label, and without it the label must be absent as on a first attempt.
+An upgrade or a recovery does not wait for a job that it stops and does not load
+again. A rollback started while launchd still reports such a job is refused by
+this check; nothing has changed then, and the same command is repeated.
+
 An interrupted rollback also stops and retains its phase. An unexpected foreign
 file, changed boundary, damaged intent, replaced release, unavailable restore
 material or ambiguous state inhibits recovery instead of inventing a repair.
 Failed releases are retained for inspection and cannot be overwritten; retry
 with a separately reviewed new release or retire evidence only after checking
-live references. No timer clears an installation suspension.
+live references. An installation whose release directory is already retained is
+refused before it takes its suspension or opens a journal, so that refusal
+leaves nothing to recover. No timer clears an installation suspension.
 
 Before any privileged scheduler stop or policy replacement, the administrator
 installer takes a holder-specific root installation suspension and invokes the
 owner's verified withdrawal/state-draining operation. It releases that holder
-only after the restored/new scheduler is read back. A failed first root install
+only after the restored/new scheduler is read back. That scheduler starts a pass
+as soon as it is loaded and holds the owner's lock meanwhile; an owner command
+that reports the lock busy (exit 75, nothing done) is repeated for at most
+5 seconds before the operation fails. A failed first root install
 without a predecessor leaves this holder in place when no existing operator
 pause otherwise inhibits the owner; recovery reports `root_gate_retained`.
 Resolve that retained gate through the independent owner's reviewed lifecycle

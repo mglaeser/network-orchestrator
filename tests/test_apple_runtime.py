@@ -26,7 +26,13 @@ from netorch.state import Intent, Observation, admissions_to_dict, intent_to_dic
 
 
 @pytest.fixture
-def enrolled(tmp_path):
+def enrolled(tmp_path, monkeypatch):
+    # This fixture supplies mocked vendor reads. Keep native ACL I/O in its
+    # dedicated tests below, too: concurrent test directory creation can change
+    # a shared ancestor while /bin/ls runs and correctly invalidate its snapshot.
+    # Identity metadata and deadline checks remain live; ACL-specific tests can
+    # replace this syscall stub explicitly.
+    monkeypatch.setattr(runtime, "reject_acl", lambda _path, **_kwargs: None)
     config = load_config(Path(__file__).resolve().parents[1] / "examples/network.json")
     uid, gid = os.geteuid(), os.getegid()
     contracts, items = [], {}
@@ -46,6 +52,8 @@ def enrolled(tmp_path):
             if p.service == service.id and p.kind == "publication"
         ]
         configuration = {
+            "id": "example-" + service.id,
+            "runtimeHandler": "container-runtime-linux",
             "mounts": [{"source": str(directory), "options": ["rw"]}],
             "publishedPorts": published,
             "cpus": 2,
@@ -86,7 +94,10 @@ def enrolled(tmp_path):
             for service in config.services
         ),
     )
+    state = tmp_path / "state"
+    state.mkdir(mode=0o700)
     paths = {key: tmp_path / (key + ".json") for key in ("policy", "admissions", "intent")}
+    paths["intent"] = state / "intent.json"
     values = {
         "policy": to_dict(config),
         "admissions": admissions_to_dict(mock_admissions(config)),
@@ -178,10 +189,14 @@ class FakeRunner:
                 raise AssertionError(argv)
             return Result(0, canonical_bytes(data), b"")
         if argv[0] == "/usr/sbin/sysctl":
-            return Result(0, b"{ sec = 100, usec = 0 }\n", b"")
+            return Result(0, b"0A1B2C3D-4E5F-4A6B-8C7D-9E0F1A2B3C4D\n", b"")
         if argv[0] == "/sbin/ifconfig":
             return Result(0, b"en0: flags=0\n inet 192.0.2.10 netmask 0xffffff00\n", b"")
         if argv[0] == "/bin/launchctl":
+            # Explicit service-manager evidence in the ordinary mock scenario.
+            # Surviving jobs and unknown reads are separate regression fixtures.
+            if argv[2].rpartition("/")[2].startswith("com.apple.container."):
+                return Result(113, b"", b"Could not find service\n")
             self.helper_calls += 1
             pid = 111 if self.failure != "helper-race" or self.helper_calls == 1 else 112
             return Result(
@@ -352,15 +367,15 @@ def test_versioned_snapshot_envelope_parser(version):
         "status": {"state": "running", "startedDate": "started", "networks": []},
     }
     assert runtime.decode_snapshot(nested, version)["state"] == "running"
-    if version != "1.2.0":
-        flat = {
-            "id": "example",
-            "configuration": {},
-            "status": "running",
-            "startedDate": "started",
-            "networks": [],
-        }
-        assert runtime.decode_snapshot(flat, version)["started"] == "started"
+    flat = {
+        "id": "example",
+        "configuration": {},
+        "status": "running",
+        "startedDate": "started",
+        "networks": [],
+    }
+    with pytest.raises(runtime.RuntimeReadError):
+        runtime.decode_snapshot(flat, version)
 
 
 @pytest.mark.parametrize(

@@ -18,6 +18,7 @@ from .deployment_model import (
     Job,
     Monitor,
 )
+from .safety_contract import LAUNCHD_INTERVAL_FLOOR_SECONDS
 
 
 class DeploymentError(ValueError):
@@ -106,7 +107,19 @@ def load_deployment(path: Path) -> Deployment:
 
 
 def deployment_to_dict(deployment: Deployment) -> dict[str, Any]:
-    return asdict(deployment)
+    value = asdict(deployment)
+    for monitor in value["monitors"]:
+        # An optional setting at its default is not part of the canonical form:
+        # a manifest written before the setting existed keeps its digests.
+        if monitor["recovery_repeat_cycles"] is None:
+            del monitor["recovery_repeat_cycles"]
+    for job in value["jobs"]:
+        # An optional setting at its default is not part of the canonical form:
+        # a manifest written before the setting existed keeps its digests, and
+        # writing the default out does not make a second release.
+        if job["process_type"] == "background":
+            del job["process_type"]
+    return value
 
 
 def validate_deployment(deployment: Deployment) -> None:
@@ -152,6 +165,14 @@ def validate_deployment(deployment: Deployment) -> None:
         _path(job.working_directory.replace("{release}", "/release").replace("{state}", "/state"))
         if job.keep_alive and job.interval_seconds is not None:
             raise DeploymentError("job must be a daemon or periodic task, not both")
+        # Every job is rendered with this throttle, and launchd does not start a
+        # job more often than its throttle. The schema states the same minimum;
+        # this comparison keeps the two from ever being changed apart.
+        if (
+            job.interval_seconds is not None
+            and job.interval_seconds < LAUNCHD_INTERVAL_FLOOR_SECONDS
+        ):
+            raise DeploymentError("job interval is shorter than the throttle of its launchd job")
         if job.scope == "root" and job.role != "forwarding":
             raise DeploymentError("only the independent forwarding owner is a root job")
         if job.scope == "user" and job.role == "forwarding":
@@ -163,8 +184,18 @@ def validate_deployment(deployment: Deployment) -> None:
         if monitor.recovery_argv is not None:
             _path(monitor.recovery_argv[0])
             _unprivileged(monitor.recovery_argv)
-        if monitor.role != "workload" and monitor.recovery_argv is not None:
+        # A workload is recovered by its own guarded start, the vendor runtime by
+        # its own; a discovery or forwarding failure starts neither.
+        if monitor.role not in {"workload", "runtime"} and monitor.recovery_argv is not None:
             raise DeploymentError("networking failure must not initiate workload recovery")
+        if monitor.recovery_repeat_cycles is not None and (
+            type(monitor.recovery_repeat_cycles) is not int or monitor.recovery_argv is None
+        ):
+            raise DeploymentError(
+                "recovery repeat needs a whole number of cycles and a recovery command"
+            )
+    if sum(monitor.role == "runtime" for monitor in deployment.monitors) > 1:
+        raise DeploymentError("one supervisor has at most one monitor of the vendor runtime")
     _path(deployment.launchctl)
     _path(deployment.monit)
     _path(deployment.forwarding.directory)

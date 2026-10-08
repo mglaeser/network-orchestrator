@@ -14,11 +14,29 @@ from typing import Any, cast
 from jsonschema import Draft202012Validator, FormatChecker
 
 from .codec import CodecError, digest, read_bounded_file, strict_load, strict_loads
-from .model import Config, Discovery, Owner, PortRange, Profile, Safety, Scope, Service
+from .model import (
+    Config,
+    Discovery,
+    DiscoveryNames,
+    Owner,
+    PortRange,
+    Profile,
+    Safety,
+    Scope,
+    Service,
+)
 
 
 class ConfigError(ValueError):
     """Schema or cross-owner invariants are not satisfied."""
+
+
+# The independent root owner's installation record holds its own identifier, and
+# its protected admission and rule records are keyed by the identifiers of its
+# profiles. Those stores accept one character fewer than the schema's 64. (The
+# anchor named after the owner ends earlier: that record bounds the whole path
+# of an anchor, and an owner with a longer identifier pins another name.)
+ROOT_IDENTIFIER_LENGTH = 63
 
 
 @lru_cache(maxsize=1)
@@ -76,6 +94,7 @@ def _construct(data: dict[str, Any]) -> Config:
                 ),
                 item.get("owner"),
                 item.get("fallback_publication"),
+                item.get("source_scope", "lan"),
             )
             for item in data["profiles"]
         ),
@@ -90,10 +109,36 @@ def _construct(data: dict[str, Any]) -> Config:
                 tuple(item["dependencies"]),
                 item["max_age_seconds"],
                 item["max_records"],
+                item.get("return_path", "required"),
+                item.get("misses"),
             )
             for item in data["discovery"]
         ),
+        discovery_names=(
+            DiscoveryNames(**data["discovery_names"])
+            if "discovery_names" in data
+            else DiscoveryNames()
+        ),
     )
+
+
+def backing_publication(config: Config, profile: Profile) -> Profile:
+    """The one native publication of the same service that a host redirect exposes."""
+    matching = [
+        publication
+        for publication in config.profiles
+        if publication.kind == "publication"
+        and publication.service == profile.service
+        and publication.scope == profile.scope
+        and publication.protocol == profile.protocol
+        and profile.target_ports is not None
+        and publication.ports.contains(profile.target_ports)
+    ]
+    if profile.kind != "host-redirect" or len(matching) != 1:
+        raise ConfigError(
+            f"Profile {profile.id}: host redirect requires its own publication target"
+        )
+    return matching[0]
 
 
 def _check_range(ports: PortRange | None, label: str) -> None:
@@ -137,6 +182,23 @@ def _check_references(config: Config) -> None:
                 config.profile(dependency)
     except KeyError as exc:
         raise ConfigError(str(exc)) from exc
+    # Refuse here what a root owner could install and admit once but never read
+    # back: nothing is stored for a policy that does not pass this validation.
+    for owner in config.owners:
+        if owner.privilege == "external-root" and len(owner.id) > ROOT_IDENTIFIER_LENGTH:
+            raise ConfigError(
+                f"Owner {owner.id}: an external-root owner's identifier is limited to "
+                f"{ROOT_IDENTIFIER_LENGTH} characters"
+            )
+    for profile in config.profiles:
+        if (
+            config.profile_owner(profile).privilege == "external-root"
+            and len(profile.id) > ROOT_IDENTIFIER_LENGTH
+        ):
+            raise ConfigError(
+                f"Profile {profile.id}: an external-root owner's profile identifier is limited "
+                f"to {ROOT_IDENTIFIER_LENGTH} characters"
+            )
 
 
 def _check_scopes(config: Config) -> None:
@@ -199,21 +261,17 @@ def _check_profiles(config: Config) -> None:
                 raise ConfigError(
                     f"Profile {profile.id}: fallback requires its own exact native publication"
                 )
+        if profile.source_scope != "lan" and (
+            profile.kind != "host-redirect" or profile.safety.kind != "structural"
+        ):
+            # Only a rule that ends at the host's own published socket may match
+            # every source. A guest is reached through the translation alone, so
+            # there, and for the UDP return pair, the LAN prefix is the control.
+            raise ConfigError(
+                f"Profile {profile.id}: an unrestricted source needs a structural host redirect"
+            )
         if profile.kind == "host-redirect":
-            matching = [
-                publication
-                for publication in config.profiles
-                if publication.kind == "publication"
-                and publication.service == profile.service
-                and publication.scope == profile.scope
-                and publication.protocol == profile.protocol
-                and profile.target_ports is not None
-                and publication.ports.contains(profile.target_ports)
-            ]
-            if len(matching) != 1:
-                raise ConfigError(
-                    f"Profile {profile.id}: host redirect requires its own publication target"
-                )
+            backing_publication(config, profile)
         if profile.safety.kind == "bounded" and not (
             profile.safety.statement and profile.safety.statement.strip()
         ):
@@ -269,7 +327,17 @@ def _check_discovery(config: Config) -> None:
             raise ConfigError(
                 f"Discovery {item.id}: export requires its own publication dependency"
             )
-        if (
+        if item.return_path != "required":
+            # The setting lifts the requirement below and nothing else. An entry
+            # that lists a return path depends on it and cannot say otherwise.
+            if item.direction != "import" or any(
+                profile.kind == "udp-return" for profile in dependencies
+            ):
+                raise ConfigError(
+                    f"Discovery {item.id}: only an import that lists no UDP return "
+                    "dependency is independent of the return path"
+                )
+        elif (
             item.direction == "import"
             and {"_airplay._tcp", "_raop._tcp"}.intersection(item.types)
             and not any(profile.kind == "udp-return" for profile in matching)
@@ -277,6 +345,30 @@ def _check_discovery(config: Config) -> None:
             raise ConfigError(
                 f"Discovery {item.id}: media import requires its UDP return dependency"
             )
+        # The schema's "integer" also accepts a number written as 2.0, and a
+        # constructed entry was never parsed.
+        if item.misses is not None and (type(item.misses) is not int or not 1 <= item.misses <= 8):
+            raise ConfigError(f"Discovery {item.id}: a miss tolerance is an integer from 1 to 8")
+
+
+# One DNS label holds 63 bytes. The bundled discovery owner forms the first
+# label of a projected host name from a prefix and 16 hexadecimal digits
+# (bonjour_owner.project_records), which leaves 47 bytes for the prefix.
+_PREFIX_MAX = 63 - 16
+
+
+def _check_discovery_names(config: Config) -> None:
+    names = config.discovery_names
+    for prefix in (names.export_prefix, names.import_prefix):
+        # fullmatch: the schema's pattern would let one trailing line feed pass.
+        if re.fullmatch(r"[a-z][a-z0-9-]*", prefix) is None or len(prefix) > _PREFIX_MAX:
+            raise ConfigError("Discovery names: invalid host name prefix")
+    # A projected name must tell which direction made it; equal prefixes and a
+    # prefix that begins with the other one cannot.
+    if names.export_prefix.startswith(names.import_prefix) or names.import_prefix.startswith(
+        names.export_prefix
+    ):
+        raise ConfigError("Discovery names: one prefix begins with the other")
 
 
 def validate_config(config: Config) -> None:
@@ -292,6 +384,7 @@ def validate_config(config: Config) -> None:
     _check_scopes(config)
     _check_profiles(config)
     _check_discovery(config)
+    _check_discovery_names(config)
 
 
 def parse_config(text: str | bytes) -> Config:
@@ -310,6 +403,7 @@ def parse_config(text: str | bytes) -> Config:
     _check_scopes(config)
     _check_profiles(config)
     _check_discovery(config)
+    _check_discovery_names(config)
     return config
 
 
@@ -320,10 +414,32 @@ def load_config(path: str | Path) -> Config:
 def to_dict(config: Config) -> dict[str, Any]:
     # JSON arrays, rather than internal tuples, also satisfy the external schema.
     result = cast(dict[str, Any], strict_loads(json.dumps(asdict(config))))
+    # The default pair is left out: canonical bytes and config_digest of a policy
+    # that does not name its prefixes stay those of every earlier release.
+    if config.discovery_names == DiscoveryNames():
+        del result["discovery_names"]
     for profile in result["profiles"]:
         if profile["fallback_publication"] is None:
             del profile["fallback_publication"]
+        if profile["source_scope"] == "lan":
+            del profile["source_scope"]
+    for item in result["discovery"]:
+        # The default has no place in the canonical form, so a policy written
+        # before the member existed keeps its form and its digests.
+        if item["return_path"] == "required":
+            del item["return_path"]
+        # An entry that states no tolerance of its own has no such member.
+        if item["misses"] is None:
+            del item["misses"]
     return result
+
+
+def profile_view(profile: Profile) -> dict[str, Any]:
+    """One profile as an admission review prints it; the default source scope is left out."""
+    view = asdict(profile)
+    if profile.source_scope == "lan":
+        del view["source_scope"]
+    return view
 
 
 def profile_digest(config: Config, profile: Profile) -> str:
@@ -332,6 +448,9 @@ def profile_digest(config: Config, profile: Profile) -> str:
     resolved = asdict(profile)
     if profile.fallback_publication is None:
         del resolved["fallback_publication"]
+    if profile.source_scope == "lan":
+        # Left out, so a digest issued before the field existed still matches.
+        del resolved["source_scope"]
     payload = {
         "digest_version": 2 if profile.fallback_publication is not None else 1,
         "schema_version": config.schema_version,
@@ -345,6 +464,13 @@ def profile_digest(config: Config, profile: Profile) -> str:
     if profile.fallback_publication is not None:
         payload["fallback_profile_digest"] = profile_digest(
             config, config.profile(profile.fallback_publication)
+        )
+    if profile.source_scope != "lan":
+        # An unrestricted source has its own digest version and is approved
+        # together with the one native publication it exposes.
+        payload["digest_version"] = 3
+        payload["publication_profile_digest"] = profile_digest(
+            config, backing_publication(config, profile)
         )
     return digest(payload)
 

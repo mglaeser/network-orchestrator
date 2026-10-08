@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import ipaddress
+import json
 import math
 import os
 import signal
@@ -25,8 +26,15 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
-from .bonjour_process import DiscoveryFailure, Registration, interface_index, scan
-from .codec import canonical_bytes, digest, strict_loads
+from .bonjour_process import (
+    MAX_LEFT_OUT,
+    DiscoveryFailure,
+    Registration,
+    RegistrationExpired,
+    interface_index,
+    scan,
+)
+from .codec import MAX_JSON_BYTES, CodecError, canonical_bytes, digest, strict_loads
 from .config import config_digest, load_config, profile_digest
 from .discovery import (
     Publication,
@@ -46,6 +54,7 @@ from .state import (
     Observation,
     Snapshot,
     admissions_from_dict,
+    attribute_holds,
     intent_from_dict,
     observation_to_dict,
     snapshot_to_dict,
@@ -78,6 +87,20 @@ class BonjourSettings:
     scan_seconds: int = 2
     poll_seconds: int = 5
     eligible_model_prefixes: tuple[str, ...] = ("AudioAccessory", "AppleTV")
+    pass_seconds: int | None = None
+    miss_tolerance: int = 1
+    renewal_overlap_seconds: int | None = None
+    failed_pass: str | None = None
+
+    @property
+    def pass_interval(self) -> int:
+        """Seconds the scanner rests between two passes.
+
+        ``poll_seconds`` also paces the publisher's independent evidence, which
+        must stay younger than each dependency's own limit. A slower scan
+        therefore has a value of its own; unset, it is ``poll_seconds`` as before.
+        """
+        return self.poll_seconds if self.pass_seconds is None else self.pass_seconds
 
 
 def private_json(path: Path) -> Any:
@@ -109,7 +132,15 @@ def load_settings(path: Path) -> BonjourSettings:
         "state_dir",
         "scopes",
     }
-    optional = {"scan_seconds", "poll_seconds", "eligible_model_prefixes"}
+    optional = {
+        "scan_seconds",
+        "poll_seconds",
+        "eligible_model_prefixes",
+        "pass_seconds",
+        "miss_tolerance",
+        "renewal_overlap_seconds",
+        "failed_pass",
+    }
     if (
         not isinstance(raw, dict)
         or not required <= raw.keys()
@@ -156,10 +187,32 @@ def load_settings(path: Path) -> BonjourSettings:
         item.id for item in scopes
     }:
         raise ValueError("every owned discovery policy needs a guest interface")
+    # This owner decides import eligibility on a device's _airplay._tcp record
+    # and lets related types follow that record's host. An owned import policy
+    # that does not list the type could never import anything, yet it would
+    # read present for as long as it is active.
+    if any(
+        item.direction == "import" and "_airplay._tcp" not in item.types
+        for item in config.discovery
+        if item.owner == owner.id
+    ):
+        raise ValueError("an owned import policy needs the _airplay._tcp type")
     for key, default, maximum in (("scan_seconds", 2, 5), ("poll_seconds", 5, 10)):
         value = raw.get(key, default)
         if type(value) is not int or not 1 <= value <= maximum:
             raise ValueError("Bonjour polling must be bounded")
+    pass_seconds = raw.get("pass_seconds")
+    if "pass_seconds" in raw:
+        if type(pass_seconds) is not int or not 5 <= pass_seconds <= 120:
+            raise ValueError("Bonjour polling must be bounded")
+        # A pass refreshes each lease once. Its candidate has to stay fresh until
+        # the next one is written, a rest and two scans later.
+        if any(
+            2 * pass_seconds > item.max_age_seconds
+            for item in config.discovery
+            if item.owner == owner.id
+        ):
+            raise ValueError("Bonjour pass interval must leave room inside every owned lease")
     prefixes = raw.get("eligible_model_prefixes", ["AudioAccessory", "AppleTV"])
     if (
         not isinstance(prefixes, list)
@@ -172,14 +225,61 @@ def load_settings(path: Path) -> BonjourSettings:
         or len(set(prefixes)) != len(prefixes)
     ):
         raise ValueError("invalid Apple media model eligibility")
-    return BonjourSettings(
+    tolerance = raw.get("miss_tolerance", 1)
+    if type(tolerance) is not int or not 1 <= tolerance <= 8:
+        raise ValueError("Bonjour miss tolerance must be bounded")
+    overlap = raw.get("renewal_overlap_seconds")
+    if "renewal_overlap_seconds" in raw:
+        if type(overlap) is not int or not 1 <= overlap <= 30:
+            raise ValueError("Bonjour renewal overlap must be bounded")
+        # A client lives for the lease its record has left, 120 seconds at most.
+        # One that lives no longer than the overlap is replaced after its end,
+        # so an overlap that no owned lease exceeds could never have an effect.
+        if not any(
+            min(120, item.max_age_seconds) > overlap
+            for item in config.discovery
+            if item.owner == owner.id
+        ):
+            raise ValueError("Bonjour renewal overlap needs a lease that is longer")
+    failed_pass = raw.get("failed_pass")
+    if "failed_pass" in raw and failed_pass != "miss":
+        raise ValueError("Bonjour failed pass has one value: miss")
+    settings = BonjourSettings(
         owner.id,
         **paths,
         scopes=tuple(scopes),
         scan_seconds=raw.get("scan_seconds", 2),
         poll_seconds=raw.get("poll_seconds", 5),
+        miss_tolerance=tolerance,
+        failed_pass=failed_pass,
         eligible_model_prefixes=tuple(prefixes),
+        pass_seconds=pass_seconds,
+        renewal_overlap_seconds=overlap,
     )
+    # A missed record is carried only inside its lease (MissMemory). Where a
+    # lease leaves no room for that, a tolerance could never have an effect. A
+    # policy that states its own needs that room itself. The owner's setting
+    # governs the policies that state none and needs that room in at least one
+    # of them; where every owned policy states its own, it governs nothing and
+    # is compared with no lease.
+    owned = _owned(config, settings)
+    least = settings.pass_interval + carry_horizon(config, settings)
+    if any(
+        item.misses is not None and item.misses > 1 and item.max_age_seconds <= least
+        for item in owned
+    ):
+        raise ValueError("a policy's miss tolerance needs a lease that outlasts two passes")
+    following = tuple(item for item in owned if item.misses is None)
+    if (
+        tolerance > 1
+        and (following or not owned)
+        and not any(item.max_age_seconds > least for item in following)
+    ):
+        raise ValueError("Bonjour miss tolerance needs a lease that outlasts two passes")
+    # A failed pass can count as a miss only for a policy that tolerates one.
+    if failed_pass is not None and not any(tolerated_misses(item, tolerance) > 1 for item in owned):
+        raise ValueError("Bonjour failed pass needs an owned policy that tolerates a miss")
+    return settings
 
 
 def record_to_dict(record: Record) -> dict[str, Any]:
@@ -230,6 +330,14 @@ def _interfaces(config: Config, settings: BonjourSettings) -> dict[str, tuple[in
     return result
 
 
+def _durable_intent(config: Config, settings: BonjourSettings) -> Intent:
+    """A hold on a service the installed policy does not name inhibits every policy."""
+    return attribute_holds(
+        intent_from_dict(private_json(settings.intent)),
+        {service.id for service in config.services},
+    )
+
+
 def independent_snapshot(
     config: Config, settings: BonjourSettings, now: float
 ) -> tuple[Snapshot, Intent, frozenset[str]]:
@@ -239,7 +347,7 @@ def independent_snapshot(
     snapshot = observe(config, clients)
     user_admissions = admissions_from_dict(private_json(settings.admissions))
     admissions = effective_admissions(config, clients, snapshot, user_admissions, now)
-    intent = intent_from_dict(private_json(settings.intent))
+    intent = _durable_intent(config, settings)
     transport = plan(config, snapshot, admissions, intent, now)
     return snapshot, intent, transport.ready_profiles
 
@@ -253,7 +361,7 @@ def dependencies_ready(
     now: float,
 ) -> bool:
     if (
-        intent.blocked
+        intent.blocks(policy.service)
         or snapshot.network_generation is None
         or not set(policy.dependencies) <= ready
     ):
@@ -358,7 +466,7 @@ def project_records(
             and record.service_type in policy.types
             and record.seen_at <= now <= record.seen_at + policy.max_age_seconds
             and ipaddress.IPv4Address(record.ipv4) in ipaddress.IPv4Network(scope.lan_cidr)
-            and not is_own_projection(record)
+            and not is_own_projection(record, config.discovery_names)
         )
         eligible = {
             (dns_name_key(record.hostname), record.ipv4)
@@ -376,7 +484,7 @@ def project_records(
             replace(
                 record,
                 interface=guest.guest_interface,
-                hostname="netorch-lan-"
+                hostname=config.discovery_names.import_prefix
                 + digest(
                     {
                         "host": record.hostname,
@@ -412,7 +520,7 @@ def project_records(
                 replace(
                     projection.record,
                     txt=rewrite_endpoint_urls(record, projection.record),
-                    hostname="netorch-container-"
+                    hostname=config.discovery_names.export_prefix
                     + digest(
                         {"policy": policy.id, "name": record.name, "type": record.service_type}
                     )[:16]
@@ -435,10 +543,14 @@ def rewrite_endpoint_urls(source: Record, target: Record) -> tuple[bytes, ...]:
         if key in {b"internal_url", b"base_url"}:
             try:
                 address = urlsplit(value.decode("utf-8"))
+                # The host as the URL spells it: urlsplit's own hostname is
+                # lower-cased with Unicode rules, DNS names compare by ASCII case.
+                host = address.netloc.rpartition("@")[2].partition(":")[0]
                 if (
                     address.scheme in {"http", "https"}
                     and address.hostname is not None
-                    and address.hostname.rstrip(".") in {source.ipv4, source.hostname.rstrip(".")}
+                    and dns_name_key(host.rstrip("."))
+                    in {source.ipv4, dns_name_key(source.hostname.rstrip("."))}
                     and address.username is None
                     and address.password is None
                 ):
@@ -482,6 +594,8 @@ def _observation(
     *,
     interface: bool,
     count: int = 0,
+    skipped: int = 0,
+    tolerated: str | None = None,
 ) -> Observation:
     endpoint = snapshot.services.get(policy.service) if snapshot else None
     return Observation(
@@ -496,8 +610,237 @@ def _observation(
             "network_generation": snapshot.network_generation if snapshot else None,
             "states": [],
             "record_count": count,
+            "skipped_count": skipped,
+            # Left out while none: an observation without it is the one of before.
+            **({} if tolerated is None else {"tolerated_failure": tolerated}),
         },
     )
+
+
+# Time limits of one scanner pass, in seconds; pass_budget adds them up.
+_OWNER_READ_LIMIT = 10  # owners.ProcessOwner: the report of one other owner
+_INTERFACE_CHECK_LIMIT = 2  # bonjour_process.interface_index; twice for each scope
+_SCAN_LIMIT = 45  # bonjour_process.scan: one service type
+_SCAN_BATCH = 8  # service types that scan_policy reads at once
+_PASS_SLACK = 5  # process clean-up, the pass's writes and the publisher's next tick
+
+
+def pass_budget(config: Config, settings: BonjourSettings) -> int:
+    """Seconds one scanner pass may take from its clock reading to its candidate in force.
+
+    Every native read of a pass has a time limit of its own, so the pass takes
+    no longer than their sum: one report read for each other owner, two
+    interface checks for each scope and one scan for each batch of service
+    types of each owned policy. A report file is read well inside the limit of
+    an owner process unless every one of its permission checks nearly times out.
+    """
+    return (
+        _OWNER_READ_LIMIT * (len(config.owners) - 1)
+        + 2 * _INTERFACE_CHECK_LIMIT * len(settings.scopes)
+        + _SCAN_LIMIT * sum(-(-len(item.types) // _SCAN_BATCH) for item in _owned(config, settings))
+        + _PASS_SLACK
+    )
+
+
+def carry_horizon(config: Config, settings: BonjourSettings) -> int:
+    """Seconds after a pass reads its clock until the next pass's candidate is in force.
+
+    The pass writes its candidate within one budget, the scanner rests, and the
+    next pass writes within another. lease_records refuses a whole candidate for
+    one expired record, so a record that a pass missed is carried only while its
+    lease lasts longer than this: it must not end between two candidates.
+    """
+    return settings.pass_interval + 2 * pass_budget(config, settings)
+
+
+Fence = tuple[str, str | None, str | None]
+Remembered = dict[tuple[str, str], tuple[Record, int]]
+
+
+def tolerated_misses(policy: Discovery, owner_tolerance: int) -> int:
+    """Consecutive completed passes that may miss a record of this policy.
+
+    The policy's own ``misses`` where its entry states one; otherwise the
+    owner's ``miss_tolerance``. A pass whose read did not complete counts as
+    such a miss where the owner's ``failed_pass`` says so.
+    """
+    return owner_tolerance if policy.misses is None else policy.misses
+
+
+class MissMemory:
+    """Source records the scanner has read, so that a later pass may miss them.
+
+    A record that a completed pass of its policy does not read again stays among
+    that pass's sources, with the time it was last seen, until as many
+    consecutive completed passes as its policy tolerates have missed it. The
+    pass decides about it as about any source it read, so what it would not
+    project now is not kept. The time of sight is never refreshed: the lease,
+    the client's own lifetime and the publisher's deadline end a carried record
+    as they end any other. The memory belongs to this scanner process. A restart
+    forgets it, and so does a skipped pass of the policy. A failed pass forgets
+    it too, unless the owner counts a read that did not complete as a miss
+    (carried_through).
+    """
+
+    def __init__(self, tolerance: int) -> None:
+        # The owner's setting, for every policy that states no tolerance of its own.
+        self.tolerance = tolerance
+        self.listed: dict[str, tuple[Fence, Remembered]] = {}
+
+    def begin(self, policy: Discovery, fence: Fence, needed_until: float) -> MissedSources | None:
+        """Start one policy's pass; unless it completes, nothing is carried over.
+
+        None for a policy that tolerates no miss: its pass reads and lists as it
+        does without a memory, and nothing of it is remembered.
+        """
+        tolerance = tolerated_misses(policy, self.tolerance)
+        if tolerance == 1:
+            return None
+        kept, known = self.listed.pop(policy.id, (fence, {}))
+        # Nothing read under another policy digest, guest or network generation is kept.
+        return MissedSources(
+            self, policy, fence, known if kept == fence else {}, needed_until, tolerance
+        )
+
+
+@dataclass(slots=True)
+class MissedSources:
+    """One policy's pass: what it adds to the sources it read, and what it then keeps."""
+
+    memory: MissMemory
+    policy: Discovery
+    fence: Fence
+    known: Remembered
+    needed_until: float
+    tolerance: int
+    read: Remembered | None = None
+
+    def __call__(self, sources: tuple[Record, ...]) -> tuple[Record, ...]:
+        """Sources an earlier pass listed that this pass did not read and may carry."""
+        read: Remembered = {(record.name, record.service_type): (record, 0) for record in sources}
+        carried = sorted(
+            (misses + 1, -record.seen_at, key, record)
+            for key, (record, misses) in self.known.items()
+            # A record read now under the same name and type takes its place.
+            if key not in read
+            and misses + 1 < self.tolerance
+            and record.seen_at + self.policy.max_age_seconds > self.needed_until
+        )
+        # Carried sources never push a pass over the policy's record bound.
+        room = max(0, self.policy.max_records - len(sources))
+        for misses, _seen, key, record in carried[:room]:
+            read[key] = (record, misses)
+        self.read = read
+        return tuple(record for record, misses in read.values() if misses)
+
+    def completed(self, records: tuple[Record, ...]) -> None:
+        """Remember the sources of what the completed pass listed, and nothing else."""
+        names = {(record.name, record.service_type) for record in records}
+        self.memory.listed[self.policy.id] = (
+            self.fence,
+            {key: value for key, value in (self.read or {}).items() if key in names},
+        )
+
+
+# The reasons a scan carries whose read did not complete; see counts_as_miss.
+# The reader marks no failure with another reason: a scan whose own time is
+# used up (timed-out) is never a read that did not complete.
+_COUNTED_AS_MISS = frozenset({"malformed"})
+# The reason of a pass in which the browse listed instances and none of them
+# answered its resolve at all (scan_policy). Counted as a miss, such a pass is a
+# read that did not complete, and its candidate names it by its own reason,
+# `incomplete`.
+_UNANSWERED = "incomplete"
+# What a candidate may name as the failure it carried records through: the
+# reason of the pass that counted as a miss, never another one.
+_TOLERATED = _COUNTED_AS_MISS | {_UNANSWERED}
+
+
+def counts_as_miss(failure: BaseException) -> bool:
+    """Whether a failed scan says no more than that its read did not complete.
+
+    The reader marks such a failure where it raises it, from a closed list of
+    what one client left (bonjour_process.unfinished_read): the forms of a
+    daemon that is not running, or a client that the bounded runner stopped at
+    its own time limit before it had shown a reply. Its reason is on the closed
+    list besides. A denial, every other error code, a command that did not
+    show the verified interface, whatever a reader refuses in an answer it
+    read, what the pass itself refuses afterwards, a scan whose time is used
+    up and every exception that is not a DiscoveryFailure never count. One
+    refusal of the pass counts as well, marked `unanswered` by scan_policy: a
+    pass in which the browse listed instances and none of them answered.
+    """
+    return (
+        isinstance(failure, DiscoveryFailure)
+        and failure.unfinished
+        and (
+            failure.reason in _COUNTED_AS_MISS
+            or (failure.unanswered and failure.reason == _UNANSWERED)
+        )
+    )
+
+
+def carried_through(
+    config: Config,
+    settings: BonjourSettings,
+    policy: Discovery,
+    snapshot: Snapshot,
+    ready: frozenset[str],
+    now: float,
+    missed: MissedSources,
+) -> tuple[Record, ...]:
+    """What a pass lists whose read did not complete: what it remembers, missed once more.
+
+    The remembered sources are carried exactly as a completed pass carries a
+    source it did not read, and this pass's reports judge them. Where nothing
+    is listed, nothing is remembered either, and the failure stands.
+    """
+    sources = missed(())
+    try:
+        records = project_records(config, policy, sources, snapshot, ready, settings, now)
+    except Exception:
+        return ()
+    if records:
+        missed.completed(records)
+    return records
+
+
+def _only_unfinished(
+    futures: list[Future[tuple[Record, ...]]],
+    deadline: float,
+    left_out: list[str],
+    unanswered: list[str],
+) -> bool:
+    """Whether each scan of a pass completed or failed by a read that did not complete.
+
+    A scan that has not ended when the scanner's wait for a scan is over has
+    used up its time. That is never a miss: not here, not where scan_policy
+    waits for the scan's result, and not where the scan itself finds no time
+    left (bonjour_process.scan).
+
+    A scan that stopped at its fifth instance left out counts only where none
+    of them answered and the pass read no instance. Where the pass left
+    instances out and read none, each of them must not have answered at all:
+    an instance that answered with what cannot be used keeps the pass failing,
+    whatever another scan of it did.
+    """
+    read = stopped = False
+    for item in futures:
+        try:
+            error = item.exception(timeout=max(0.01, deadline - time.monotonic()))
+        except TimeoutError:
+            return False
+        if error is None:
+            read = read or bool(item.result())
+        elif (
+            isinstance(error, DiscoveryFailure) and error.unanswered and error.reason == _UNANSWERED
+        ):
+            stopped = True
+        elif not counts_as_miss(error):
+            return False
+    if stopped and read:
+        return False
+    return read or len(unanswered) == len(left_out)
 
 
 def scan_policy(
@@ -508,26 +851,91 @@ def scan_policy(
     ready: frozenset[str],
     interfaces: dict[str, tuple[int, int]],
     now: float,
-) -> tuple[Record, ...]:
+    missed: MissedSources | None = None,
+) -> tuple[tuple[Record, ...], int]:
+    """The policy's projected records and the number of instances left out.
+
+    Instances are left out only beside at least one instance of the policy
+    that was read in the same pass. Where none was read, the pass fails for
+    the policy instead of leaving any out.
+    """
     scope = config.scope(policy.scope)
     guest = next(item for item in settings.scopes if item.id == policy.scope)
     source = scope.interface if policy.direction == "import" else guest.guest_interface
     index = interfaces[policy.scope][0 if policy.direction == "import" else 1]
+    # An export ties a record to its service by the inspected guest address; a
+    # guest may hold further addresses. An import keeps exactly one address.
+    inspected = snapshot.services[policy.service].data.get("ipv4")
+    guest_ipv4 = inspected if policy.direction == "export" and isinstance(inspected, str) else None
+    left_out: list[str] = []
+    unanswered: list[str] = []
+    rejected: list[tuple[str, str]] = []
+    rejected_answers: list[tuple[str, str]] = []
+
+    def read_type(kind: str) -> tuple[Record, ...]:
+        # Retain the type with every refusal. A missing browse entry may be
+        # carried within its lease, but one explicitly read and rejected in
+        # this pass must never be resurrected from that older source.
+        omitted: list[str] = []
+        silent: list[str] = []
+        try:
+            return scan(
+                source,
+                index,
+                kind,
+                policy.max_records,
+                settings.scan_seconds,
+                now,
+                guest_ipv4=guest_ipv4,
+                skipped=omitted,
+                unanswered=silent,
+            )
+        finally:
+            left_out.extend(omitted)
+            unanswered.extend(silent)
+            rejected.extend((name, kind) for name in omitted)
+            rejected_answers.extend((name, kind) for name in omitted if name not in silent)
+
     with ThreadPoolExecutor(max_workers=min(8, len(policy.types))) as pool:
-        futures = [
-            pool.submit(scan, source, index, kind, policy.max_records, settings.scan_seconds, now)
-            for kind in policy.types
-        ]
+        futures = [pool.submit(read_type, kind) for kind in policy.types]
         collected: list[Record] = []
         deadline = time.monotonic() + min(45, policy.max_age_seconds / 2)
         for future in futures:
-            collected.extend(future.result(timeout=max(0.01, deadline - time.monotonic())))
+            try:
+                collected.extend(future.result(timeout=max(0.01, deadline - time.monotonic())))
+            except DiscoveryFailure as failure:
+                # One read that did not complete says nothing about a scan of
+                # this pass that failed otherwise, a denial for example, or
+                # whose time is used up: every scan of the pass is looked at.
+                failure.unfinished = _only_unfinished(futures, deadline, left_out, unanswered)
+                # A different type's unfinished read must not hide this
+                # instance's explicit unusable answer in failed-pass carry.
+                if missed is not None:
+                    for key in rejected_answers:
+                        missed.known.pop(key, None)
+                raise
             if len(collected) > policy.max_records:
                 raise DiscoveryFailure("incomplete")
-    return project_records(config, policy, tuple(collected), snapshot, ready, settings, now)
+    # Nothing is left out unless something was read, of any type and whatever
+    # is then selected from it: a pass that read no instance of the policy
+    # does not show that its reader works, and it fails for the policy as it
+    # did before instances were left out. Where none of them answered at all,
+    # its read did not complete, as where a scan stops at its fifth such one.
+    if left_out and not collected:
+        silent = _only_unfinished(futures, deadline, left_out, unanswered)
+        raise DiscoveryFailure(_UNANSWERED, unfinished=silent, unanswered=silent)
+    sources = tuple(collected)
+    if missed is not None:
+        for key in rejected:
+            missed.known.pop(key, None)
+        sources += missed(sources)
+    projected = project_records(config, policy, sources, snapshot, ready, settings, now)
+    return projected, len(left_out)
 
 
-def scan_pass(config: Config, settings: BonjourSettings, store: Store) -> None:
+def scan_pass(
+    config: Config, settings: BonjourSettings, store: Store, memory: MissMemory | None = None
+) -> None:
     """A complete policy pass refreshes its lease independently of its siblings."""
     now = time.time()
     snapshot, intent, ready = independent_snapshot(config, settings, now)
@@ -535,12 +943,35 @@ def scan_pass(config: Config, settings: BonjourSettings, store: Store) -> None:
     candidates: dict[str, Any] = {}
     for policy in _owned(config, settings):
         records: tuple[Record, ...] = ()
+        skipped = 0
         error = None
+        tolerated = None
+        missed = None
+        if memory is not None:
+            missed = memory.begin(
+                policy,
+                (
+                    discovery_digest(config, policy),
+                    snapshot.services[policy.service].generation,
+                    snapshot.network_generation,
+                ),
+                now + carry_horizon(config, settings),
+            )
         try:
             if dependencies_ready(config, policy, snapshot, intent, ready, now):
-                records = scan_policy(config, settings, policy, snapshot, ready, interfaces, now)
+                records, skipped = scan_policy(
+                    config, settings, policy, snapshot, ready, interfaces, now, missed
+                )
+                if missed is not None:
+                    missed.completed(records)
         except Exception as exc:
             error = exc.reason if isinstance(exc, DiscoveryFailure) else "malformed"
+            if settings.failed_pass == "miss" and missed is not None and counts_as_miss(exc):
+                records = carried_through(config, settings, policy, snapshot, ready, now, missed)
+                if records:
+                    # Written as a completed pass that carried them, and the
+                    # failure stays visible beside them, under its own reason.
+                    tolerated, error = error, None
         candidates[policy.id] = {
             "policy_digest": discovery_digest(config, policy),
             "service_generation": snapshot.services[policy.service].generation,
@@ -549,17 +980,45 @@ def scan_pass(config: Config, settings: BonjourSettings, store: Store) -> None:
             "interface_confirmed": True,
             "observed_at": now,
         }
+        # Left out while zero: a pass that read every instance writes the same
+        # candidate as before.
+        if skipped:
+            candidates[policy.id]["skipped"] = skipped
+        # Left out unless this pass failed and counted as a miss: every other
+        # pass writes the same candidate as before.
+        if tolerated is not None:
+            candidates[policy.id]["tolerated_failure"] = tolerated
         if error is not None:
             candidates[policy.id]["reason"] = error
-    store.write(
-        "candidates.json",
-        {
-            "schema_version": 1,
-            "config_digest": config_digest(config),
-            "observed_at": now,
-            "policies": candidates,
-        },
-    )
+    document = {
+        "schema_version": 1,
+        "config_digest": config_digest(config),
+        "observed_at": now,
+        "policies": candidates,
+    }
+    # One state file holds every policy's candidate. When it would exceed the
+    # file's bounds, the bulkiest policy loses its records with a reason of its
+    # own until the rest fits; the other policies keep their lease.
+    while not _storable(document):
+        bulky = [key for key, value in candidates.items() if value["records"]]
+        if not bulky:
+            break
+        largest = max(bulky, key=lambda key: (len(json.dumps(candidates[key]["records"])), key))
+        candidates[largest]["records"] = []
+        candidates[largest]["reason"] = "incomplete"
+        candidates[largest].pop("tolerated_failure", None)
+        if memory is not None:
+            # Its pass counts as failed: nothing of it is carried into the next one.
+            memory.listed.pop(largest, None)
+    store.write("candidates.json", document)
+
+
+def _storable(document: dict[str, Any]) -> bool:
+    """Whether the store's writer would accept this document: its line fits."""
+    try:
+        return len(canonical_bytes(document)) < MAX_JSON_BYTES
+    except CodecError:
+        return False
 
 
 def desired_requests(config: Config, settings: BonjourSettings, store: Store) -> dict[str, Any]:
@@ -575,9 +1034,12 @@ def desired_requests(config: Config, settings: BonjourSettings, store: Store) ->
         or not isinstance(raw["policies"], dict)
     ):
         raise ValueError("invalid desired discovery intent")
-    if set(raw["policies"]) - {item.id for item in _owned(config, settings)}:
-        raise ValueError("foreign discovery intent")
-    return raw["policies"]
+    # The state directory outlives a policy: a declaration that was retired or
+    # renamed leaves its request behind. Only declared policies are ever read, so
+    # such an entry cannot cause a registration; it is dropped here and is gone
+    # from the file with the endpoint's next write under the lock.
+    owned = {item.id for item in _owned(config, settings)}
+    return {key: value for key, value in raw["policies"].items() if key in owned}
 
 
 def lease_records(
@@ -600,7 +1062,7 @@ def lease_records(
         return None
     if not request["active"]:
         return ()
-    if not isinstance(candidate, dict) or set(candidate) != {
+    if not isinstance(candidate, dict) or set(candidate) - {"skipped", "tolerated_failure"} != {
         "policy_digest",
         "service_generation",
         "network_generation",
@@ -608,6 +1070,21 @@ def lease_records(
         "interface_confirmed",
         "observed_at",
     }:
+        return None
+    # Instances the scans left out: absent while none, at most MAX_LEFT_OUT of
+    # each type, and of no type more than the names its browse may list.
+    bound = min(MAX_LEFT_OUT, policy.max_records) * len(policy.types)
+    if "skipped" in candidate and (
+        type(candidate["skipped"]) is not int or not 1 <= candidate["skipped"] <= bound
+    ):
+        return None
+    # The reason of a failed pass that the scanner counted as a miss: absent
+    # unless that pass carried records, and one of the reasons that can count.
+    if "tolerated_failure" in candidate and (
+        type(candidate["tolerated_failure"]) is not str
+        or candidate["tolerated_failure"] not in _TOLERATED
+        or not candidate["records"]
+    ):
         return None
     endpoint = snapshot.services.get(policy.service)
     if endpoint is None or not dependencies_ready(config, policy, snapshot, intent, ready, now):
@@ -648,11 +1125,24 @@ def lease_records(
 class Publisher:
     """Independent watchdog owns all registration children and their deadlines."""
 
-    def __init__(self, factory: Callable[[Record, int, int], Registration] = Registration) -> None:
+    def __init__(
+        self,
+        factory: Callable[[Record, int, int], Registration] = Registration,
+        renewal_overlap: int | None = None,
+    ) -> None:
         self.factory = factory
         self.children: dict[str, Registration] = {}
         self.deadlines: dict[str, float] = {}
         self.sources_seen_at: dict[str, float] = {}
+        # Confirmed records whose client ended on its own timer and whose
+        # replacement has not confirmed yet.
+        self.renewing: set[str] = set()
+        # Seconds before the end of a running client's own lifetime at which its
+        # replacement is started. None: a client is replaced after it has ended.
+        self.renewal_overlap = renewal_overlap
+        # Replacements that run beside the client they take over from: at most
+        # one for a record, and only with an overlap.
+        self.successors: dict[str, Registration] = {}
 
     def reconcile(
         self, policy: Discovery, records: tuple[Record, ...], index: int, now: float
@@ -664,14 +1154,14 @@ class Publisher:
         for key in tuple(self.children):
             if key.startswith(policy.id + ":") and key not in desired:
                 self.children.pop(key).close()
+                self._end_successor(key)
                 self.deadlines.pop(key, None)
                 self.sources_seen_at.pop(key, None)
+                self.renewing.discard(key)
         confirmed = True
         for key, record in desired.items():
+            lifetime = min(120, max(1, math.ceil(record.seen_at + policy.max_age_seconds - now)))
             if key not in self.children:
-                lifetime = min(
-                    120, max(1, math.ceil(record.seen_at + policy.max_age_seconds - now))
-                )
                 # Native CLI self-expiry also bounds orphan registrations after
                 # SIGKILL of this watchdog. No daemon timer alone can do that.
                 self.children[key] = self.factory(record, index, lifetime)
@@ -682,27 +1172,101 @@ class Publisher:
             else:
                 self.deadlines[key] = min(self.deadlines[key], deadline)
             try:
-                confirmed = self.children[key].poll() and confirmed
+                if key in self.successors:
+                    self._poll_successor(key)
+                try:
+                    active = self.children[key].poll()
+                except RegistrationExpired:
+                    # Only this record's own native timer ended; nothing failed and
+                    # its siblings are not touched. The lease deadline stays.
+                    ended = self.children[key]
+                    ended.close()
+                    successor = self.successors.pop(key, None)
+                    if successor is None:
+                        # The client has ended, so its replacement never runs beside it.
+                        self.children[key] = self.factory(record, index, lifetime)
+                        active = False
+                    else:
+                        # With an overlap its replacement already runs, and takes its place.
+                        self.children[key] = successor
+                        active = successor.active
+                    # Track the gap for diagnostics only. Historical
+                    # confirmation cannot prove the replacement is registered.
+                    if ended.active:
+                        self.renewing.add(key)
+                    else:
+                        self.renewing.discard(key)
+                if self.renewal_overlap is not None and active and key not in self.successors:
+                    running = self.children[key]
+                    ends = running.spawned + running.lifetime_seconds
+                    left = ends - time.monotonic()
+                    # The replacement of a confirmed client starts at the first turn
+                    # at which that client's own lifetime has at most that many
+                    # seconds left, with the lease that is left, and the client ends
+                    # on its own timer: it is never signalled to make room. A client
+                    # that lives no longer than the overlap is replaced after its
+                    # end. A replacement renews something only where the lease ends
+                    # later than the running client does. Both are instants of the
+                    # monotonic clock and are compared as such, not through a
+                    # lifetime rounded to whole seconds; the lease has to be ahead
+                    # by a second, the unit a client's lifetime is given in.
+                    if (
+                        running.lifetime_seconds > self.renewal_overlap
+                        and left <= self.renewal_overlap
+                        and self.deadlines[key] - ends >= 1
+                    ):
+                        self.successors[key] = self.factory(record, index, lifetime)
             except DiscoveryFailure:
                 self.children.pop(key).close()
+                self._end_successor(key)
                 self.deadlines.pop(key, None)
                 self.sources_seen_at.pop(key, None)
+                self.renewing.discard(key)
                 raise
+            if active:
+                self.renewing.discard(key)
+            confirmed = active and confirmed
         return confirmed
+
+    def _poll_successor(self, key: str) -> None:
+        """Let the replacement that runs beside this record's client confirm.
+
+        One that ends on its own timer first has taken over nothing and is
+        dropped; the running client still holds the record. Every other end is
+        a failure of a registration child, as for any client.
+        """
+        try:
+            self.successors[key].poll()
+        except RegistrationExpired:
+            self.successors.pop(key).close()
+
+    def _end_successor(self, key: str) -> None:
+        """Close the replacement that runs beside this record's client, if there is one."""
+        successor = self.successors.pop(key, None)
+        if successor is not None:
+            successor.close()
+
+    def renewals(self, policy: Discovery) -> int:
+        """Records of this policy that are between two clients right now."""
+        return sum(key.startswith(policy.id + ":") for key in self.renewing)
 
     def expire(self, now: float) -> None:
         for key, deadline in tuple(self.deadlines.items()):
             if now >= deadline:
                 self.children.pop(key).close()
+                self._end_successor(key)
                 self.deadlines.pop(key)
                 self.sources_seen_at.pop(key, None)
+                self.renewing.discard(key)
 
     def close(self) -> None:
-        for child in self.children.values():
+        for child in (*self.children.values(), *self.successors.values()):
             child.close()
         self.children.clear()
+        self.successors.clear()
         self.deadlines.clear()
         self.sources_seen_at.clear()
+        self.renewing.clear()
 
 
 def _signal_stop(callback: Callable[[], None]) -> None:
@@ -753,14 +1317,16 @@ def publisher_tick(
             or not isinstance(candidates.get("policies"), dict)
         ):
             raise ValueError("candidate policy changed")
-        # Pause is read directly, independently of a potentially blocked probe.
-        current_intent = intent_from_dict(private_json(settings.intent))
+        # Pause and holds are read directly, independently of a potentially blocked probe.
+        current_intent = _durable_intent(config, settings)
         for policy in _owned(config, settings):
             request = requests.get(policy.id)
             inactive = request is None or (
                 isinstance(request, dict) and request.get("active") is False
             )
             records: tuple[Record, ...] | None = None
+            left_out = 0
+            tolerated = None
             maximum = min(
                 [
                     policy.max_age_seconds,
@@ -769,7 +1335,7 @@ def publisher_tick(
             )
             valid_proof = proof is not None and 0 <= proof_age <= maximum
             if valid_proof and proof is not None:
-                if inactive or current_intent.blocked:
+                if inactive or current_intent.blocks(policy.service):
                     records = ()
                 else:
                     records = lease_records(
@@ -782,6 +1348,10 @@ def publisher_tick(
                         proof[2],
                         now,
                     )
+                    if records is not None:
+                        # lease_records has accepted this candidate and its count.
+                        left_out = candidates["policies"][policy.id].get("skipped", 0)
+                        tolerated = candidates["policies"][policy.id].get("tolerated_failure")
             if records is None:
                 publisher.reconcile(policy, (), 1, now)
                 uncertainty = (
@@ -819,7 +1389,7 @@ def publisher_tick(
                     config, policy, "unknown", "unobserved", now, proof[0], interface=True
                 )
             else:
-                state = "absent" if inactive or current_intent.blocked else "present"
+                state = "absent" if inactive or current_intent.blocks(policy.service) else "present"
                 profiles[policy.id] = _observation(
                     config,
                     policy,
@@ -827,8 +1397,10 @@ def publisher_tick(
                     "verified" if state == "present" else "confirmed-absent",
                     now,
                     proof[0],
+                    skipped=left_out,
+                    tolerated=tolerated,
                     interface=True,
-                    count=len(records),
+                    count=len(records) - publisher.renewals(policy),
                 )
     except Exception as exc:
         publisher.close()
@@ -849,7 +1421,11 @@ def publisher_loop(
     config: Config, settings: BonjourSettings, store: Store, parent_pid: int | None = None
 ) -> None:
     """Independent proof collection never blocks lease expiry and child polling."""
-    publisher = Publisher()
+    publisher = (
+        Publisher()
+        if settings.renewal_overlap_seconds is None
+        else Publisher(renewal_overlap=settings.renewal_overlap_seconds)
+    )
     _signal_stop(publisher.close)
     pool = ThreadPoolExecutor(max_workers=1)
     future: Future[Proof] | None = None
@@ -908,16 +1484,25 @@ def serve(config: Config, settings: BonjourSettings, settings_path: Path) -> Non
             child.wait(timeout=3)
 
     _signal_stop(close)
+    # Kept in this process only: a scanner restart withdraws on the first miss again.
+    # There is a memory when any owned policy tolerates a miss, by its own entry
+    # or by the owner's setting.
+    tolerant = any(
+        tolerated_misses(item, settings.miss_tolerance) > 1 for item in _owned(config, settings)
+    )
+    memory = MissMemory(settings.miss_tolerance) if tolerant else None
     try:
         while child.poll() is None:
             try:
-                scan_pass(config, settings, store)
+                scan_pass(config, settings, store, memory)
                 store.write(
                     "scanner-heartbeat.json",
                     {"schema_version": 1, "observed_at": time.time(), "pid": os.getpid()},
                 )
             except Exception as exc:
                 # Do not refresh a previous lease after a partial/failed pass.
+                if memory is not None:
+                    memory.listed.clear()
                 store.write(
                     "candidates.json",
                     {
@@ -930,7 +1515,7 @@ def serve(config: Config, settings: BonjourSettings, settings_path: Path) -> Non
                         ),
                     },
                 )
-            time.sleep(settings.poll_seconds)
+            time.sleep(settings.pass_interval)
     finally:
         close()
 
@@ -1045,7 +1630,11 @@ def load_config_value(value: Any) -> Config:
 
 def health(settings: BonjourSettings, store: Store) -> bool:
     now = time.time()
-    for filename in ("scanner-heartbeat.json", "publisher-heartbeat.json"):
+    # The scanner writes its heartbeat once per pass, the publisher on every tick.
+    for filename, interval in (
+        ("scanner-heartbeat.json", settings.pass_interval),
+        ("publisher-heartbeat.json", settings.poll_seconds),
+    ):
         raw = store.read(filename)
         if (
             not isinstance(raw, dict)
@@ -1053,9 +1642,7 @@ def health(settings: BonjourSettings, store: Store) -> bool:
             or type(raw["schema_version"]) is not int
             or raw["schema_version"] != 1
             or type(raw["observed_at"]) not in {float, int}
-            or not raw["observed_at"]
-            <= now
-            <= raw["observed_at"] + max(60, settings.poll_seconds * 3)
+            or not raw["observed_at"] <= now <= raw["observed_at"] + max(60, interval * 3)
         ):
             return False
     return True

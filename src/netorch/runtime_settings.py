@@ -12,6 +12,31 @@ from .codec import canonical_bytes, digest, strict_load, strict_loads
 _ID = re.compile(r"[a-z][a-z0-9-]*\Z")
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
 _VERSIONS = {"1.2.0", "1.4.1", "1.5.0"}
+# The vendor's own container-name rule (apple/container `ManagedContainer.nameValid`,
+# the same at tags 1.2.0, 1.4.1 and 1.5.0): any name its inventory can hold.
+_PEER = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{1,62}\Z")
+_UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\Z")
+# Seconds one complete read may take without `read_timeout_seconds`. It is also
+# the least that can be stated: a smaller bound would be a new way to make every
+# read unknown.
+READ_TIMEOUT_DEFAULT = 8
+# Seconds that whatever waits for one read waits beyond the bound of that read.
+# A convention this code already keeps, not a measured figure: the owner protocol
+# ends its endpoint after ten seconds for a read of eight, and the shipped
+# manifest gives the probe's check ten.
+READ_TIMEOUT_MARGIN = 2
+# The greatest bound that can be stated: the largest timeout a monitor's check
+# can be given (120 seconds in the deployment schema) less that margin. The
+# bundle renderer applies the same margin to a probe whose settings state a bound.
+READ_TIMEOUT_MAXIMUM = 120 - READ_TIMEOUT_MARGIN
+# The one job the vendor's own start command writes and loads (apple/container
+# `SystemStart.run`, the same constant at tags 1.2.0, 1.4.1 and 1.5.0).
+_VENDOR_API_LABEL = "com.apple.container.apiserver"
+VENDOR_RUNTIME_PREFIX = "com.apple.container."
+# Every character at which `str.splitlines` ends a line (Python's documented
+# table: line feed, carriage return, line tabulation, form feed, file, group
+# and record separator, next line, line separator, paragraph separator).
+_LINE_BOUNDARIES = "\n\r\x0b\x0c\x1c\x1d\x1e\x85\u2028\u2029"
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,6 +54,8 @@ class FileIdentity:
     device: int | None = None
     inode: int | None = None
     sha256: str | None = None
+    # Binds the volume itself instead of `device`, which is assigned at mount time.
+    volume_uuid: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,6 +66,12 @@ class RuntimeContract:
     configuration_sha256: str
     mounts: tuple[FileIdentity, ...]
     receipts: tuple[FileIdentity, ...] = ()
+    # Other definitions over the same writable path that are accepted while the
+    # inventory reports them exactly stopped. Empty unless a site enrolls one.
+    tolerated_stopped_peers: tuple[str, ...] = ()
+    # Bound of the vendor `start` call in recovery of this workload; unset
+    # leaves the installation's bound, and without that one the reader's own.
+    start_timeout_seconds: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +83,50 @@ class RuntimeNetwork:
     helper_label: str
     helper_executable: str
     helper_uid: int
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeStart:
+    """The two roots against which the supervisor may start the vendor runtime.
+
+    Without this declaration nothing starts the vendor API service. With it, the
+    vendor's own start command is run only for these roots, only while its launch
+    file below `app_root` is already exactly the one that command writes for
+    them, and only after the service manager itself said the job is not loaded.
+    """
+
+    app_root: str
+    install_root: str
+    # Bound of the one vendor call; unset means 20 seconds.
+    timeout_seconds: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class FleetStart:
+    """Service-manager evidence that lets a fully stopped fleet be read as stopped.
+
+    Without this declaration an inventory in which every guest is stopped stays
+    unknown. With it, a stopped guest is absent only while the vendor API job is
+    the declared one and the service manager has no runtime job for that guest.
+    """
+
+    api_label: str
+    api_executable: str
+    runtime_label_prefix: str
+    runtime_start: RuntimeStart | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RestartBudget:
+    """How many starts recovery issues for one workload within a period.
+
+    Without this setting recovery starts a proven-stopped workload every time it
+    is asked. With it, a start that would exceed the budget is replaced by a
+    hold on that service, which an operator releases.
+    """
+
+    starts: int
+    window_seconds: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,18 +143,59 @@ class RuntimeSettings:
     intent: str | None = None
     state_dir: str | None = None
     legacy_risk_acknowledged: bool = False
+    # Bound of the vendor `start` call in recovery; unset keeps the reader's own.
+    start_timeout_seconds: int | None = None
+    fleet_start: FleetStart | None = None
+    restart_budget: RestartBudget | None = None
+    # Bound of one complete read; unset keeps READ_TIMEOUT_DEFAULT.
+    read_timeout_seconds: int | None = None
 
     @classmethod
     def from_dict(cls, value: Any) -> RuntimeSettings:
         return parse_settings(value)
 
     def contract(self, service: str) -> RuntimeContract:
-        return next(contract for contract in self.contracts if contract.service == service)
+        for contract in self.contracts:
+            if contract.service == service:
+                return contract
+        raise ValueError("service has no runtime contract")
+
+
+def check_fleet_identity(fleet: FleetStart) -> None:
+    """Service identities fixed by the accepted vendor versions, never host choices.
+
+    Plugin.getLaunchdLabel hardcodes the prefix at tags 1.2.0, 1.4.1 and 1.5.0.
+    Querying any other prefix can prove only that unrelated jobs are absent.
+    """
+    if fleet.api_label != _VENDOR_API_LABEL or fleet.runtime_label_prefix != VENDOR_RUNTIME_PREFIX:
+        raise ValueError("fleet start requires the vendor's API label and runtime prefix")
+
+
+def _contract_dict(contract: RuntimeContract) -> dict[str, Any]:
+    """Canonical form; an empty tolerance list, an unset start bound and an
+    identity without a volume binding are left out, so earlier digests hold."""
+    value = asdict(contract)
+    if not value["tolerated_stopped_peers"]:
+        del value["tolerated_stopped_peers"]
+    if value["start_timeout_seconds"] is None:
+        del value["start_timeout_seconds"]
+    for identity in (*value["mounts"], *value["receipts"]):
+        if identity["volume_uuid"] is None:
+            del identity["volume_uuid"]
+    return value
 
 
 def contract_digest(contract: RuntimeContract) -> str:
     """No raw application configuration or credentials enter the network policy."""
-    return digest({"strategy": "apple-runtime-enrollment-v1", "contract": asdict(contract)})
+    # A device-bound contract hashes exactly as before. One that binds a volume
+    # is a second form of the enrollment and can never share a digest with it.
+    # A stated start bound is one more member of either form: nothing is
+    # verified differently for it, and the member alone changes the digest.
+    volume_bound = any(
+        identity.volume_uuid is not None for identity in (*contract.mounts, *contract.receipts)
+    )
+    strategy = "apple-runtime-enrollment-v2" if volume_bound else "apple-runtime-enrollment-v1"
+    return digest({"strategy": strategy, "contract": _contract_dict(contract)})
 
 
 def _object(value: Any, required: set[str], optional: set[str] | None = None) -> dict[str, Any]:
@@ -101,8 +219,38 @@ def _path(value: Any) -> str:
     return value
 
 
+def _start_timeout(data: dict[str, Any]) -> int | None:
+    """The optional start bound of the installation or of one contract."""
+    # One spelling per meaning: the key is left out when unused, never null.
+    if "start_timeout_seconds" not in data:
+        return None
+    seconds = data["start_timeout_seconds"]
+    if type(seconds) is not int or not 1 <= seconds <= 120:
+        raise ValueError("start timeout must be a whole number of seconds from 1 to 120")
+    return seconds
+
+
+def _exact_path(value: Any) -> str:
+    """A canonical path with one spelling: no empty component, no control character.
+
+    The vendor's start command normalises a root lexically before it writes it,
+    and the service manager prints a path on one line. A path in this form is
+    left as it is by the first and is read back whole from the second: it holds
+    no control character and no other character that ends a line.
+    """
+    path = _path(value)
+    if (
+        any(not part for part in path.split("/")[1:])
+        or any(ord(character) < 32 or ord(character) == 127 for character in path)
+        or any(character in _LINE_BOUNDARIES for character in path)
+        or path != path.strip()
+    ):
+        raise ValueError("runtime start path must have exactly one spelling")
+    return path
+
+
 def _identity(value: Any) -> FileIdentity:
-    data = _object(value, {"path", "kind", "uid"}, {"device", "inode", "sha256"})
+    data = _object(value, {"path", "kind", "uid"}, {"device", "inode", "sha256", "volume_uuid"})
     if (
         not isinstance(data["kind"], str)
         or data["kind"] not in {"directory", "file", "socket"}
@@ -110,10 +258,23 @@ def _identity(value: Any) -> FileIdentity:
         or data["uid"] < 0
     ):
         raise ValueError("invalid runtime file identity")
+    volume = None
+    if "volume_uuid" in data:
+        # One spelling per meaning: the key is left out when unused, never null.
+        volume = data["volume_uuid"]
+        if (
+            not isinstance(volume, str)
+            or not _UUID.fullmatch(volume)
+            or volume == "00000000-0000-0000-0000-000000000000"
+            or data["kind"] == "socket"
+            or data.get("device") is not None
+        ):
+            raise ValueError("a volume-bound identity names one volume and no device")
+    bound = ("inode",) if volume is not None else ("device", "inode")
     if data["kind"] != "socket" and any(
-        type(data.get(key)) is not int or data[key] < 0 for key in ("device", "inode")
+        type(data.get(key)) is not int or data[key] < 0 for key in bound
     ):
-        raise ValueError("persistent identities must bind device and inode")
+        raise ValueError("persistent identities must bind an inode and a device or a volume")
     if any(
         data.get(key) is not None and (type(data[key]) is not int or data[key] < 0)
         for key in ("device", "inode")
@@ -130,6 +291,7 @@ def _identity(value: Any) -> FileIdentity:
         data.get("device"),
         data.get("inode"),
         data.get("sha256"),
+        volume,
     )
 
 
@@ -145,7 +307,17 @@ def parse_settings(value: Any) -> RuntimeSettings:
             "networks",
             "contracts",
         },
-        {"policy", "admissions", "intent", "state_dir", "legacy_risk_acknowledged"},
+        {
+            "policy",
+            "admissions",
+            "intent",
+            "state_dir",
+            "legacy_risk_acknowledged",
+            "start_timeout_seconds",
+            "fleet_start",
+            "restart_budget",
+            "read_timeout_seconds",
+        },
     )
     if (
         type(data["schema_version"]) is not int
@@ -159,6 +331,16 @@ def parse_settings(value: Any) -> RuntimeSettings:
     legacy = data.get("legacy_risk_acknowledged", False)
     if type(legacy) is not bool or (data["accepted_version"] == "1.2.0" and not legacy):
         raise ValueError("legacy runtime requires explicit risk acknowledgment")
+    start_timeout = _start_timeout(data)
+    read_timeout = data.get("read_timeout_seconds")
+    if "read_timeout_seconds" in data and (
+        type(read_timeout) is not int
+        or not READ_TIMEOUT_DEFAULT <= read_timeout <= READ_TIMEOUT_MAXIMUM
+    ):
+        raise ValueError(
+            "read timeout must be a whole number of seconds from "
+            f"{READ_TIMEOUT_DEFAULT} to {READ_TIMEOUT_MAXIMUM}"
+        )
     account = _object(data["account"], {"uid", "gid", "home"})
     if (
         type(account["uid"]) is not int
@@ -191,8 +373,14 @@ def parse_settings(value: Any) -> RuntimeSettings:
             for key in ("scope", "name", "gateway", "helper_domain", "helper_label")
         ):
             raise ValueError("invalid network identity")
+        # The vendor's service manager registers a job in the domain of the calling
+        # session: `system`, `gui/<uid>` for a login session, `user/<uid>` for a
+        # background one (apple/container `ServiceManager.getDomainString`, one
+        # file at tags 1.2.0, 1.4.1 and 1.5.0). Its API service registers the
+        # network helper that way, so the helper is in the API's own domain.
         if (
-            item["helper_domain"] not in {"system", f"gui/{account['uid']}"}
+            item["helper_domain"]
+            not in {"system", f"gui/{account['uid']}", f"user/{account['uid']}"}
             or type(item["helper_uid"]) is not int
             or item["helper_uid"] < 0
         ):
@@ -213,7 +401,9 @@ def parse_settings(value: Any) -> RuntimeSettings:
         raise ValueError("invalid runtime contracts")
     for raw in data["contracts"]:
         item = _object(
-            raw, {"service", "name", "scope", "configuration_sha256", "mounts"}, {"receipts"}
+            raw,
+            {"service", "name", "scope", "configuration_sha256", "mounts"},
+            {"receipts", "tolerated_stopped_peers", "start_timeout_seconds"},
         )
         if (
             any(
@@ -229,6 +419,14 @@ def parse_settings(value: Any) -> RuntimeSettings:
             for key in ("mounts", "receipts")
         ):
             raise ValueError("invalid runtime identities")
+        peers = item.get("tolerated_stopped_peers", [])
+        if (
+            not isinstance(peers, list)
+            or len(peers) > 16
+            or any(not isinstance(peer, str) or not _PEER.fullmatch(peer) for peer in peers)
+            or peers != sorted(set(peers))
+        ):
+            raise ValueError("invalid tolerated stopped peers")
         contracts.append(
             RuntimeContract(
                 item["service"],
@@ -237,6 +435,8 @@ def parse_settings(value: Any) -> RuntimeSettings:
                 item["configuration_sha256"],
                 tuple(_identity(entry) for entry in item["mounts"]),
                 tuple(_identity(entry) for entry in item.get("receipts", [])),
+                tuple(peers),
+                _start_timeout(item),
             )
         )
     for values in (
@@ -248,10 +448,76 @@ def parse_settings(value: Any) -> RuntimeSettings:
             raise ValueError("duplicate runtime identities")
     if any(contract.scope not in {item.scope for item in networks} for contract in contracts):
         raise ValueError("runtime contract has no network")
+    # A tolerated peer is a definition this installation does not manage: an
+    # enrolled workload can be started by recovery and is never tolerated.
+    if {peer for item in contracts for peer in item.tolerated_stopped_peers} & {
+        item.name for item in contracts
+    }:
+        raise ValueError("a tolerated stopped peer cannot be an enrolled workload")
     paths = {
         key: _path(data[key]) if data.get(key) is not None else None
         for key in ("policy", "admissions", "intent", "state_dir")
     }
+    fleet = None
+    if "fleet_start" in data:
+        # Present means declared. An explicit null is not a second way to leave it out.
+        item = _object(
+            data["fleet_start"],
+            {"api_label", "api_executable", "runtime_label_prefix"},
+            {"runtime_start"},
+        )
+        if (
+            item["api_label"] != _VENDOR_API_LABEL
+            or item["runtime_label_prefix"] != VENDOR_RUNTIME_PREFIX
+        ):
+            raise ValueError("invalid fleet start declaration")
+        # That one domain is where the API job and the runtime jobs are looked up.
+        if len({network.helper_domain for network in networks}) != 1:
+            raise ValueError("fleet start needs one helper domain")
+        start = None
+        if "runtime_start" in item:
+            # Present means declared, as above: never null.
+            raw = _object(item["runtime_start"], {"app_root", "install_root"}, {"timeout_seconds"})
+            timeout = raw.get("timeout_seconds")
+            if "timeout_seconds" in raw and (type(timeout) is not int or not 5 <= timeout <= 120):
+                raise ValueError(
+                    "runtime start timeout must be a whole number of seconds from 5 to 120"
+                )
+            # The vendor's start command loads this one job, into the domain of the
+            # session that runs it; the enrolled account can load into its own only.
+            if (
+                item["api_label"] != _VENDOR_API_LABEL
+                or networks[0].helper_domain != f"gui/{account['uid']}"
+            ):
+                raise ValueError(
+                    "runtime start needs the vendor's API label and the account's own domain"
+                )
+            _exact_path(item["api_executable"])
+            start = RuntimeStart(
+                _exact_path(raw["app_root"]), _exact_path(raw["install_root"]), timeout
+            )
+        fleet = FleetStart(
+            item["api_label"], _path(item["api_executable"]), item["runtime_label_prefix"], start
+        )
+    budget = None
+    if "restart_budget" in data:
+        # Present means stated. An explicit null is not a second way to leave it out.
+        item = _object(data["restart_budget"], {"starts", "window_seconds"})
+        if (
+            type(item["starts"]) is not int
+            or not 1 <= item["starts"] <= 10
+            or type(item["window_seconds"]) is not int
+            or not 60 <= item["window_seconds"] <= 86400
+        ):
+            raise ValueError("invalid restart budget")
+        # A spent budget becomes a hold in the durable intent, written under the
+        # lock of the state directory. Recovery can do that only for the intent
+        # file of that directory, which is also the one every reader is given.
+        if paths["state_dir"] is None or paths["intent"] != str(
+            Path(paths["state_dir"]) / "intent.json"
+        ):
+            raise ValueError("a restart budget needs the durable intent in the state directory")
+        budget = RestartBudget(item["starts"], item["window_seconds"])
     return RuntimeSettings(
         1,
         data["owner"],
@@ -262,6 +528,10 @@ def parse_settings(value: Any) -> RuntimeSettings:
         tuple(contracts),
         **paths,
         legacy_risk_acknowledged=legacy,
+        start_timeout_seconds=start_timeout,
+        fleet_start=fleet,
+        restart_budget=budget,
+        read_timeout_seconds=read_timeout,
     )
 
 
@@ -270,5 +540,24 @@ def load_settings(path: Path | str) -> RuntimeSettings:
 
 
 def settings_to_dict(settings: RuntimeSettings) -> dict[str, Any]:
-    result: dict[str, Any] = strict_loads(canonical_bytes(asdict(settings)))
+    value = asdict(settings)
+    value["contracts"] = [_contract_dict(item) for item in settings.contracts]
+    if value["start_timeout_seconds"] is None:
+        # Left out while unset: settings stored before the key existed keep their bytes.
+        del value["start_timeout_seconds"]
+    if value["restart_budget"] is None:
+        # Left out while there is no budget, for the same reason.
+        del value["restart_budget"]
+    if value["read_timeout_seconds"] is None:
+        # As above: without the key a read has the bound it always had.
+        del value["read_timeout_seconds"]
+    if value["fleet_start"] is None:
+        # Left out while undeclared: settings without it keep their bytes and digests.
+        # Dropped before the bytes are taken, so that the size bound judges the stored form.
+        del value["fleet_start"]
+    elif value["fleet_start"]["runtime_start"] is None:
+        del value["fleet_start"]["runtime_start"]
+    elif value["fleet_start"]["runtime_start"]["timeout_seconds"] is None:
+        del value["fleet_start"]["runtime_start"]["timeout_seconds"]
+    result: dict[str, Any] = strict_loads(canonical_bytes(value))
     return result

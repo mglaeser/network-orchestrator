@@ -1,4 +1,4 @@
-"""Six read-only host operations; no install/admit/recover/apply namespace."""
+"""Seven read-only host operations; no install/admit/recover/apply namespace."""
 
 from __future__ import annotations
 
@@ -13,9 +13,15 @@ from typing import Any
 from . import __version__
 from .codec import canonical_json
 from .host_report import build_report, empty_evidence, parse_host_evidence
-from .instance import load_instance, read_data, verify_release
+from .instance import (
+    InstanceError,
+    load_instance,
+    read_data,
+    retained_supervision_gaps,
+    verify_release,
+)
 
-COMMANDS = ("validate", "preflight", "status", "plan", "check", "report")
+COMMANDS = ("validate", "preflight", "status", "plan", "check", "report", "supervision-gaps")
 Collector = Callable[[Any], dict[str, Any]]
 
 
@@ -36,6 +42,11 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Explicit bounded local OS reads, never LAN/Bonjour probes.",
     )
+    parser.add_argument(
+        "--emit-evidence",
+        action="store_true",
+        help="With preflight --collect-local: print the collected evidence document.",
+    )
     return parser
 
 
@@ -49,6 +60,8 @@ def main(
         _parser().error(
             "--collect-local is separate from --evidence and only for preflight/status/report"
         )
+    if args.emit_evidence and not (args.command == "preflight" and args.collect_local):
+        _parser().error("--emit-evidence is only for preflight together with --collect-local")
     if os.geteuid() == 0:
         print(
             canonical_json(
@@ -59,6 +72,7 @@ def main(
     try:
         instance = load_instance(args.instance)
         clock = time.time() if now is None else now
+        collected: dict[str, Any] | None = None
         if args.collect_local:
             if collector is None:
                 # This collector has a fixed local-only command set. It is not
@@ -66,7 +80,8 @@ def main(
                 from .macos_preflight import collect_preflight
 
                 collector = collect_preflight
-            evidence = parse_host_evidence(collector(instance))
+            collected = collector(instance)
+            evidence = parse_host_evidence(collected)
             if now is None:
                 # The collector stamps each fact while it runs. A report clock
                 # read before collection sees every fresh fact as dated in the
@@ -94,9 +109,9 @@ def main(
             release_verified=release_verified,
             evidence_directory=args.evidence_dir,
         )
+        valid = all(item["state"] == "present" for item in report["contracts"])
         result: dict[str, Any]
         if args.command == "validate":
-            valid = all(item["state"] == "present" for item in report["contracts"])
             result = {
                 "schema_version": 1,
                 "instance": instance.instance,
@@ -108,11 +123,15 @@ def main(
                 "contracts": report["contracts"],
             }
             code = 0 if valid else 65
+        elif args.command == "preflight" and args.emit_evidence and collected is not None:
+            # The collector's own document, accepted above by the parser that
+            # --evidence uses. Nothing is written here; the operator redirects it.
+            result = collected
+            code = 0
         elif args.command == "preflight":
             result = {
                 key: report[key]
                 for key in (
-                    "schema_version",
                     "instance",
                     "read_only",
                     "mutation_available",
@@ -122,10 +141,13 @@ def main(
                     "evidence_source",
                 )
             }
+            # No status is printed here, so the report's later version does not apply.
+            result["schema_version"] = 1
             code = 0
         elif args.command == "plan":
             result = {
-                "schema_version": 1,
+                # A bounded profile's safety assessment has a status: same vocabulary.
+                "schema_version": report["schema_version"],
                 "instance": instance.instance,
                 "read_only": True,
                 "mutation_available": False,
@@ -141,7 +163,7 @@ def main(
             code = 0
         elif args.command == "check":
             result = {
-                "schema_version": 1,
+                "schema_version": report["schema_version"],
                 "instance": instance.instance,
                 "read_only": True,
                 "mutation_available": False,
@@ -150,6 +172,22 @@ def main(
                 "platform": report["platform"],
             }
             code = 0 if report["fully_served"] else 1
+        elif args.command == "supervision-gaps":
+            if not valid:
+                # Answered only for an instance that `validate` accepts with the same
+                # arguments. Anything else is the closed error below, never a list.
+                raise InstanceError("no answer for an instance that is not valid")
+            # The function's own answer, as it gives it: pointers, never values.
+            gaps = list(retained_supervision_gaps(instance))
+            result = {
+                "schema_version": 1,
+                "read_only": True,
+                "mutation_available": False,
+                "retained_supervision_gaps": gaps,
+            }
+            # As `check` does: the answer is printed in full, and the status tells a list
+            # that names a member from an empty one.
+            code = 1 if gaps else 0
         else:
             result = report
             code = 0

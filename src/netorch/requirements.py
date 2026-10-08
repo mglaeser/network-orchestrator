@@ -180,12 +180,36 @@ REQUIREMENTS = (
     ),
     _requirement(
         "ROOT-HARD-BOUNDS",
-        "No profile widens interface, IPv4 scope or admitted rule shape.",
+        (
+            "No profile widens interface, IPv4 scope or admitted rule shape beyond what "
+            "its policy declares and root admitted for it."
+        ),
         "Rule2",
         "root-transport",
         ("first-packet",),
         3,
-        ("test_unknown_strategy_or_version_is_rejected",),
+        (
+            "test_unknown_strategy_or_version_is_rejected",
+            "test_admission_of_an_unrestricted_source_needs_its_own_acknowledgement",
+            "test_existing_rules_keep_their_bytes",
+            "test_renderer_itself_never_emits_any_for_a_guest_target_or_a_return_pair",
+            "test_record_without_the_acknowledgement_never_activates_an_unrestricted_source",
+        ),
+    ),
+    _requirement(
+        "ANY-SOURCE-INGRESS",
+        (
+            "A first packet from outside the LAN prefix is answered through each redirect "
+            "with an unrestricted source; a LAN client proves nothing about that setting."
+        ),
+        "Rule2",
+        "any-source",
+        ("external-first-packet",),
+        3,
+        (
+            "test_any_source_host_redirect_renders_from_any_to_the_host_address",
+            "test_a_lan_first_packet_record_does_not_prove_the_outside_packet",
+        ),
     ),
     _requirement(
         "BOUNDED-IDENTITY",
@@ -198,7 +222,7 @@ REQUIREMENTS = (
     ),
     _requirement(
         "PAUSE-PRESERVED",
-        "Pause and unrelated holder suspensions survive installation and rollback.",
+        "Pause, holds and unrelated holder suspensions survive installation and rollback.",
         "Rule5",
         "all",
         ("fixture-parity",),
@@ -206,6 +230,7 @@ REQUIREMENTS = (
         (
             "test_user_install_preserves_pause_and_definitions",
             "test_upgrade_and_explicit_rollback_preserves_current_pause",
+            "test_install_rollback_and_recovery_preserve_holds",
         ),
     ),
     _requirement(
@@ -296,7 +321,7 @@ REQUIREMENTS = (
         "HEARD-AUDIO",
         "A person confirms audible playback for the exact current policy and runtime.",
         "9",
-        "imports",
+        "media-audio",
         ("heard-audio",),
         5,
         ("test_receipt_never_proves_live_application",),
@@ -305,7 +330,7 @@ REQUIREMENTS = (
         "MULTI-RECEIVER",
         "Representative multiple receiver capacity is recorded without widening policy.",
         "Rule9",
-        "imports",
+        "media-audio",
         ("port-budget",),
         5,
         ("test_missing_acceptance_stays_unverified",),

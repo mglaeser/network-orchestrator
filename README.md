@@ -9,10 +9,11 @@ static importers, conformance checks and truthful read-only reports.
 
 ## Current release boundary
 
-Version **0.3** implements the reviewed extraction stage. The recommended
-`netorch-host` workflow has exactly six read-only operations: `validate`,
-`preflight`, `status`, `plan`, `check` and `report`. It never opens a LAN socket,
-uses Bonjour, executes an owner, admits policy, restarts a workload or plays audio.
+Version **0.4** implements the reviewed extraction stage. The recommended
+`netorch-host` workflow has exactly seven read-only operations: `validate`,
+`preflight`, `status`, `plan`, `check`, `report` and `supervision-gaps`. It
+never opens a LAN socket, uses Bonjour, executes an owner, admits policy,
+restarts a workload or plays audio.
 Only an explicit `--collect-local` reads fixed local macOS facts.
 
 The candidate platform is macOS **27.0.1, build 26A434**, Apple silicon and
@@ -30,8 +31,8 @@ second writer. Explicit scoped withdrawal remains a safety operation.
 See [the instance guide](docs/instances.md), [review traceability](docs/review-traceability.md)
 and [migration rules](docs/site-migration.md). No production qualification,
 application acceptance or unattended recovery is implied by installing a wheel.
-The [latest adversarial review](docs/reviews/2026-10-06-adversarial-review-round2.md)
-records the 0.3.2 corrections, all PR dispositions and unresolved native gates.
+The [latest adversarial review](docs/reviews/2026-10-08-site-requirements-review.md)
+records the 0.4.0 corrections, proposal dispositions and remaining conformance gates.
 
 ## Goals and hard gates
 
@@ -127,7 +128,7 @@ separate. Each observation has its own age, generation and closed reason.
 Discovery and transport remain distinct: a discoverable receiver can have a
 withdrawn return path. A receipt establishes historical completion only.
 
-Requirements report **fulfilled and verified**, **fulfilled but unverified**,
+Requirements report **fulfilled and verified**, **unverified**,
 **accepted residual**, **not applicable** or **not fulfilled**. A missing signature,
 missing restore/reboot evidence, unreadable owner state or incomplete conformance
 remains visible. A warm application cache is not proof of live discovery; player
@@ -140,12 +141,17 @@ state is not proof of audible playback.
 .venv/bin/ruff check .
 .venv/bin/ruff format --check .
 .venv/bin/mypy
+.venv/bin/python -m netorch.privacy_check --root . --exceptions schemas/privacy-exceptions.json
 .venv/bin/python -m build --no-isolation
 .venv/bin/pip-audit -r requirements-dev-lock.txt --strict
 ```
 
 All CI jobs run on macOS, with Python 3.12–3.14 and a 90% combined line/branch
-coverage gate. Tests use synthetic fixtures, temporary roots and fake effects;
+coverage gate. The `netorch.privacy_check` line is the public host-data guard
+that CI runs: it reports private addresses, interface names, home paths and
+site-like namespaces in tracked and not yet committed files, and an exception
+must name the exact path, kind and value hash in `schemas/privacy-exceptions.json`.
+Tests use synthetic fixtures, temporary roots and fake effects;
 installed-wheel checks run outside the checkout. Native PF checks compile only
 and never load rules. No CI job runs guests, plays audio or qualifies a production
 host. Workflows have read-only permissions, SHA-pinned actions and hash-locked
@@ -156,7 +162,7 @@ dependencies. The scheduled audit proposes no automatic deployment.
 - `src/netorch/`: closed instance/evidence models, profile/platform/requirement
   libraries, importer, conformance/privacy checks, read-only CLI and retained owners.
 - `schemas/`: versioned data schemas; unknown versions are refused.
-- `examples/`: one synthetic instance and content-addressed data contracts;
+- `examples/`: two synthetic instances and content-addressed data contracts;
   older owner fixtures remain laboratory examples.
 - `tests/`: strictness, property, process, privilege, uncertainty and failure tests.
 - `docs/`: architecture, ownership, migration, acceptance and review traceability.
