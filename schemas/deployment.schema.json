@@ -269,7 +269,8 @@
           "enum": [
             "workload",
             "discovery",
-            "forwarding"
+            "forwarding",
+            "runtime"
           ]
         },
         "check_argv": {

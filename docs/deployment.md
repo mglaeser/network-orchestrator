@@ -193,18 +193,31 @@ the operator or grant admission.
 The generated coordinator, Bonjour service and Monit jobs run in the declared
 user domain. Bonjour's separate publisher/watchdog owns its registration children
 and checks independent dependency evidence; the endpoint cannot supply fabricated
-records. Heartbeat failure cannot restart a healthy container. Only the workload
-probe's reserved status 42 can permit a separately guarded proven-stopped start.
+records. Heartbeat failure cannot restart a healthy container. Only the reserved
+status 42 of a workload probe, or of the one runtime probe, can permit a
+separately guarded start: of that proven-stopped workload, or of the vendor
+runtime under the conditions of
+[Starting the vendor runtime](apple-runtime.md#starting-the-vendor-runtime).
 Signals, timeouts, denial and unknown results do not meet that condition.
+
+A monitor has one of four roles. `workload` and `runtime` monitors may carry a
+recovery command; `discovery` and `forwarding` monitors cannot, so a networking
+failure starts nothing. At most one monitor has the role `runtime`: it watches
+the vendor runtime itself with `runtime-probe` and may run `runtime-start`,
+which starts no workload and acts only under the conditions of
+[Starting the vendor runtime](apple-runtime.md#starting-the-vendor-runtime). A
+manifest without such a monitor keeps its canonical bytes, its release
+identifier and its rendered Monit file.
 
 Monit runs the recovery command once when that rule first matches. If the attempt
 starts nothing, Monit does not run it again while the probe keeps returning 42.
-A workload monitor may therefore set the optional integer
+A workload or runtime monitor may therefore set the optional integer
 `recovery_repeat_cycles` (1 to 360). Its rule is then rendered with
 `repeat every N cycles`, and Monit runs the command again every N cycles for as
 long as the probe returns 42. There is no attempt budget and no Monit restart
 action: every attempt is the same guarded start of a workload that two fresh
-observations prove stopped. A monitor without a recovery command cannot set it.
+observations prove stopped, or of the vendor runtime that two fresh reads prove
+not loaded. A monitor without a recovery command cannot set it.
 Without the setting the generated file is byte-identical to what earlier
 versions rendered, and a manifest that does not use it keeps its digests.
 

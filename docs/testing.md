@@ -118,6 +118,24 @@ either domain of the account, and every missing or unfamiliar answer as unknown.
 Six `darwin` contract tests ask the hosted runner's real service manager for a
 missing job and for a loaded one, and run the reader of the API job, its `ps`
 call included, on running jobs of that runner.
+With `runtime_start` declared they cover the start of the vendor runtime: the
+probe's three answers, every condition of the launch file, of the two pinned
+roots and of the proven absence missing in turn without a vendor call, the one
+call with its exact arguments and environment, and every readback that does
+not hold as unknown without a second call. The vendor's start command is a fake
+that does what its source does with its options and environment, the copy of
+the account's configuration included. A second module covers the rule that a
+start changes no configuration (equal, different, absent on either side, a
+link, a directory, a pipe, a file beyond the bound, a second home in the user
+database, and no byte of either file in any output), the exact comparison of a
+printed job, the characters refused in a declared path, and single conditions
+of the start: the readback of an activation, the operation lock around the
+readback, and a launch file exchanged between its identity check and its
+open. Five further
+`darwin` contract tests show, on the hosted runner only, the list of disabled
+services, the launch file, arguments and environment of running jobs, the
+state line of a loaded job without a process, the session name, and that the
+launch-file decoder reads what the system's `plutil` writes.
 
 The volume-bound identity makes no native call in these tests: its decoder is
 given constructed replies, its entry point a stand-in library that records the

@@ -12,6 +12,7 @@ import contextlib
 import hashlib
 import ipaddress
 import os
+import plistlib
 import re
 import stat
 import sys
@@ -33,6 +34,7 @@ from .runtime_settings import (
     RuntimeContract,
     RuntimeNetwork,
     RuntimeSettings,
+    RuntimeStart,
     contract_digest,
     load_settings,
     settings_to_dict,
@@ -64,6 +66,8 @@ BUSY = 75
 # example schedule. A start waits at most half of that for the pass to end.
 START_LOCK_WAIT_SECONDS = 5.0
 START_LOCK_RETRY_SECONDS = 0.25
+# Bound of the one vendor call that starts the runtime, unless the settings name one.
+RUNTIME_START_TIMEOUT_SECONDS = 20
 
 
 class RuntimeReadError(RuntimeError):
@@ -84,6 +88,151 @@ _JOB_PROGRAM = re.compile(r"^\s*program = (.+?)\s*$", re.MULTILINE)
 # The service manager's exit status for a label it has no job for.
 _JOB_NOT_LOADED = 113
 _RUNTIME_HANDLER = re.compile(r"[a-z0-9][a-z0-9-]{0,62}\Z")
+# What the start of the vendor runtime reads in addition. No production capture
+# backs these forms: a text that does not match is unknown, and never read as
+# an absent job, an idle job or an enabled label. Each line is read exactly:
+# the printer's indentation before it is not part of it, white space at its end is.
+_JOB_IDLE = re.compile(r"^[\t ]*state = not running$", re.MULTILINE)
+_JOB_PROCESS = re.compile(r"^[\t ]*pid = ", re.MULTILINE)
+_JOB_PATH = re.compile(r"^[\t ]*path = (.*)$", re.MULTILINE)
+_JOB_PROGRAMS = re.compile(r"^[\t ]*program = (.*)$", re.MULTILINE)
+_JOB_VARIABLE = re.compile(r"([A-Za-z_][A-Za-z0-9_]*) =>(?: (.*))?")
+_DISABLED_SERVICE = re.compile(r'"([^"]+)" => (true|false|enabled|disabled)')
+# The vendor's names of its two roots (apple/container `ApplicationRoot` and
+# `InstallRoot`, `environmentName`, the same at tags 1.2.0, 1.4.1 and 1.5.0).
+_APP_ROOT = "CONTAINER_APP_ROOT"
+_INSTALL_ROOT = "CONTAINER_INSTALL_ROOT"
+# The vendor's launch file holds six members; a larger file is not that file.
+_LAUNCH_FILE_BYTES = 65_536
+# The vendor's configuration is a short text of settings; a larger file is not read.
+_CONFIGURATION_BYTES = 1_048_576
+
+
+def _job_block(report: str, name: str) -> list[str] | None:
+    """The members of the one block `name = {` of a job print, exactly as printed.
+
+    Only the printer's indentation is removed: a member is a line that begins
+    with the indentation of the opening line and one tab, and it is everything
+    after them up to the end of the line. Any other line before the closing
+    brace, and a block that is not closed, is not such a block.
+    """
+    lines = report.split("\n")
+    opening = f"{name} = {{"
+    found = [index for index, line in enumerate(lines) if line.lstrip("\t ") == opening]
+    if len(found) != 1:
+        return None
+    indentation = lines[found[0]][: -len(opening)]
+    members: list[str] = []
+    for line in lines[found[0] + 1 :]:
+        if line == indentation + "}":
+            return members
+        if not line.startswith(indentation + "\t"):
+            return None
+        members.append(line[len(indentation) + 1 :])
+    return None
+
+
+def _launch_path(start: RuntimeStart) -> str:
+    """Where the vendor's start command writes its launch file (`SystemStart.run`)."""
+    return f"{start.app_root}/apiserver/apiserver.plist"
+
+
+def _launch_dictionary(fleet: FleetStart, start: RuntimeStart) -> dict[str, Any]:
+    """The launch file the vendor's start command writes for these two roots.
+
+    apple/container `SystemStart.run` and `LaunchPlist`, the same at tags 1.2.0,
+    1.4.1 and 1.5.0: six members when the command is given both roots and its
+    environment holds no other `CONTAINER_` or proxy variable, which is how
+    `start_runtime` calls it.
+    """
+    return {
+        "Label": fleet.api_label,
+        "ProgramArguments": [fleet.api_executable, "start"],
+        "EnvironmentVariables": {_APP_ROOT: start.app_root, _INSTALL_ROOT: start.install_root},
+        "LimitLoadToSessionType": ["Aqua", "Background", "System"],
+        "RunAtLoad": True,
+        "MachServices": {fleet.api_label: True},
+    }
+
+
+def _same_members(found: Any, expected: Any) -> bool:
+    """Equal member for member and type for type: the number 1 is not `true`."""
+    if type(found) is not type(expected):
+        return False
+    if isinstance(expected, dict):
+        return found.keys() == expected.keys() and all(
+            _same_members(found[key], item) for key, item in expected.items()
+        )
+    if isinstance(expected, list):
+        return len(found) == len(expected) and all(
+            _same_members(*pair) for pair in zip(found, expected, strict=True)
+        )
+    return bool(found == expected)
+
+
+def _decoded_launch_file(data: bytes) -> Any:
+    """A property list decoded in this process, in its XML or its binary form."""
+    try:
+        return plistlib.loads(data)
+    except Exception as exc:
+        # The decoder raises several unrelated types for bytes it cannot read.
+        raise RuntimeReadError("identity-mismatch") from exc
+
+
+def _started_as_declared(report: str, fleet: FleetStart, start: RuntimeStart) -> bool:
+    """Whether a printed job is the one the vendor's start command loads for these roots.
+
+    Its launch file, its program, its two arguments and both roots are compared
+    exactly: there is one line of each kind, and a value that differs by white
+    space at its end is another value. The service manager shows variables of
+    its own in the same block, so the block is read whole and only the two
+    roots are compared.
+    """
+    environment = _job_block(report, "environment")
+    if (
+        _JOB_PATH.findall(report) != [_launch_path(start)]
+        or _JOB_PROGRAMS.findall(report) != [fleet.api_executable]
+        or _job_block(report, "arguments") != [fleet.api_executable, "start"]
+        or environment is None
+    ):
+        return False
+    variables: dict[str, str] = {}
+    for line in environment:
+        found = _JOB_VARIABLE.fullmatch(line)
+        if found is None or found[1] in variables:
+            return False
+        variables[found[1]] = found[2] or ""
+    return (variables.get(_APP_ROOT), variables.get(_INSTALL_ROOT)) == (
+        start.app_root,
+        start.install_root,
+    )
+
+
+def _label_disabled(listing: str, label: str) -> bool:
+    """Whether the service manager's list of disabled services names this label as disabled.
+
+    The list holds the labels somebody enabled or disabled by hand. A label it
+    does not hold has no such record and is not disabled by it; the only other
+    source, a `Disabled` member of the job's own launch file, is excluded by the
+    exact launch file. A list in another form is unknown.
+    """
+    lines = [line.strip() for line in listing.splitlines()]
+    opening = "disabled services = {"
+    if lines.count(opening) != 1:
+        raise RuntimeReadError()
+    body = lines[lines.index(opening) + 1 :]
+    if "}" not in body:
+        raise RuntimeReadError()
+    states = []
+    for line in body[: body.index("}")]:
+        entry = _DISABLED_SERVICE.fullmatch(line)
+        if entry is None:
+            raise RuntimeReadError()
+        if entry[1] == label:
+            states.append(entry[2])
+    if len(states) > 1:
+        raise RuntimeReadError()
+    return bool(states) and states[0] in {"true", "disabled"}
 
 
 class Reader:
@@ -201,6 +350,10 @@ class Reader:
     def api(self, fleet: FleetStart, domain: str) -> dict[str, Any]:
         """The vendor API job behind the inventory: loaded, running, the declared program."""
         report = self.tool(["/bin/launchctl", "print", f"{domain}/{fleet.api_label}"])
+        return self.api_process(fleet, report)
+
+    def api_process(self, fleet: FleetStart, report: str) -> dict[str, Any]:
+        """The process of a printed API job: running, the declared program, the enrolled account."""
         pid, program = _JOB_PID.search(report), _JOB_PROGRAM.search(report)
         if (
             _JOB_RUNNING.search(report) is None
@@ -242,6 +395,27 @@ class Reader:
         if result.returncode == 0 and result.stdout and not result.stderr:
             return False
         raise RuntimeReadError("unavailable")
+
+    def runtime_job(self, fleet: FleetStart, start: RuntimeStart, domain: str) -> str:
+        """The API job as the declared start loads it: `absent`, `idle` or `running`.
+
+        A job that is loaded in any other way, with another launch file, program,
+        argument or root, or in a state that is neither running nor exactly
+        without a process, is none of the three.
+        """
+        if self.job_absent(domain, fleet.api_label):
+            return "absent"
+        report = self.tool(["/bin/launchctl", "print", f"{domain}/{fleet.api_label}"])
+        if not _started_as_declared(report, fleet, start):
+            raise RuntimeReadError("identity-mismatch")
+        if (
+            _JOB_IDLE.search(report) is not None
+            and _JOB_RUNNING.search(report) is None
+            and _JOB_PROCESS.search(report) is None
+        ):
+            return "idle"
+        self.api_process(fleet, report)
+        return "running"
 
 
 def decode_snapshot(raw: Any, version: str) -> dict[str, Any]:
@@ -529,6 +703,125 @@ def _receipt_metadata(info: os.stat_result) -> tuple[int, ...]:
         info.st_mtime_ns,
         info.st_size,
     )
+
+
+def check_launch_file(
+    settings: RuntimeSettings, fleet: FleetStart, start: RuntimeStart, reader: Reader
+) -> None:
+    """The reviewed launch file is in place and the start command would write it again.
+
+    The vendor's start command writes its launch file anew on every run and takes
+    the program from the directory of the command itself, with links resolved.
+    A start is therefore permitted only where both are already what the settings
+    declare: the supervisor then repeats a start that an operator made with these
+    roots and never makes the first one. The file is a private single-link regular
+    file of the enrolled account, read through one descriptor and compared member
+    for member. A missing or different file is not the expected one.
+    """
+    try:
+        sibling = Path(settings.executable).with_name("container-apiserver")
+        if os.path.realpath(sibling, strict=True) != fleet.api_executable:
+            raise RuntimeReadError("identity-mismatch")
+        path = Path(_launch_path(start))
+        meta = path.lstat()
+        check_identity(
+            FileIdentity(str(path), "file", settings.account.uid, meta.st_dev, meta.st_ino),
+            deadline=reader.deadline,
+            checked_acls=reader.checked_acls,
+        )
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        try:
+            opened = os.fstat(fd)
+            if (
+                _receipt_metadata(opened) != _receipt_metadata(meta)
+                or not stat.S_ISREG(opened.st_mode)
+                or opened.st_nlink != 1
+                or stat.S_IMODE(opened.st_mode) not in {0o600, 0o644}
+                or not 0 < opened.st_size <= _LAUNCH_FILE_BYTES
+            ):
+                raise RuntimeReadError("identity-mismatch")
+            data = b""
+            while len(data) <= opened.st_size:
+                chunk = os.read(fd, opened.st_size + 1 - len(data))
+                if not chunk:
+                    break
+                data += chunk
+            if (
+                len(data) != opened.st_size
+                or _receipt_metadata(os.fstat(fd)) != _receipt_metadata(opened)
+                or _receipt_metadata(path.lstat()) != _receipt_metadata(opened)
+            ):
+                raise RuntimeReadError("identity-mismatch")
+        finally:
+            os.close(fd)
+    except OSError as exc:
+        raise RuntimeReadError("identity-mismatch") from exc
+    if not _same_members(_decoded_launch_file(data), _launch_dictionary(fleet, start)):
+        raise RuntimeReadError("identity-mismatch")
+
+
+def _listed_home(uid: int) -> str | None:
+    """The home directory the user database names for this account, if it names one."""
+    # Imported here and not above: the root forwarding owner lists the files it has
+    # imported before it imports this module, and it never asks this question.
+    import pwd
+
+    try:
+        return pwd.getpwuid(uid).pw_dir or None
+    except KeyError:
+        return None
+
+
+def _whole_file(path: str) -> bytes | None:
+    """The bytes of the regular file with exactly this name; None where nothing has the name.
+
+    One bounded read through one descriptor. A symbolic link at the final name
+    is not followed, and neither a link nor a directory, another kind of object
+    or a file beyond the bound is a file this returns.
+    """
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except FileNotFoundError:
+        return None
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise RuntimeReadError("identity-mismatch")
+        data = b""
+        while len(data) <= _CONFIGURATION_BYTES:
+            chunk = os.read(fd, _CONFIGURATION_BYTES + 1 - len(data))
+            if not chunk:
+                return data
+            data += chunk
+        raise RuntimeReadError("identity-mismatch")
+    finally:
+        os.close(fd)
+
+
+def check_configuration(settings: RuntimeSettings, start: RuntimeStart) -> None:
+    """The vendor's start command would leave the runtime's configuration as it is.
+
+    Before anything else that command copies the account's own configuration
+    file over the copy below the application root, and returns without touching
+    that copy where the account has no such file (apple/container
+    `ConfigurationLoader.copyConfigurationToReadOnly`, called first by
+    `SystemStart.run`; the same at tags 1.2.0, 1.4.1 and 1.5.0). A start by the
+    supervisor must not change the configuration. The account's file is
+    therefore absent, or it equals that copy byte for byte; a copy that is
+    missing would be created, so it is not equal. The command looks below the
+    account's home, since the runner's closed environment names no other place.
+    That home is the entry of the user database, and the `HOME` variable only
+    without one (`CFPlatform.c` of CF-1153.18, the last CoreFoundation Apple
+    published); the runner passes the enrolled home as `HOME`, so both are read
+    and neither is preferred. Nothing of either file leaves this function.
+    """
+    homes = {settings.account.home, _listed_home(settings.account.uid) or settings.account.home}
+    try:
+        for home in sorted(homes):
+            own = _whole_file(f"{home}/.config/container/config.toml")
+            if own is not None and own != _whole_file(f"{start.app_root}/config/config.toml"):
+                raise RuntimeReadError("identity-mismatch")
+    except OSError as exc:
+        raise RuntimeReadError("identity-mismatch") from exc
 
 
 def _mounts(configuration: Mapping[str, Any]) -> list[tuple[str, bool]]:
@@ -1021,6 +1314,107 @@ def recover_service(
         return result
 
 
+def _declared_start(settings: RuntimeSettings) -> tuple[FleetStart, RuntimeStart, str]:
+    """The declaration, and the one domain the enrolled account's start loads into."""
+    fleet = settings.fleet_start
+    if fleet is None or fleet.runtime_start is None:
+        raise ValueError("the settings declare no start of the vendor runtime")
+    uid = settings.account.uid
+    if os.geteuid() == 0 or os.geteuid() != uid:
+        raise PermissionError("the vendor runtime belongs to the enrolled user")
+    # The loader refuses anything else; settings built without it are refused again.
+    if {network.helper_domain for network in settings.networks} != {f"gui/{uid}"}:
+        raise RuntimeReadError("identity-mismatch")
+    return fleet, fleet.runtime_start, f"gui/{uid}"
+
+
+def runtime_state(settings: RuntimeSettings, runner: Runner = run) -> str:
+    """What the supervisor may do about the vendor runtime.
+
+    `running`: the API job is the declared one and has its process; nothing to
+    do. `absent`: the service manager says the job is not loaded and every
+    condition of a start holds. `idle`: the declared job is loaded without a
+    process and the same conditions hold. Everything else is unknown and raises.
+    """
+    fleet, start, domain = _declared_start(settings)
+    reader = Reader(settings, runner)
+    job = reader.runtime_job(fleet, start, domain)
+    if job == "running":
+        return job
+    # From here on a call would start something, so each condition is read first.
+    reader.version()
+    check_launch_file(settings, fleet, start, reader)
+    check_configuration(settings, start)
+    # An earlier start from a background session registers the job in the
+    # account's other domain; a job there is as loaded as one here.
+    if not reader.job_absent(f"user/{settings.account.uid}", fleet.api_label):
+        raise RuntimeReadError("generation-mismatch")
+    if job == "absent":
+        # "No such job" is evidence only while the domain itself answers.
+        listing = reader.runner(
+            ["/bin/launchctl", "print", domain], timeout=reader.remaining(3), max_output=4_194_304
+        )
+        if listing.returncode or not listing.stdout or listing.stderr:
+            raise RuntimeReadError("unavailable")
+    # The vendor's command loads into the domain of the session that runs it
+    # (`ServiceManager.getDomainString`): only this answer is the declared one.
+    if reader.tool(["/bin/launchctl", "managername"]).strip() != "Aqua":
+        raise RuntimeReadError("identity-mismatch")
+    if _label_disabled(reader.tool(["/bin/launchctl", "print-disabled", domain]), fleet.api_label):
+        raise RuntimeReadError("incomplete")
+    return job
+
+
+def start_runtime(
+    settings: RuntimeSettings,
+    runner: Runner = run,
+    *,
+    clock: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
+) -> str:
+    """The supervisor's start of the vendor runtime: one call after a twice-read state.
+
+    An absent job gets the vendor's own start command, with both roots given as
+    options and as environment and with the kernel prompt disabled. A declared
+    job that is loaded without a process gets the vendor's status request, which
+    makes the service manager run it and writes nothing. No workload is started
+    and nothing is ever unloaded, stopped or repaired.
+    """
+    fleet, start, domain = _declared_start(settings)
+    if settings.state_dir is None:
+        raise PermissionError("the vendor runtime belongs to the enrolled user")
+    store = Store(Path(settings.state_dir))
+    with _state_lock(store, clock, sleep):
+        before = runtime_state(settings, runner)
+        if _intent(settings).blocked or before == "running":
+            raise RuntimeReadError("incomplete")
+        fresh = runtime_state(settings, runner)
+        if fresh != before or _intent(settings).blocked:
+            raise RuntimeReadError("generation-mismatch")
+        arguments = ["system", "status"]
+        if before == "absent":
+            arguments = ["system", "start", "--app-root", start.app_root]
+            arguments += ["--install-root", start.install_root, "--disable-kernel-install"]
+        called = runner(
+            [settings.executable, *arguments],
+            timeout=start.timeout_seconds or RUNTIME_START_TIMEOUT_SECONDS,
+            run_uid=settings.account.uid,
+            run_gid=settings.account.gid,
+            account_home=settings.account.home,
+            environment={_APP_ROOT: start.app_root, _INSTALL_ROOT: start.install_root},
+        )
+        # The vendor's command logs to standard error when it succeeds, so only
+        # its status is read; and a successful exit is never the final statement.
+        if called.returncode:
+            raise RuntimeReadError("unavailable")
+        reader = Reader(settings, runner)
+        check_launch_file(settings, fleet, start, reader)
+        if reader.runtime_job(fleet, start, domain) != "running":
+            raise RuntimeReadError("incomplete")
+        reader.inventory()
+        return "started" if before == "absent" else "activated"
+
+
 def handle_request(
     config: Config, settings: RuntimeSettings, request: Any, runner: Runner = run
 ) -> dict[str, Any]:
@@ -1121,10 +1515,14 @@ def main(argv: list[str] | None = None) -> int:
     for command in ("probe", "start"):
         item = commands.add_parser(command)
         item.add_argument("--service", required=True)
+    commands.add_parser("runtime-probe")
+    commands.add_parser("runtime-start")
     args = parser.parse_args(argv)
     try:
         if args.command == "start":
             require_mutation_qualified("workload-recovery")
+        if args.command == "runtime-start":
+            require_mutation_qualified("runtime-start")
         request: Any = None
         if args.command == "request":
             request = strict_loads(sys.stdin.buffer.read(1_048_577))
@@ -1168,6 +1566,15 @@ def main(argv: list[str] | None = None) -> int:
                     }
                 )
             )
+            return 0
+        if args.command == "runtime-probe":
+            # Like the workload probe: 42 alone lets the supervisor run the start.
+            state = runtime_state(settings)
+            if _intent(settings).blocked:
+                return UNKNOWN
+            return 0 if state == "running" else STOPPED
+        if args.command == "runtime-start":
+            print(canonical_json({"runtime": start_runtime(settings)}))
             return 0
         if settings.policy is None:
             raise ValueError("runtime policy path is required")
