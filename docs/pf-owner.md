@@ -388,7 +388,10 @@ Every pass that leaves a rule loaded reads that reference back through the
 backend's `references` and `enabled` reads: the kernel must list the saved token
 and report PF enabled. The readback acquires nothing. If it fails, or the token
 is not listed, the pass reports no profile as `root_ready`, ends `inhibited` and
-records the reason `enable-reference-unverified` in the journal. The rules stay
+records the reason `enable-reference-unverified` in the journal (`listing-notice`
+when this readback itself was refused for an [unexpected notice](#a-listing-with-an-unexpected-notice)
+of the tool; a notice in another read of the pass does not change the reason of
+a readback that completed without the token or that failed). The rules stay
 loaded and no state is invalidated for this reason; the first pass that verifies
 again reports readiness again. A reference is acquired only as part of an
 activation, so a reference that another tool removed stays missing, and the
@@ -502,6 +505,41 @@ table. Listings of the owned anchor check the exit status only: that anchor does
 not exist before its first load, and the diagnostic `pfctl` writes for a missing
 anchor is not published. The script has no operation that releases a PF enable
 reference.
+
+### A listing with an unexpected notice
+
+The script tells the two refusals of a listing that names no anchor apart. A
+listing that fails ends the operation with status 1. A listing that ends with
+status 0 and a line on standard error that is not one of the two notices ends
+it with status 76, after the script wrote the number of such lines, and nothing
+else, to its own standard error. Nothing was read in either case and the
+outcome is the same: no rule is loaded, kept ready or reported on the strength
+of that read. The owner records the second case under the closed reason
+`listing-notice` wherever it records the first. It is the `reason` of the
+journal record that would say `kernel-state-unknown`, of the record that would
+say `enable-reference-unverified` because the reference readback was refused, of
+the final record of a pass that deferred a profile because of such a read (the
+profile keeps its deferral reason) and of the `failed` record of a pass that the
+refused read ended. A record has one reason, and a notice never takes the place
+of a finding: where the reference readback of a pass completed without the
+token, or failed, the final record says `enable-reference-unverified`, also
+when another read of that pass was refused for a notice. A command that ends
+with the reason writes one line to standard error: the reason, the backend
+operation that was refused (`inspect` or `replace` for the main hooks, `states`,
+`enabled` for the status, `references`) and the number of unexpected lines. For
+a root job installed from a deployment manifest, standard error is the job's
+launchd stderr target, `<label>.err.log` in the job's `log_directory`; a job
+installed any other way writes the line wherever its installation directs
+standard error. The unexpected line itself is the tool's text. It is kept in no
+record and not in the published report, and the owner does not write it to
+standard error either, where it never puts raw tool output. The allowed notices
+are a closed list in the script, so the reason does
+not go away by itself. When it appears, run the named listing by hand as root
+(`pfctl -s nat`, `-s states`, `-s info` or `-s References`), keep what it writes
+to standard error and report it: a notice that the tool writes on every call
+is added to the list with a release, and until then the owner stays withdrawn
+or not ready, as after a read that failed. What Apple's `pfctl` writes for these
+four listings as root is not established by a published source or a capture.
 
 ## Explicit DNS availability fallback
 

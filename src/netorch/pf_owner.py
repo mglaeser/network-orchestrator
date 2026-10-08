@@ -72,10 +72,33 @@ DEFERRAL_REASONS = frozenset(
 )
 # 2**53 - 1: every JSON reader of the published report represents it exactly.
 _MAX_GATE_REVISION = 9007199254740991
+# The backend script's own exit status for a listing that ended with status 0
+# and a line on standard error that is not a known notice. A listing that failed
+# has status 1, like every other failure of the script.
+_LISTING_NOTICE_STATUS = 76
+# The operations of the script that read such a listing.
+_LISTING_OPERATIONS = frozenset({"inspect", "replace", "states", "enabled", "references"})
+# What the owner records for it wherever it records a read that failed.
+LISTING_NOTICE = "listing-notice"
 
 
 class PFError(RuntimeError):
     """A complete independently verified pass could not be performed."""
+
+
+class PFListingNotice(PFError):
+    """A listing ended with status 0 and a line that is not a known notice.
+
+    Nothing was read, so everything that follows is what follows a listing that
+    failed. Only which backend operation was refused and how many unexpected
+    lines the script counted are kept: the lines are the tool's text and never
+    leave the script.
+    """
+
+    def __init__(self, operation: str, unexpected_lines: int | None) -> None:
+        super().__init__("a PF listing carried an unexpected notice; nothing was read")
+        self.operation = operation
+        self.unexpected_lines = unexpected_lines
 
 
 @dataclass(frozen=True)
@@ -815,6 +838,11 @@ class ShellBackend:
             ["/bin/bash", str(self.script), operation, self.installation.anchor, *arguments],
             timeout=4.0,
         )
+        if result.returncode == _LISTING_NOTICE_STATUS and operation in _LISTING_OPERATIONS:
+            # Beside that status the script writes one number to its standard
+            # error. Anything else there is not a count and is not read.
+            counted = re.fullmatch(rb"([1-9][0-9]{0,5})\n", result.stderr)
+            raise PFListingNotice(operation, None if counted is None else int(counted[1]))
         if result.returncode != 0:
             raise PFError("bounded PF backend operation failed")
         return result.stdout.decode("utf-8", errors="strict").strip()
@@ -1524,7 +1552,9 @@ def _write_report(installation: Installation, snapshot: Snapshot) -> None:
             temporary.unlink()
 
 
-def _reference_held(backend: Backend, records: Mapping[str, Mapping[str, Any]]) -> bool | None:
+def _reference_held(
+    backend: Backend, records: Mapping[str, Mapping[str, Any]]
+) -> tuple[bool | None, bool]:
     """Whether loaded rules can count on PF being enabled under this owner's reference.
 
     A loaded rule carries nothing while PF is disabled, and only the owner's own
@@ -1533,14 +1563,17 @@ def _reference_held(backend: Backend, records: Mapping[str, Mapping[str, Any]]) 
     read that fails, or that does not list the reference, is not a verification.
     The two are told apart: False is a complete read that does not list the
     reference; None is a read that failed, after which nothing is known.
+
+    The second value says whether that read was refused for an unexpected
+    notice of the tool, which the caller records as the reason.
     """
     if not any(record["active"] for record in records.values()):
-        return True
+        return True, False
     try:
         held = backend.reference_held()
-    except (OSError, RuntimeError, ValueError):
-        return None
-    return held if isinstance(held, bool) else None
+    except (OSError, RuntimeError, ValueError) as unread:
+        return None, isinstance(unread, PFListingNotice)
+    return (held if isinstance(held, bool) else None), False
 
 
 def _deferrals(deferred: Mapping[str, str]) -> dict[str, str]:
@@ -1668,7 +1701,7 @@ def reconcile(
         stamp = now()
         try:
             snapshot = _snapshot(config, runtime, records, backend, stamp, installation.owner)
-        except (OSError, RuntimeError, ValueError):
+        except (OSError, RuntimeError, ValueError) as unread:
             # Unknown state metadata must not retain known active exposure. The
             # anchor was already exactly identified, so withdrawal is safe;
             # no activation or claimed state-drain success follows this read.
@@ -1702,7 +1735,10 @@ def reconcile(
                     "phase": "failed",
                     "candidate_records": retired,
                     "failed_at": stamp,
-                    "reason": "kernel-state-unknown",
+                    # The same outcome either way; the record says which it was.
+                    "reason": LISTING_NOTICE
+                    if isinstance(unread, PFListingNotice)
+                    else "kernel-state-unknown",
                     **boot,
                 },
             )
@@ -1786,6 +1822,11 @@ def reconcile(
         changed: list[str] = []
         acquired = False
         deferred: dict[str, str] = {}
+        # A read that this pass absorbed in a deferral was refused for an
+        # unexpected notice of the tool. The outcome is that of a read that
+        # failed; the final journal record names the notice unless the reference
+        # readback established something more specific.
+        noticed = False
         try:
             for action in actions:
                 if action.operation in {"blocked", "pending", "noop"}:
@@ -1820,7 +1861,8 @@ def reconcile(
                         )
                         fresh_intent = _inhibition(root, installation)
                         fresh_plan = plan(config, fresh_snapshot, admissions, fresh_intent, now())
-                    except (OSError, RuntimeError, ValueError):
+                    except (OSError, RuntimeError, ValueError) as unread:
+                        noticed = noticed or isinstance(unread, PFListingNotice)
                         deferred[action.profile] = "evidence-unavailable"
                         continue
                     if action not in fresh_plan.actions:
@@ -1900,7 +1942,8 @@ def reconcile(
                             gone = _own_states_gone(
                                 backend, config, action.profile, target, retiring
                             )
-                        except (OSError, RuntimeError, ValueError):
+                        except (OSError, RuntimeError, ValueError) as unread:
+                            noticed = noticed or isinstance(unread, PFListingNotice)
                             gone = False
                         if not gone:
                             deferred[action.profile] = "states-retained"
@@ -1967,7 +2010,7 @@ def reconcile(
             # Read on every pass that leaves a rule loaded, not only at an
             # activation: another tool can disable PF at any time, which also
             # drops every enable reference.
-            held = _reference_held(backend, records)
+            held, refused = _reference_held(backend, records)
             reacquired = False
             if (
                 held is False
@@ -1992,7 +2035,7 @@ def reconcile(
                 # every pass would take another one each time.
                 backend.ensure_reference()
                 reacquired = True
-                held = _reference_held(backend, records)
+                held, refused = _reference_held(backend, records)
             reference_verified = held is True
             phase = (
                 "failed"
@@ -2016,7 +2059,21 @@ def reconcile(
                     "phase": phase,
                     "actions": [asdict(action) for action in actions],
                     "finished_at": now(),
-                    **({} if reference_verified else {"reason": "enable-reference-unverified"}),
+                    # One reason per record, and a notice never hides a finding.
+                    # The last reference readback decides: refused for a notice,
+                    # it is the notice; completed without listing the token, or
+                    # failed, it is the unverified reference, as before, whatever
+                    # another read of the pass was refused for. With the
+                    # reference verified, a pass that absorbed a notice in a
+                    # deferral ends as after a read that failed, never
+                    # `committed`, and names the notice here.
+                    **(
+                        {"reason": LISTING_NOTICE}
+                        if refused or (noticed and reference_verified)
+                        else {}
+                        if reference_verified
+                        else {"reason": "enable-reference-unverified"}
+                    ),
                     **({"deferred": deferred} if deferred else {}),
                     **boot,
                 },
@@ -2098,10 +2155,13 @@ def reconcile(
                 # scheduled job writes such a result to its log.
                 **({"reference": "reacquired"} if reacquired else {}),
             }
-        except BaseException:
+        except BaseException as failure:
             failed_journal = root.read("journal.json")
             failed_journal["phase"] = "failed"
             failed_journal["failed_at"] = now()
+            if isinstance(failure, PFListingNotice):
+                # Failed as for a listing that failed; the record says which.
+                failed_journal["reason"] = LISTING_NOTICE
             root.write("journal.json", failed_journal)
             raise
 
@@ -2612,16 +2672,20 @@ def main(argv: list[str] | None = None) -> int:
         return NOT_QUALIFIED
     except (OSError, RuntimeError, ValueError, KeyError) as exc:
         # Operational stderr never exposes addresses, credentials or raw tools.
-        print(
-            canonical_bytes(
-                {
-                    "schema_version": 1,
-                    "error": type(exc).__name__,
-                    "reason": "independent owner operation failed; inspect protected journal",
-                }
-            ).decode("utf-8"),
-            file=sys.stderr,
-        )
+        failure: dict[str, Any] = {
+            "schema_version": 1,
+            "error": type(exc).__name__,
+            "reason": "independent owner operation failed; inspect protected journal",
+        }
+        if isinstance(exc, PFListingNotice):
+            # Still none of the tool's text: the closed reason, which of the
+            # backend's own operations was refused, and how many unexpected
+            # lines the script counted when it could count them.
+            failure["reason"] = LISTING_NOTICE
+            failure["operation"] = exc.operation
+            if exc.unexpected_lines is not None:
+                failure["unexpected_lines"] = exc.unexpected_lines
+        print(canonical_bytes(failure).decode("utf-8"), file=sys.stderr)
         return 75 if type(exc).__name__ == "Busy" else 65
 
 
