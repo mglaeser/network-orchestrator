@@ -457,9 +457,12 @@ def test_profile_evidence_does_not_survive_a_changed_workload_deadline(
         ),
         ("budget", ()),
         ("action", ("/supervision/action_timeout_seconds",)),
-        ("action-within", ()),
+        ("action-within", ("/supervision/action_timeout_seconds",)),
         ("workload-action", ("/workloads/0/deadlines/action_seconds",)),
-        ("workload-action-within", ()),
+        (
+            "workload-action-within",
+            ("/supervision/action_timeout_seconds", "/workloads/0/deadlines/action_seconds"),
+        ),
         ("workload-probe", ("/workloads/1/deadlines/probe_seconds",)),
         ("workload-probe-within", ()),
         ("supervisor-tool", ()),
@@ -543,19 +546,25 @@ def test_retained_bounds_are_those_of_the_retained_supervisor() -> None:
         "recovery_code",
         "recovery_repeat_cycles",
     }
-    # The runtime settings bound the start call of recovery, per installation and per workload.
-    assert instance_module.RETAINED_ACTION_DEADLINE_MAXIMUM == 120
+    # The call still accepts 120 seconds, but no whole-action budget covers the
+    # lock wait and three surrounding reads together with that call.
+    assert instance_module.RETAINED_ACTION_DEADLINE_MAXIMUM is None
     settings = strict_loads((ROOT / "examples/runtime-settings.json").read_bytes())
     parse_settings({**settings, "start_timeout_seconds": 120})
     with pytest.raises(ValueError, match="start timeout"):
         parse_settings({**settings, "start_timeout_seconds": 121})
 
 
-def test_action_deadlines_within_the_start_bound_are_not_gaps(data: dict[str, Any]) -> None:
-    """The retained supervisor bounds a start per workload: only longer deadlines remain."""
+def test_all_whole_action_deadlines_remain_gaps(data: dict[str, Any]) -> None:
+    """A start-call bound cannot implement a deadline for the complete recovery."""
     data["supervision"]["action_timeout_seconds"] = 120
     data["workloads"][0]["deadlines"] = {"action_seconds": 121}
     data["workloads"][1]["deadlines"] = {"action_seconds": 120}
-    assert gaps(parsed(data)) == ("/workloads/0/deadlines/action_seconds",)
+    expected = (
+        "/supervision/action_timeout_seconds",
+        "/workloads/0/deadlines/action_seconds",
+        "/workloads/1/deadlines/action_seconds",
+    )
+    assert gaps(parsed(data)) == expected
     data["workloads"][1]["deadlines"] = {"action_seconds": 40}
-    assert gaps(parsed(data)) == ("/workloads/0/deadlines/action_seconds",)
+    assert gaps(parsed(data)) == expected

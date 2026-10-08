@@ -82,11 +82,12 @@ _OPTIONAL_SUPERVISION = ("component_exit_code", "restart_budget", "action_timeou
 _DEADLINES = ("probe_seconds", "action_seconds")
 # What the retained supervisor can be told. Its Monit rule matches the reserved start
 # status only, a monitor's check timeout is at most 120 seconds, and the runtime
-# settings bound the vendor start call for the installation and for each workload, at
-# most 120 seconds (`start_timeout_seconds`). They also take every restart budget
+# settings bound only the vendor start call, at most 120 seconds. Lock acquisition,
+# two pre-start observations and post-start readback have separate budgets: no
+# shared whole-action deadline is implemented. They also take every restart budget
 # this vocabulary can state (`restart_budget`, the same bounds).
 RETAINED_PROBE_DEADLINE_MAXIMUM = 120
-RETAINED_ACTION_DEADLINE_MAXIMUM: int | None = 120
+RETAINED_ACTION_DEADLINE_MAXIMUM: int | None = None
 
 
 class InstanceError(ValueError):
@@ -884,8 +885,10 @@ def retained_supervision_gaps(instance: Instance) -> tuple[str, ...]:
     An instance describes the supervisor of its site. The retained supervisor
     implements part of that vocabulary: the reserved start status, no second
     status, no in-guest ensure, every restart budget, a probe deadline up to its
-    monitor timeout, and a deadline for a start action up to the bound of the
-    runtime settings, for the site and for each workload. Each result is a JSON
+    monitor timeout, but no deadline for a whole start action. The runtime's
+    vendor-call timeout does not bound the lock wait and surrounding reads.
+    Therefore every explicitly stated whole-action deadline remains a gap.
+    Each result is a JSON
     pointer into the canonical instance, in document order. A renderer for the
     retained supervisor must refuse an instance for which the result is not
     empty. Nothing is read, rendered or run here.

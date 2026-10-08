@@ -516,19 +516,23 @@ def data() -> dict[str, Any]:
 @pytest.mark.parametrize(
     ("site", "own", "expected"),
     [
-        # A workload's own deadline is honoured whether or not the site states one.
-        (None, 1, ()),
-        (None, 120, ()),
-        (30, 90, ()),
-        (120, 1, ()),
-        (30, 30, ()),
-        # Only what no start bound can say remains.
+        # Every whole-action deadline remains unimplemented, independently of
+        # the vendor-call timeout the runtime settings support.
+        (None, 1, ("/workloads/0/deadlines/action_seconds",)),
+        (None, 120, ("/workloads/0/deadlines/action_seconds",)),
+        (30, 90, ("/supervision/action_timeout_seconds", "/workloads/0/deadlines/action_seconds")),
+        (120, 1, ("/supervision/action_timeout_seconds", "/workloads/0/deadlines/action_seconds")),
+        (30, 30, ("/supervision/action_timeout_seconds", "/workloads/0/deadlines/action_seconds")),
         (None, 121, ("/workloads/0/deadlines/action_seconds",)),
-        (120, 300, ("/workloads/0/deadlines/action_seconds",)),
-        (121, 40, ("/supervision/action_timeout_seconds",)),
+        (
+            120,
+            300,
+            ("/supervision/action_timeout_seconds", "/workloads/0/deadlines/action_seconds"),
+        ),
+        (121, 40, ("/supervision/action_timeout_seconds", "/workloads/0/deadlines/action_seconds")),
     ],
 )
-def test_a_workloads_own_action_deadline_within_the_bound_is_no_gap(
+def test_a_workloads_whole_action_deadline_is_not_a_vendor_call_bound(
     data: dict[str, Any], site: int | None, own: int, expected: tuple[str, ...]
 ) -> None:
     changed = copy.deepcopy(data)
@@ -538,10 +542,10 @@ def test_a_workloads_own_action_deadline_within_the_bound_is_no_gap(
     assert tuple(instance_module.retained_supervision_gaps(parsed(changed))) == expected
 
 
-def test_the_instance_bound_is_the_bound_of_a_contract() -> None:
-    """What the gaps function calls honoured is what a contract can be told."""
-    maximum = instance_module.RETAINED_ACTION_DEADLINE_MAXIMUM
-    assert maximum == 120
+def test_vendor_call_timeout_is_available_without_whole_action_deadline() -> None:
+    """The contract still supports a call budget, not the complete action."""
+    assert instance_module.RETAINED_ACTION_DEADLINE_MAXIMUM is None
+    maximum = 120
     document = _authored()
     document["contracts"][0]["start_timeout_seconds"] = maximum
     assert parse_settings(document).contract("camera").start_timeout_seconds == maximum

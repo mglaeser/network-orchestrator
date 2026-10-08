@@ -157,7 +157,7 @@ KINDS: dict[str, tuple[Change, tuple[str, ...] | None]] = {
     "site-action-deadline": (site_action, ("/supervision/action_timeout_seconds",)),
     "workload-action-deadline": (workload_action, ("/workloads/0/deadlines/action_seconds",)),
     "workload-probe-deadline": (workload_probe, ("/workloads/1/deadlines/probe_seconds",)),
-    "stated-within-bounds": (within_bounds, ()),
+    "stated-within-bounds": (within_bounds, ("/supervision/action_timeout_seconds",)),
 }
 EVERYTHING = [
     "/supervision/action_timeout_seconds",
