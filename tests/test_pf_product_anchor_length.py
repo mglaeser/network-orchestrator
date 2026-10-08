@@ -586,12 +586,16 @@ def test_hosted_dry_runs_ask_what_the_record_decides() -> None:
 
 
 def recorded(capsys: Any, title: str, seen: str) -> None:
-    """On the hosted runner, keep what the platform tool answered as a notice of the job."""
+    """On the hosted runner, keep what the platform tool answered as a warning of the job.
+
+    A warning, not a notice: the runner shows at most ten notices of one step,
+    and the hosted tests of earlier changes use all ten.
+    """
     if os.environ.get("GITHUB_ACTIONS") == "true":
         text = seen.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
         # Capture is lifted for one line of its own: the runner reads commands at line starts.
         with capsys.disabled():
-            print(f"\n::notice title={title}::{text}")
+            print(f"\n::warning title={title}::{text}")
 
 
 @pytest.mark.darwin
@@ -602,7 +606,7 @@ def test_platform_tool_takes_an_anchor_argument_of_63_bytes(tmp_path: Path, caps
     Four dry runs with one harmless translation rule, for arguments of 62, 63, 64
     and 73 bytes. Every answer is recorded first. Only what the record relies on
     is asserted: the argument of 63 bytes is accepted. What the tool answers for
-    64 and for 73 bytes is not decided here; the notices are the evidence, for one
+    64 and for 73 bytes is not decided here; the records are the evidence, for one
     hosted runner image only. Each call also writes its notice about `-f` to
     standard error, so that stream is recorded and never compared.
     """
