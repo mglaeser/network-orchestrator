@@ -11,6 +11,7 @@ import argparse
 import contextlib
 import hashlib
 import ipaddress
+import math
 import os
 import re
 import stat
@@ -30,6 +31,7 @@ from .process import OutputLimit, ProcessTimeout, Result, run
 from .runtime_settings import (
     FileIdentity,
     FleetStart,
+    RestartBudget,
     RuntimeContract,
     RuntimeNetwork,
     RuntimeSettings,
@@ -44,10 +46,11 @@ from .state import (
     admissions_from_dict,
     attribute_holds,
     intent_from_dict,
+    intent_to_dict,
     observation_to_dict,
     snapshot_to_dict,
 )
-from .storage import Busy, Store
+from .storage import Busy, Store, UnsafeState
 from .workflow_gate import (
     NOT_QUALIFIED,
     StageNotQualified,
@@ -64,6 +67,17 @@ BUSY = 75
 # example schedule. A start waits at most half of that for the pass to end.
 START_LOCK_WAIT_SECONDS = 5.0
 START_LOCK_RETRY_SECONDS = 0.25
+# The hold that recovery places on a service whose restart budget is spent. An
+# operator releases it with `unhold` and these two names.
+RESTART_BUDGET_OPERATION = "restart-budget"
+RESTART_BUDGET_HOLDER = "supervisor"
+# Starts that recovery issued, per service, in whole seconds of the calendar
+# clock, rounded up: the record has to outlive a boot, which the monotonic
+# clock does not.
+STARTS_RECORD = "recovery-starts.json"
+_RECORDED_SERVICE = re.compile(r"[a-z][a-z0-9-]{0,63}\Z")
+_RECORDED_STARTS_MAXIMUM = 10
+_CLOCK_LIMIT = 2**53
 
 
 class RuntimeReadError(RuntimeError):
@@ -983,6 +997,113 @@ def _state_lock(
         yield
 
 
+def _recorded_starts(store: Store) -> dict[str, list[int]] | None:
+    """Starts on record per service, or nothing when the record says nothing.
+
+    No file is the empty record. Content that is not exactly the closed shape
+    below, and a file the store refuses, tell nothing about any workload; the
+    caller counts that as a spent budget, never as an unused one. A file that
+    could not be read at all is no content: that error is left to the caller,
+    which starts nothing on it and changes nothing.
+    """
+    try:
+        raw = store.read(STARTS_RECORD)
+    except FileNotFoundError:
+        return {}
+    except (ValueError, UnsafeState):
+        return None
+    if (
+        not isinstance(raw, dict)
+        or set(raw) != {"schema_version", "services"}
+        or type(raw["schema_version"]) is not int
+        or raw["schema_version"] != 1
+        or not isinstance(raw["services"], dict)
+        or len(raw["services"]) > 256
+    ):
+        return None
+    services: dict[str, list[int]] = raw["services"]
+    for service, entries in services.items():
+        if (
+            _RECORDED_SERVICE.fullmatch(service) is None
+            or not isinstance(entries, list)
+            or not 1 <= len(entries) <= _RECORDED_STARTS_MAXIMUM
+            or any(type(entry) is not int or not 0 <= entry < _CLOCK_LIMIT for entry in entries)
+        ):
+            return None
+    return services
+
+
+def _spend_start(
+    store: Store,
+    settings: RuntimeSettings,
+    budget: RestartBudget,
+    service_id: str,
+    wall: Callable[[], float],
+) -> None:
+    """Record the start that is about to be issued, or hold the service instead.
+
+    Called under the operation lock for a workload that was proven stopped
+    twice. A return means that one more start is inside the budget and is on
+    record. Otherwise nothing is started: the service is held, its record is
+    cleared so that the operator's `unhold` gives a whole budget again, and the
+    recovery ends like one that a hold refused. A record that could not be read
+    ends the recovery the same way, with nothing held and nothing rewritten.
+    """
+    enrolled = {contract.service for contract in settings.contracts}
+    try:
+        now = wall()
+        # A usable time fits an entry of the record. Comparing decides that for
+        # every number: one that is not finite, or an integer beyond every
+        # float, is outside and is never converted.
+        timed = type(now) in {int, float} and 0 <= now < _CLOCK_LIMIT
+        recorded = _recorded_starts(store)
+        if recorded is not None and timed:
+            # An entry that lies in the future is inside the window: a clock that
+            # was set back keeps the brake engaged and never releases it.
+            inside = [
+                entry
+                for entry in recorded.get(service_id, [])
+                if now - entry < budget.window_seconds
+            ]
+            if len(inside) < budget.starts:
+                kept = {key: value for key, value in recorded.items() if key in enrolled}
+                # Rounded up to a whole second: the window of this start never
+                # ends early, and at most one second late.
+                kept[service_id] = [*inside, math.ceil(now)]
+                store.write(STARTS_RECORD, {"schema_version": 1, "services": kept})
+                return
+        # The hold is stored first: a crash between the two writes leaves the
+        # brake engaged, at the price of one more hold after the release.
+        try:
+            intent = intent_from_dict(store.read("intent.json"))
+            intent = intent.hold(service_id, RESTART_BUDGET_OPERATION, RESTART_BUDGET_HOLDER)
+            store.write("intent.json", intent_to_dict(intent))
+        except (OSError, ValueError, UnsafeState):
+            if recorded is not None:
+                # Not held. A spent budget must not come back with time: the
+                # record of this service is stored so that it counts as spent
+                # at every time and under every budget, until a hold is stored,
+                # which clears it.
+                pinned = {key: value for key, value in recorded.items() if key in enrolled}
+                pinned[service_id] = [_CLOCK_LIMIT - 1] * _RECORDED_STARTS_MAXIMUM
+                store.write(STARTS_RECORD, {"schema_version": 1, "services": pinned})
+            raise
+        if recorded is not None:
+            cleared = {key: value for key, value in recorded.items() if key in enrolled}
+            cleared.pop(service_id, None)
+            store.write(STARTS_RECORD, {"schema_version": 1, "services": cleared})
+        elif timed:
+            # Nothing is known about the other workloads either: each counts as
+            # spent for one period from now on. Without a usable clock the
+            # record stays as unreadable as it is.
+            spent = {key: [math.ceil(now)] * budget.starts for key in enrolled - {service_id}}
+            store.write(STARTS_RECORD, {"schema_version": 1, "services": spent})
+    except (OSError, ValueError, UnsafeState) as exc:
+        # Not read, not recorded or not held: nothing is started on that.
+        raise RuntimeReadError("incomplete") from exc
+    raise RuntimeReadError("incomplete")
+
+
 def recover_service(
     config: Config,
     settings: RuntimeSettings,
@@ -991,10 +1112,19 @@ def recover_service(
     *,
     clock: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
+    wall: Callable[[], float] = time.time,
 ) -> Snapshot:
-    """Monit recovery is only a start of a twice-proven stopped enrolled guest."""
+    """Monit recovery is only a start of a twice-proven stopped enrolled guest.
+
+    Where the settings state a restart budget and the guest has spent it, the
+    start is replaced by a hold on its service.
+    """
     if os.geteuid() == 0 or os.geteuid() != settings.account.uid or settings.state_dir is None:
         raise PermissionError("workload recovery belongs to the enrolled user")
+    budget = settings.restart_budget
+    if budget is not None and settings.intent != str(Path(settings.state_dir) / "intent.json"):
+        # The loader refuses such settings; settings built in code end here.
+        raise ValueError("a restart budget needs the durable intent in the state directory")
     store = Store(Path(settings.state_dir))
     with _state_lock(store, clock, sleep):
         before = observe_runtime(config, settings, runner)
@@ -1009,6 +1139,10 @@ def recover_service(
         ):
             raise RuntimeReadError("generation-mismatch")
         contract = settings.contract(service_id)
+        if budget is not None:
+            # An issued start counts whatever becomes of it, so it is on record
+            # before the call. A spent budget ends here, with a hold and no start.
+            _spend_start(store, settings, budget, service_id, wall)
         # Only this call may take longer than a read, and only when the settings
         # say how long: the workload's own bound, else the installation's, else
         # the reader's. Its result is checked like every other vendor call.

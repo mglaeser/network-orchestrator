@@ -81,6 +81,19 @@ class FleetStart:
 
 
 @dataclass(frozen=True, slots=True)
+class RestartBudget:
+    """How many starts recovery issues for one workload within a period.
+
+    Without this setting recovery starts a proven-stopped workload every time it
+    is asked. With it, a start that would exceed the budget is replaced by a
+    hold on that service, which an operator releases.
+    """
+
+    starts: int
+    window_seconds: int
+
+
+@dataclass(frozen=True, slots=True)
 class RuntimeSettings:
     schema_version: int
     owner: str
@@ -97,6 +110,7 @@ class RuntimeSettings:
     # Bound of the vendor `start` call in recovery; unset keeps the reader's own.
     start_timeout_seconds: int | None = None
     fleet_start: FleetStart | None = None
+    restart_budget: RestartBudget | None = None
 
     @classmethod
     def from_dict(cls, value: Any) -> RuntimeSettings:
@@ -234,6 +248,7 @@ def parse_settings(value: Any) -> RuntimeSettings:
             "legacy_risk_acknowledged",
             "start_timeout_seconds",
             "fleet_start",
+            "restart_budget",
         },
     )
     if (
@@ -377,6 +392,25 @@ def parse_settings(value: Any) -> RuntimeSettings:
         fleet = FleetStart(
             item["api_label"], _path(item["api_executable"]), item["runtime_label_prefix"]
         )
+    budget = None
+    if "restart_budget" in data:
+        # Present means stated. An explicit null is not a second way to leave it out.
+        item = _object(data["restart_budget"], {"starts", "window_seconds"})
+        if (
+            type(item["starts"]) is not int
+            or not 1 <= item["starts"] <= 10
+            or type(item["window_seconds"]) is not int
+            or not 60 <= item["window_seconds"] <= 86400
+        ):
+            raise ValueError("invalid restart budget")
+        # A spent budget becomes a hold in the durable intent, written under the
+        # lock of the state directory. Recovery can do that only for the intent
+        # file of that directory, which is also the one every reader is given.
+        if paths["state_dir"] is None or paths["intent"] != str(
+            Path(paths["state_dir"]) / "intent.json"
+        ):
+            raise ValueError("a restart budget needs the durable intent in the state directory")
+        budget = RestartBudget(item["starts"], item["window_seconds"])
     return RuntimeSettings(
         1,
         data["owner"],
@@ -389,6 +423,7 @@ def parse_settings(value: Any) -> RuntimeSettings:
         legacy_risk_acknowledged=legacy,
         start_timeout_seconds=start_timeout,
         fleet_start=fleet,
+        restart_budget=budget,
     )
 
 
@@ -402,6 +437,9 @@ def settings_to_dict(settings: RuntimeSettings) -> dict[str, Any]:
     if value["start_timeout_seconds"] is None:
         # Left out while unset: settings stored before the key existed keep their bytes.
         del value["start_timeout_seconds"]
+    if value["restart_budget"] is None:
+        # Left out while there is no budget, for the same reason.
+        del value["restart_budget"]
     result: dict[str, Any] = strict_loads(canonical_bytes(value))
     # Left out while undeclared: settings without it keep their bytes and digests.
     if result["fleet_start"] is None:

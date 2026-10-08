@@ -87,7 +87,11 @@ A hold does for one service what the pause does for the site: its forwarding
 profiles are withdrawn and drained, its discovery records are withdrawn, its
 recovery probe reports 69 and its guarded start refuses. Every other service is
 planned, recovered and published as before. A hold does not stop a guest;
-whoever placed it does. A reconciliation that leaves a transport profile of a
+whoever placed it does. One hold is placed by the retained runtime owner
+itself: where its settings state a restart budget and a workload has spent it,
+the guarded start holds that service with the operation `restart-budget` and
+the holder `supervisor` instead of starting it again
+([Apple runtime](apple-runtime.md#restart-budget)). A reconciliation that leaves a transport profile of a
 held service blocked does not end `committed`: it ends `inhibited`, or
 `waiting-external-owner` while a native publication of that service is still
 present, as it does for a paused site. The other services' actions are applied
