@@ -250,8 +250,10 @@ translation alike
 ([xnu `bsd/net/pf.c`, tag `xnu-12377.121.6`, lines 5620-5732](https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.121.6/bsd/net/pf.c#L5620-L5732)).
 The properties, not the position of an endpoint in the row, decide which
 endpoint is which. A guest's own connections, to hosts outside the LAN or from
-other ports, are not retained states: they do not delay a retirement and a
-retirement does not reset them.
+other ports, are not retained states: they do not delay a retirement, and a
+retirement that finds no retained state leaves them alone. The invalidation
+that a retained state calls for is by address, though, so it ends them too
+(below).
 
 The host's own LAN address lies inside the prefix that a redirect matches, so a
 packet that arrives with it as its source creates a state that names only the
@@ -271,7 +273,11 @@ of a pass and the drains of the administrator `withdraw` use this one rule and
 the one validated reader. A drain reads the table first. If no retained state
 exists it invalidates nothing. Otherwise it invalidates states from and to the
 target and reads the table again; the backend only issues the two scoped
-invalidations, and a state that is still listed is not drained.
+invalidations, and a state that is still listed is not drained. The two
+selectors name the target's address alone (`pfctl -k <target>` and
+`pfctl -k 0.0.0.0/0 -k <target>`), so they end every state of that address at
+that moment, the guest's own connections to hosts outside the LAN included;
+the guest's applications have to open those again.
 An invalidation that fails and a table that cannot be read, before or after
 it, are errors and not an open drain: they end the pass `failed` and make
 `withdraw` fail.
@@ -286,7 +292,8 @@ translation carries after the rule is withdrawn. The same holds for a flow
 between a port of the rule on the guest and the host's own LAN address, in a
 row that names no address outside the prefix. In these cases the retirement
 stays `states-retained`, with an invalidation on each pass, for as long as such
-a state is listed again when the table is read back. And that a macOS state
+a state is listed again when the table is read back, and each of those
+invalidations ends the guest's other connections as well. And that a macOS state
 table shows the client and the target with its port as endpoints of such a
 state, and what the scoped invalidation removes, follows from the kernel source
 and the printer lineage cited here, not from a capture reviewed in this
