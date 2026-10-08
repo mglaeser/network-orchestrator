@@ -1573,30 +1573,80 @@ def test_the_entry_point_writes_the_refused_listing_of_a_completed_pass_to_stand
     assert strict_loads(plain.out) == result and plain.err == ""
 
 
-# ---- one hosted dry run
+# ---- one hosted dry run, and what it printed
+
+# What the parser of the hosted macOS runner image printed for the four hook lines
+# N, NS, R, RS in a dry run (`pfctl -n -v -f`, unprivileged), as the hosted test below
+# recorded it in CI. A wildcard hook is printed without its parent anchor.
+DRY_RUN_PRINT = (
+    'nat-anchor "/*" all\n'
+    'nat-anchor "com.apple.internet-sharing" all\n'
+    'rdr-anchor "/*" all\n'
+    'rdr-anchor "com.apple.internet-sharing" all\n'
+)
+
+
+def printed_hooks(printed: str) -> list[tuple[str, str]]:
+    """The kind and the quoted anchor of each line of a dry-run print, in order."""
+    lines = printed.split("\n")
+    if lines[-1] == "":
+        lines.pop()
+    hooks = []
+    for line in lines:
+        match = re.fullmatch(r'(nat-anchor|rdr-anchor) "([^"]*)" all', line)
+        assert match is not None, line
+        hooks.append((match[1], match[2]))
+    return hooks
+
+
+def test_a_dry_run_print_is_not_the_form_of_a_live_listing() -> None:
+    """The checker reads the live main ruleset, never a dry run.
+
+    A dry run prints the hooks in the order given, the sharing hooks in full
+    and a wildcard hook without its parent anchor. That is a form the checker
+    refuses: it shows the hook kinds and their order, not the anchor a live
+    listing names. With the parent anchor that a live listing of the main
+    ruleset carries (the form the backend script's `hooks` check requires),
+    the same lines are accepted.
+    """
+    assert printed_hooks(DRY_RUN_PRINT) == [
+        ("nat-anchor", "/*"),
+        ("nat-anchor", "com.apple.internet-sharing"),
+        ("rdr-anchor", "/*"),
+        ("rdr-anchor", "com.apple.internet-sharing"),
+    ]
+    assert not owner.translation_hooks_in_order(DRY_RUN_PRINT.strip())
+    live = DRY_RUN_PRINT.replace('"/*"', '"com.apple/*"')
+    assert live.splitlines() == [f"{line} all" for line in (N, NS, R, RS)]
+    assert owner.translation_hooks_in_order(live.strip())
 
 
 def recorded(capsys: Any, title: str, seen: str) -> None:
-    """On the hosted runner, keep what the tool answered as a notice of the job."""
+    """On the hosted runner, keep what the tool answered as a warning of the job.
+
+    A warning, not a notice: the runner shows at most ten notices of one step,
+    and the hosted tests of earlier changes use all ten.
+    """
     if os.environ.get("GITHUB_ACTIONS") == "true":
         text = seen.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
         # Capture is lifted for one line of its own: the runner reads commands at line starts.
         with capsys.disabled():
-            print(f"\n::notice title={title}::{text}")
+            print(f"\n::warning title={title}::{text}")
 
 
 @pytest.mark.darwin
 @pytest.mark.skipif(sys.platform != "darwin", reason="hosted macOS userspace contract")
-def test_platform_parser_prints_the_four_hook_lines_in_a_form_the_checker_accepts(
-    tmp_path: Path, capsys: Any
-) -> None:
+def test_platform_parser_takes_the_four_hook_lines_in_order(tmp_path: Path, capsys: Any) -> None:
     """`pfctl -n -v -f` only parses a file; run unprivileged it can load nothing.
 
-    It shows how this system's printer writes a hook line, which is the form
-    the checker compares. It shows nothing about a live ruleset, and nothing
-    about what the system's own main ruleset holds. Every call with `-f`
-    writes a notice to standard error, so only the status and standard output
-    are read. Evidence for one hosted runner image.
+    It shows that this system's grammar takes the four hook lines and prints
+    them in the order given, each with ` all` added, and the sharing hooks in
+    full. It does not show the form of a live listing: a dry run prints a
+    wildcard hook with or without its parent anchor (the hosted image prints it
+    without, `DRY_RUN_PRINT`), while the checker compares the live main ruleset
+    of `pfctl -s nat`, which needs `/dev/pf` and cannot be read here. Every
+    call with `-f` writes a notice to standard error, so only the status and
+    standard output are read. Evidence for one hosted runner image.
     """
     rules = tmp_path / "hooks.pf"
     rules.write_text("".join(f"{line}\n" for line in (N, NS, R, RS)))
@@ -1609,5 +1659,7 @@ def test_platform_parser_prints_the_four_hook_lines_in_a_form_the_checker_accept
         f"status {result.returncode}, out {result.stdout[:400]!r}, err {result.stderr[:300]!r}",
     )
     assert result.returncode == 0, result.stderr.decode("utf-8", "replace")
-    # As the owner's backend returns a listing: decoded, ends trimmed.
-    assert owner.translation_hooks_in_order(result.stdout.decode("utf-8").strip())
+    hooks = printed_hooks(result.stdout.decode("utf-8"))
+    assert [kind for kind, _ in hooks] == ["nat-anchor", "nat-anchor", "rdr-anchor", "rdr-anchor"]
+    assert [anchor for _, anchor in hooks[1::2]] == ["com.apple.internet-sharing"] * 2
+    assert all(anchor in {"/*", "com.apple/*"} for _, anchor in hooks[0::2]), hooks
