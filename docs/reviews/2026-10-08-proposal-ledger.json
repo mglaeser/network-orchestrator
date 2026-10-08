@@ -329,9 +329,10 @@
       "title": "Let an enrollment tolerate a named peer definition while stopped",
       "disposition": "confirmed_bug_amend",
       "requirement_mapping": "Retain the stopped NPM test definition without authorizing a concurrent writer of the production bind.",
-      "evidence": "Baseline: 14 failed, 18 passed confirms original missing exception. Independent candidate counterexample: two tests failed because a retained peer marked stopped by reset API was ignored while its runtime job was still loaded. Supplement requires actual fixed-label service-manager absence in both account domains before ignoring a conflicting writable peer.",
+      "evidence": "Baseline: 14 failed, 18 passed confirms original missing exception. Independent candidate counterexample: two tests failed because a retained peer marked stopped by reset API was ignored while its runtime job was still loaded. Supplement requires actual fixed-label service-manager absence in both account domains before ignoring a conflicting writable peer. Final cross-proposal counterexample: omitting fleet_start in a partially running inventory let an API-stopped guest with a loaded native job be started. Independent fixed-vendor job absence is now mandatory for every stopped row; six failing-before cases and an absent-job control prove this boundary.",
       "test_files": [
-        "tests/test_runtime_tolerated_stopped_peer.py"
+        "tests/test_runtime_tolerated_stopped_peer.py",
+        "test_runtime_partial_fleet_stop.py"
       ],
       "comments_inspected": 0,
       "review_threads": 0,
@@ -1136,9 +1137,10 @@
       "title": "Start a fully stopped fleet on service-manager evidence (opt-in)",
       "disposition": "confirmed_bug_amend",
       "requirement_mapping": "Distinguish a truly stopped fleet from API reset while guest runtime jobs survive.",
-      "evidence": "Independent candidate proof: 3 tests failed because arbitrary vendor prefix/API labels were accepted and nonexistent jobs falsely established absence. Supplement constrains fixed Apple labels at parser AND direct runtime boundary; retained-peer proof uses the same helper. Upstream Plugin.getLaunchdLabel hardcodes prefix in supported tags.",
+      "evidence": "Independent candidate proof: 3 tests failed because arbitrary vendor prefix/API labels were accepted and nonexistent jobs falsely established absence. Supplement constrains fixed Apple labels at parser AND direct runtime boundary; retained-peer proof uses the same helper. Upstream Plugin.getLaunchdLabel hardcodes prefix in supported tags. Final cross-proposal counterexample: omitting fleet_start in a partially running inventory let an API-stopped guest with a loaded native job be started. Independent fixed-vendor job absence is now mandatory for every stopped row; six failing-before cases and an absent-job control prove this boundary.",
       "test_files": [
-        "tests/test_runtime_fleet_start.py"
+        "tests/test_runtime_fleet_start.py",
+        "test_runtime_partial_fleet_stop.py"
       ],
       "comments_inspected": 1,
       "review_threads": 0,
@@ -1261,9 +1263,10 @@
       "title": "Let the supervisor start the vendor runtime where settings opt in",
       "disposition": "suitable_opt_in_feature_accept_with_gate",
       "requirement_mapping": "A separately enrolled single owner may start vendor runtime in the user GUI context before recovery; preserve runtime data.",
-      "evidence": "Inspected root/env validation, executable/plist identity, fresh stopped evidence before vendor start, no shell use and post-start checks. Candidate tests exercise command/environment/deadline failures. Fixed-label amendment also closes alternate label loophole when runtime_start omitted.",
+      "evidence": "Inspected root/env validation, executable/plist identity, fresh stopped evidence before vendor start, no shell use and post-start checks. Candidate tests exercise command/environment/deadline failures. Fixed-label amendment also closes alternate label loophole when runtime_start omitted. Final cross-proposal counterexample: omitting fleet_start in a partially running inventory let an API-stopped guest with a loaded native job be started. Independent fixed-vendor job absence is now mandatory for every stopped row; six failing-before cases and an absent-job control prove this boundary.",
       "test_files": [
-        "tests/test_runtime_start_vendor_runtime.py"
+        "tests/test_runtime_start_vendor_runtime.py",
+        "test_runtime_partial_fleet_stop.py"
       ],
       "comments_inspected": 1,
       "review_threads": 0,

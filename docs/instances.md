@@ -94,16 +94,16 @@ excluded from that digest; version 1 receipts require renewed evidence.
 
 `framework` names one release. Its values are copied in by the author of the instance; no command fetches or derives them. `schema_version` is the version of the instance schema. The other four come from the release:
 
-- `version` is the release's version: the tag without its `v`, `0.3.2` for the tag `v0.3.2`.
-- `artifact_sha256` is the SHA-256 of that release's wheel, `netorch-0.3.2-py3-none-any.whl`. The release page of the tag in the public repository lists the wheel, the source archive and a file `SHA256SUMS`; the wheel's line in that file is the published digest.
-- `revision` is the full commit the tag names, which `git rev-parse 'v0.3.2^{commit}'` prints in a clone of the public repository.
+- `version` is the release's version: the tag without its `v`, `0.4.0` for the tag `v0.4.0`.
+- `artifact_sha256` is the SHA-256 of that release's wheel, `netorch-0.4.0-py3-none-any.whl`. The release page of the tag in the public repository lists the wheel, the source archive and a file `SHA256SUMS`; the wheel's line in that file is the published digest.
+- `revision` is the full commit the tag names, which `git rev-parse 'v0.4.0^{commit}'` prints in a clone of the public repository.
 - `dependency_lock_sha256` is the SHA-256 of `requirements-lock.txt` as that commit has it. That file is the runtime lock: the wheel's dependencies are installed from it with `pip install --require-hashes -r requirements-lock.txt`. It is not `requirements-dev-lock.txt`, which locks the development and build tools, and it is not inside the wheel. Take it from the source archive or from an export of the tag and hash it yourself.
 
 A published digest says what was uploaded, not what the commit builds. To check the wheel against the commit, export the tag into a new directory and build it with the hash-locked build tools, the way CI builds it:
 
 ```sh
 # In a clone of the public repository. /private/build/source must be new and empty.
-version=0.3.2
+version=0.4.0
 git rev-parse "v$version^{commit}"
 mkdir -p /private/build/source
 git archive --format=tar "v$version" | tar -x -C /private/build/source
