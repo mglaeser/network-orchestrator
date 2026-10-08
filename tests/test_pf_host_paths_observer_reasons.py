@@ -281,14 +281,25 @@ def test_a_stopped_guest_whose_job_is_not_read_in_time_is_kept_only_with_a_liste
     config, settings, inner = stopped_proxy(enrolled)
     proven = runtime.observe_runtime(config, settings, inner, clock=lambda: STAMP)
     assert said(proven)["web-proxy"] == ("absent", "confirmed-absent")
-    runner = Answering(inner, native("/bin/launchctl", JOB_PREFIX))
+    # The API and guest jobs share JOB_PREFIX. Matching only that prefix would
+    # time out the API read first, making the whole runtime unknown instead.
+    handler = inner.items[PROXY]["configuration"]["runtimeHandler"]
+    runner = Answering(inner, native("/bin/launchctl", f"{JOB_PREFIX}{handler}.{PROXY}"))
+    api_reads = inner.api_reads
 
     observed = runtime.observe_runtime(config, settings, runner, clock=lambda: STAMP)
 
     # The vendor lists the container as stopped, and the service manager's
     # answer about its job did not come in time: the observer says neither that
     # the service is absent nor that it runs.
-    assert runner.matched == 1 and said(observed)["web-proxy"] == ("unknown", "timed-out")
+    assert runner.matched == 1 and inner.api_reads == api_reads + 2
+    assert observed.network_generation is not None
+    assert said(observed) == {
+        service.id: ("unknown", "timed-out")
+        if service.id == "web-proxy"
+        else ("present", "verified")
+        for service in config.services
+    }
     result, _, kept = one_pass(environment, observed)
     assert result["withheld"] == {WEB: REASON}
     # A stopped container holds no port. The fourth condition is what then
@@ -370,11 +381,20 @@ def test_a_job_the_service_manager_gives_no_clear_answer_for_is_unavailable(
 ) -> None:
     config, settings, inner = stopped_proxy(enrolled)
     # Neither its "no such job" nor a job it prints: an error of another kind.
-    runner = Answering(inner, native("/bin/launchctl", JOB_PREFIX), Result(1, b"", b"x\n"))
+    handler = inner.items[PROXY]["configuration"]["runtimeHandler"]
+    runner = Answering(
+        inner, native("/bin/launchctl", f"{JOB_PREFIX}{handler}.{PROXY}"), Result(1, b"", b"x\n")
+    )
 
     observed = runtime.observe_runtime(config, settings, runner, clock=lambda: STAMP)
 
-    assert said(observed)["web-proxy"] == ("unknown", "unavailable")
+    assert observed.network_generation is not None
+    assert said(observed) == {
+        service.id: ("unknown", "unavailable")
+        if service.id == "web-proxy"
+        else ("present", "verified")
+        for service in config.services
+    }
     result, _, environment = one_pass(environment, observed)
     assert WEB not in owned(environment[3]) and "withheld" not in result
 
