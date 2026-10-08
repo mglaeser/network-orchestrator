@@ -113,7 +113,8 @@
         }},
         "dependencies": {"type": "array", "maxItems": 128, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
         "max_age_seconds": {"type": "integer", "minimum": 1, "maximum": 86400},
-        "max_records": {"type": "integer", "minimum": 1, "maximum": 10000}
+        "max_records": {"type": "integer", "minimum": 1, "maximum": 10000},
+        "misses": {"type": "integer", "minimum": 1, "maximum": 8}
       }
     }
   }

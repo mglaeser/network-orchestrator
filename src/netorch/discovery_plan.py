@@ -101,6 +101,10 @@ def discovery_digest(config: Config, item: Discovery) -> str:
         # set, so an entry written before it existed keeps its digest, and an
         # independent entry can never hash to that of the same entry without it.
         del resolved["return_path"]
+    if item.misses is None:
+        # The same rule for the entry's own miss tolerance: an entry that
+        # leaves it to the owner's setting hashes as it did before the member.
+        del resolved["misses"]
     return digest(
         {
             "digest_version": 4,

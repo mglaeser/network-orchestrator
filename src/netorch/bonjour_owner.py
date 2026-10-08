@@ -89,6 +89,7 @@ class BonjourSettings:
     eligible_model_prefixes: tuple[str, ...] = ("AudioAccessory", "AppleTV")
     pass_seconds: int | None = None
     miss_tolerance: int = 1
+    renewal_overlap_seconds: int | None = None
 
     @property
     def pass_interval(self) -> int:
@@ -136,6 +137,7 @@ def load_settings(path: Path) -> BonjourSettings:
         "eligible_model_prefixes",
         "pass_seconds",
         "miss_tolerance",
+        "renewal_overlap_seconds",
     }
     if (
         not isinstance(raw, dict)
@@ -224,6 +226,19 @@ def load_settings(path: Path) -> BonjourSettings:
     tolerance = raw.get("miss_tolerance", 1)
     if type(tolerance) is not int or not 1 <= tolerance <= 8:
         raise ValueError("Bonjour miss tolerance must be bounded")
+    overlap = raw.get("renewal_overlap_seconds")
+    if "renewal_overlap_seconds" in raw:
+        if type(overlap) is not int or not 1 <= overlap <= 30:
+            raise ValueError("Bonjour renewal overlap must be bounded")
+        # A client lives for the lease its record has left, 120 seconds at most.
+        # One that lives no longer than the overlap is replaced after its end,
+        # so an overlap that no owned lease exceeds could never have an effect.
+        if not any(
+            min(120, item.max_age_seconds) > overlap
+            for item in config.discovery
+            if item.owner == owner.id
+        ):
+            raise ValueError("Bonjour renewal overlap needs a lease that is longer")
     settings = BonjourSettings(
         owner.id,
         **paths,
@@ -233,12 +248,26 @@ def load_settings(path: Path) -> BonjourSettings:
         miss_tolerance=tolerance,
         eligible_model_prefixes=tuple(prefixes),
         pass_seconds=pass_seconds,
+        renewal_overlap_seconds=overlap,
     )
-    # A missed record is carried only inside its lease (MissMemory). Where no
-    # owned lease leaves room for that, a tolerance could never have an effect.
-    if tolerance > 1 and not any(
-        item.max_age_seconds > settings.pass_interval + carry_horizon(config, settings)
-        for item in _owned(config, settings)
+    # A missed record is carried only inside its lease (MissMemory). Where a
+    # lease leaves no room for that, a tolerance could never have an effect. A
+    # policy that states its own needs that room itself. The owner's setting
+    # governs the policies that state none and needs that room in at least one
+    # of them; where every owned policy states its own, it governs nothing and
+    # is compared with no lease.
+    owned = _owned(config, settings)
+    least = settings.pass_interval + carry_horizon(config, settings)
+    if any(
+        item.misses is not None and item.misses > 1 and item.max_age_seconds <= least
+        for item in owned
+    ):
+        raise ValueError("a policy's miss tolerance needs a lease that outlasts two passes")
+    following = tuple(item for item in owned if item.misses is None)
+    if (
+        tolerance > 1
+        and (following or not owned)
+        and not any(item.max_age_seconds > least for item in following)
     ):
         raise ValueError("Bonjour miss tolerance needs a lease that outlasts two passes")
     return settings
@@ -616,12 +645,21 @@ Fence = tuple[str, str | None, str | None]
 Remembered = dict[tuple[str, str], tuple[Record, int]]
 
 
+def tolerated_misses(policy: Discovery, owner_tolerance: int) -> int:
+    """Consecutive completed passes that may miss a record of this policy.
+
+    The policy's own ``misses`` where its entry states one; otherwise the
+    owner's ``miss_tolerance``.
+    """
+    return owner_tolerance if policy.misses is None else policy.misses
+
+
 class MissMemory:
     """Source records the scanner has read, so that a later pass may miss them.
 
     A record that a completed pass of its policy does not read again stays among
     that pass's sources, with the time it was last seen, until as many
-    consecutive completed passes as the settings tolerate have missed it. The
+    consecutive completed passes as its policy tolerates have missed it. The
     pass decides about it as about any source it read, so what it would not
     project now is not kept. The time of sight is never refreshed: the lease,
     the client's own lifetime and the publisher's deadline end a carried record
@@ -630,14 +668,24 @@ class MissMemory:
     """
 
     def __init__(self, tolerance: int) -> None:
+        # The owner's setting, for every policy that states no tolerance of its own.
         self.tolerance = tolerance
         self.listed: dict[str, tuple[Fence, Remembered]] = {}
 
-    def begin(self, policy: Discovery, fence: Fence, needed_until: float) -> MissedSources:
-        """Start one policy's pass; unless it completes, nothing is carried over."""
+    def begin(self, policy: Discovery, fence: Fence, needed_until: float) -> MissedSources | None:
+        """Start one policy's pass; unless it completes, nothing is carried over.
+
+        None for a policy that tolerates no miss: its pass reads and lists as it
+        does without a memory, and nothing of it is remembered.
+        """
+        tolerance = tolerated_misses(policy, self.tolerance)
+        if tolerance == 1:
+            return None
         kept, known = self.listed.pop(policy.id, (fence, {}))
         # Nothing read under another policy digest, guest or network generation is kept.
-        return MissedSources(self, policy, fence, known if kept == fence else {}, needed_until)
+        return MissedSources(
+            self, policy, fence, known if kept == fence else {}, needed_until, tolerance
+        )
 
 
 @dataclass(slots=True)
@@ -649,6 +697,7 @@ class MissedSources:
     fence: Fence
     known: Remembered
     needed_until: float
+    tolerance: int
     read: Remembered | None = None
 
     def __call__(self, sources: tuple[Record, ...]) -> tuple[Record, ...]:
@@ -659,7 +708,7 @@ class MissedSources:
             for key, (record, misses) in self.known.items()
             # A record read now under the same name and type takes its place.
             if key not in read
-            and misses + 1 < self.memory.tolerance
+            and misses + 1 < self.tolerance
             and record.seen_at + self.policy.max_age_seconds > self.needed_until
         )
         # Carried sources never push a pass over the policy's record bound.
@@ -909,7 +958,11 @@ def lease_records(
 class Publisher:
     """Independent watchdog owns all registration children and their deadlines."""
 
-    def __init__(self, factory: Callable[[Record, int, int], Registration] = Registration) -> None:
+    def __init__(
+        self,
+        factory: Callable[[Record, int, int], Registration] = Registration,
+        renewal_overlap: int | None = None,
+    ) -> None:
         self.factory = factory
         self.children: dict[str, Registration] = {}
         self.deadlines: dict[str, float] = {}
@@ -917,6 +970,12 @@ class Publisher:
         # Confirmed records whose client ended on its own timer and whose
         # replacement has not confirmed yet.
         self.renewing: set[str] = set()
+        # Seconds before the end of a running client's own lifetime at which its
+        # replacement is started. None: a client is replaced after it has ended.
+        self.renewal_overlap = renewal_overlap
+        # Replacements that run beside the client they take over from: at most
+        # one for a record, and only with an overlap.
+        self.successors: dict[str, Registration] = {}
 
     def reconcile(
         self, policy: Discovery, records: tuple[Record, ...], index: int, now: float
@@ -928,6 +987,7 @@ class Publisher:
         for key in tuple(self.children):
             if key.startswith(policy.id + ":") and key not in desired:
                 self.children.pop(key).close()
+                self._end_successor(key)
                 self.deadlines.pop(key, None)
                 self.sources_seen_at.pop(key, None)
                 self.renewing.discard(key)
@@ -945,24 +1005,53 @@ class Publisher:
             else:
                 self.deadlines[key] = min(self.deadlines[key], deadline)
             try:
+                if key in self.successors:
+                    self._poll_successor(key)
                 try:
                     active = self.children[key].poll()
                 except RegistrationExpired:
                     # Only this record's own native timer ended; nothing failed and
-                    # its siblings are not touched. The client has ended, so its
-                    # replacement never runs beside it. The lease deadline stays.
+                    # its siblings are not touched. The lease deadline stays.
                     ended = self.children[key]
                     ended.close()
-                    self.children[key] = self.factory(record, index, lifetime)
+                    successor = self.successors.pop(key, None)
+                    if successor is None:
+                        # The client has ended, so its replacement never runs beside it.
+                        self.children[key] = self.factory(record, index, lifetime)
+                        active = False
+                    else:
+                        # With an overlap its replacement already runs, and takes its place.
+                        self.children[key] = successor
+                        active = successor.active
                     # A confirmed record keeps the policy's state while its
                     # replacement confirms; Registration.poll bounds that wait.
                     if ended.active:
                         self.renewing.add(key)
                     else:
                         self.renewing.discard(key)
-                    active = False
+                if self.renewal_overlap is not None and active and key not in self.successors:
+                    running = self.children[key]
+                    ends = running.spawned + running.lifetime_seconds
+                    left = ends - time.monotonic()
+                    # The replacement of a confirmed client starts at the first turn
+                    # at which that client's own lifetime has at most that many
+                    # seconds left, with the lease that is left, and the client ends
+                    # on its own timer: it is never signalled to make room. A client
+                    # that lives no longer than the overlap is replaced after its
+                    # end. A replacement renews something only where the lease ends
+                    # later than the running client does. Both are instants of the
+                    # monotonic clock and are compared as such, not through a
+                    # lifetime rounded to whole seconds; the lease has to be ahead
+                    # by a second, the unit a client's lifetime is given in.
+                    if (
+                        running.lifetime_seconds > self.renewal_overlap
+                        and left <= self.renewal_overlap
+                        and self.deadlines[key] - ends >= 1
+                    ):
+                        self.successors[key] = self.factory(record, index, lifetime)
             except DiscoveryFailure:
                 self.children.pop(key).close()
+                self._end_successor(key)
                 self.deadlines.pop(key, None)
                 self.sources_seen_at.pop(key, None)
                 self.renewing.discard(key)
@@ -972,6 +1061,24 @@ class Publisher:
             confirmed = (active or key in self.renewing) and confirmed
         return confirmed
 
+    def _poll_successor(self, key: str) -> None:
+        """Let the replacement that runs beside this record's client confirm.
+
+        One that ends on its own timer first has taken over nothing and is
+        dropped; the running client still holds the record. Every other end is
+        a failure of a registration child, as for any client.
+        """
+        try:
+            self.successors[key].poll()
+        except RegistrationExpired:
+            self.successors.pop(key).close()
+
+    def _end_successor(self, key: str) -> None:
+        """Close the replacement that runs beside this record's client, if there is one."""
+        successor = self.successors.pop(key, None)
+        if successor is not None:
+            successor.close()
+
     def renewals(self, policy: Discovery) -> int:
         """Records of this policy that are between two clients right now."""
         return sum(key.startswith(policy.id + ":") for key in self.renewing)
@@ -980,14 +1087,16 @@ class Publisher:
         for key, deadline in tuple(self.deadlines.items()):
             if now >= deadline:
                 self.children.pop(key).close()
+                self._end_successor(key)
                 self.deadlines.pop(key)
                 self.sources_seen_at.pop(key, None)
                 self.renewing.discard(key)
 
     def close(self) -> None:
-        for child in self.children.values():
+        for child in (*self.children.values(), *self.successors.values()):
             child.close()
         self.children.clear()
+        self.successors.clear()
         self.deadlines.clear()
         self.sources_seen_at.clear()
         self.renewing.clear()
@@ -1142,7 +1251,11 @@ def publisher_loop(
     config: Config, settings: BonjourSettings, store: Store, parent_pid: int | None = None
 ) -> None:
     """Independent proof collection never blocks lease expiry and child polling."""
-    publisher = Publisher()
+    publisher = (
+        Publisher()
+        if settings.renewal_overlap_seconds is None
+        else Publisher(renewal_overlap=settings.renewal_overlap_seconds)
+    )
     _signal_stop(publisher.close)
     pool = ThreadPoolExecutor(max_workers=1)
     future: Future[Proof] | None = None
@@ -1202,7 +1315,12 @@ def serve(config: Config, settings: BonjourSettings, settings_path: Path) -> Non
 
     _signal_stop(close)
     # Kept in this process only: a scanner restart withdraws on the first miss again.
-    memory = MissMemory(settings.miss_tolerance) if settings.miss_tolerance > 1 else None
+    # There is a memory when any owned policy tolerates a miss, by its own entry
+    # or by the owner's setting.
+    tolerant = any(
+        tolerated_misses(item, settings.miss_tolerance) > 1 for item in _owned(config, settings)
+    )
+    memory = MissMemory(settings.miss_tolerance) if tolerant else None
     try:
         while child.poll() is None:
             try:

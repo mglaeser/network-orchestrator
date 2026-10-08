@@ -82,6 +82,9 @@ class Discovery:
     max_age_seconds: int
     max_records: int
     return_path: str = "required"
+    # Consecutive completed passes that may miss a record before it is
+    # withdrawn, 1 to 8. None: the discovery owner's own setting decides.
+    misses: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
