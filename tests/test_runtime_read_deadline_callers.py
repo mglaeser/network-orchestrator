@@ -844,7 +844,7 @@ def test_while_one_recovery_reads_another_ends_busy_and_so_does_an_operator_comm
                     config, settings, "resolver", paced, clock=clock, sleep=clock.sleep
                 )
             waited.append(sum(clock.slept))
-        if len(paced.calls) in {0, 20, 40, 58}:
+        if len(paced.calls) in {0, 22, 44, 63}:
             # What `pause` and the coordinator's pass do first: at the start of
             # the first two reads, at the start call and at the last call of all.
             with pytest.raises(Busy), Store(Path(settings.state_dir)).lock():
@@ -857,10 +857,10 @@ def test_while_one_recovery_reads_another_ends_busy_and_so_does_an_operator_comm
     assert result.services["camera"].state == "present"
     # The other workload's recovery gave up after its five seconds and read nothing.
     assert waited == [runtime.START_LOCK_WAIT_SECONDS] == [5.0]
-    assert len(paced.calls) == 2 * 20 + 18 + 1 and paced.bounds("vendor start") == [4]
+    assert len(paced.calls) == 2 * 22 + 19 + 1 and paced.bounds("vendor start") == [4]
     # Both stopped peers require job reads; the final pass has one stopped peer.
-    assert busy == [0.0, 15.0, 30.0, 43.5]
-    assert paced.elapsed == (2 * 20 + 18 + 1) * 0.75
+    assert busy == [0.0, 16.5, 33.0, 47.25]
+    assert paced.elapsed == (2 * 22 + 19 + 1) * 0.75
     with Store(Path(settings.state_dir)).lock():
         pass
 

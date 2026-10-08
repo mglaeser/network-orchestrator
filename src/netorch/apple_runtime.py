@@ -417,9 +417,7 @@ class Reader:
             return False
         raise RuntimeReadError("unavailable")
 
-    def stopped_guest_job(
-        self, current: dict[str, Any], name: str, network: RuntimeNetwork
-    ) -> None:
+    def stopped_guest_job(self, current: dict[str, Any], name: str) -> None:
         """Confirm a stopped API row against the actual vendor runtime jobs."""
         fleet = self.settings.fleet_start
         if fleet is not None:
@@ -433,9 +431,10 @@ class Reader:
             raise RuntimeReadError("identity-mismatch")
         label = f"{VENDOR_RUNTIME_PREFIX}{handler}.{name}"
         uid = self.settings.account.uid
-        domains = (
-            ("system",) if network.helper_domain == "system" else (f"gui/{uid}", f"user/{uid}")
-        )
+        # ServiceManager chooses the registering process's current launchd domain.
+        # A previous API incarnation can leave a job in any supported domain; the
+        # current network helper is not evidence about that earlier incarnation.
+        domains = ("system", f"gui/{uid}", f"user/{uid}")
         for domain in domains:
             if not self.job_absent(domain, label):
                 raise RuntimeReadError("generation-mismatch")
@@ -954,10 +953,7 @@ def _check_contract(
                 # An API restart can report stopped while the peer's job survives.
                 # Only independent service-manager evidence permits this exception.
                 if peer["id"] in contract.tolerated_stopped_peers and peer["state"] == "stopped":
-                    network = next(
-                        item for item in reader.settings.networks if item.scope == contract.scope
-                    )
-                    reader.stopped_guest_job(peer, peer["id"], network)
+                    reader.stopped_guest_job(peer, peer["id"])
                 else:
                     raise RuntimeReadError("identity-mismatch")
 
@@ -987,7 +983,7 @@ def _service(
     reader: Reader,
 ) -> Observation:
     if current["state"] == "stopped":
-        reader.stopped_guest_job(current, contract.name, network)
+        reader.stopped_guest_job(current, contract.name)
         return Observation(
             "absent",
             "confirmed-absent",

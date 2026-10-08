@@ -59,8 +59,9 @@ The API service registers the network helper through it from its own process
 
 Every API row reported as stopped requires an independent absence check of its
 fixed vendor runtime job, including partially running fleets without `fleet_start`.
-A stopped guest's runtime job is asked for in both
-`gui/<uid>` and `user/<uid>`, whichever of the two the helper is in
+A stopped guest's runtime job is asked for in all three vendor-supported domains:
+`system`, `gui/<uid>` and `user/<uid>`. The current network helper's domain does
+not constrain where a previous API incarnation registered a surviving job
 (see [Starting a fully stopped fleet](#starting-a-fully-stopped-fleet)). What
 `launchctl` answers for `gui/<uid>` of an account that has no login session is
 not established. If it is not the answer the reader counts as "absent" (exit
@@ -177,7 +178,7 @@ running it, for example a retained test definition, can enroll that definition's
 name in the contract's `tolerated_stopped_peers`. The peer is accepted only while the inventory reports it exactly `stopped` and
 the service manager independently proves its runtime job absent: its configuration
 identity and runtime handler must be valid, and no guest job may be loaded in
-either enrolled account domain. An unavailable service-manager read or a job
+`system` or either enrolled account domain. An unavailable service-manager read or a job
 that survives an API restart gives no verified target. Running,
 stopping or unknown peers and every name that is not listed remain refused.
 This additional check closes the API-reset case in the stopped-peer exception;
@@ -410,9 +411,8 @@ out of time is unknown (`timed-out`) for every workload: the probe returns 69,
 recovery starts nothing and the root forwarding owner retires its rules. A read
 is many short processes. For the example's four workloads, all running with one
 mount each, it is 16 calls of the vendor tool and of system tools, and 20 for
-eight workloads; `fleet_start` adds four. Each guest listed as stopped adds two
-service-manager reads (one where the helper domain is `system`), even without
-`fleet_start`. On macOS there is also one
+eight workloads; `fleet_start` adds four. Each guest listed as stopped adds three
+service-manager reads, even without `fleet_start`. On macOS there is also one
 `ls` for each mount or receipt and for each directory above them. The setting
 is for a fleet whose read takes longer than eight seconds under load.
 
@@ -636,10 +636,10 @@ member is `runtime_start`, described in
 [Starting the vendor runtime](#starting-the-vendor-runtime). Leave the key out to
 keep the all-stopped guard: an explicit `null` is refused, and settings without
 the key keep their bytes and digests. With it, every network must state the same
-`helper_domain`; the jobs are looked up there.
+`helper_domain`; the current API job is looked up there.
 
-With the declaration a pass reads the following in addition, and anything
-missing or unfamiliar is unknown:
+With the declaration a pass adds API generation evidence to the mandatory
+stopped-job checks. Anything missing or unfamiliar is unknown:
 
 1. Before the inventory and once more at the very end of the pass,
    `launchctl print <helper_domain>/<api_label>` must show a running job with a
@@ -648,9 +648,10 @@ missing or unfamiliar is unknown:
    The process ID and start time join the network generation, so the two
    observations of a recovery cannot lie on either side of an API restart.
 2. For each guest that the inventory lists as stopped, the job
-   `<runtime_label_prefix><runtimeHandler>.<name>` is printed in `gui/<uid>` and
-   in `user/<uid>` of the enrolled account, or in `system` alone when that is the
-   helper domain. The handler comes from the enrolled configuration, which must
+   `<runtime_label_prefix><runtimeHandler>.<name>` is printed in `system`,
+   `gui/<uid>` and `user/<uid>` of the enrolled account. This proof also applies
+   without `fleet_start`; a previous registering process may have used a different
+   domain from the current helper. The handler comes from the enrolled configuration, which must
    also carry the guest's own name as its `id`. The guest is absent only when
    every print ends with exit status 113 and no standard output, the service
    manager's answer for a label it has no job for. A job that is printed makes

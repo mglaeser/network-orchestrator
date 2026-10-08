@@ -286,7 +286,11 @@ def test_a_runtime_job_in_the_account_s_other_domain_is_as_live(enrolled: Any) -
     }
     label = f"{JOB_PREFIX}{HANDLER}.example-camera"
     assert {f"gui/{uid}/{label}", f"user/{uid}/{label}"} <= set(job_reads(runner))
-    assert {read.rpartition("/")[0] for read in job_reads(runner)} == {f"gui/{uid}", f"user/{uid}"}
+    assert {read.rpartition("/")[0] for read in job_reads(runner)} == {
+        "system",
+        f"gui/{uid}",
+        f"user/{uid}",
+    }
 
 
 # Each fault: what the fake answers instead, and the reason every workload then carries.
@@ -493,11 +497,11 @@ def test_a_stopped_guest_costs_one_job_read_per_domain(enrolled: Any) -> None:
     assert sorted(job_reads(runner)) == sorted(
         f"{domain}/{JOB_PREFIX}{HANDLER}.{contract.name}"
         for contract in settings.contracts
-        for domain in (f"gui/{uid}", f"user/{uid}")
+        for domain in ("system", f"gui/{uid}", f"user/{uid}")
     )
 
 
-def test_a_system_helper_domain_is_the_only_domain_asked(enrolled: Any) -> None:
+def test_system_helper_still_requires_prior_user_runtime_jobs_absent(enrolled: Any) -> None:
     config, settings, items = enrolled
     system = replace(settings.networks[0], helper_domain="system")
     config, settings, runner = declared((config, replace(settings, networks=(system,)), items))
@@ -509,8 +513,13 @@ def test_a_system_helper_domain_is_the_only_domain_asked(enrolled: Any) -> None:
     }
     observed = states(observe(config, settings, runner))
     assert observed["resolver"] == ("unknown", "generation-mismatch")
-    assert observed["camera"] == ("absent", "confirmed-absent")
-    assert {read.rpartition("/")[0] for read in job_reads(runner)} == {"system"}
+    assert observed["camera"] == ("unknown", "generation-mismatch")
+    uid = settings.account.uid
+    assert {read.rpartition("/")[0] for read in job_reads(runner)} == {
+        "system",
+        f"gui/{uid}",
+        f"user/{uid}",
+    }
 
 
 def test_a_reader_given_two_helper_domains_reads_nothing_as_stopped(enrolled: Any) -> None:
