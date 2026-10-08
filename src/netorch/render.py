@@ -66,9 +66,28 @@ _JSON_INTEGER = re.compile(rb"-?(?:0|[1-9][0-9]*)")
 _INDEX = re.compile(r"0|[1-9][0-9]*")
 _WORD = "[A-Za-z0-9_]"
 _MAX_TEXT = 4096
+# The importer's credential guard as it stood before a capital inside a word
+# counted as a boundary. Under a key it names, a value may stay unexamined and
+# is never inspected; those two answers keep this guard, so that a wider one
+# does not leave more values unexamined. The importer's guard decides where a
+# key is refused. The first expression puts a boundary where the earlier
+# ``([A-Z]+)([A-Z][a-z])`` puts it, without its cost on a run of capitals.
+_NAMED_CREDENTIAL = re.compile(
+    r"(?:^|[_-])(env|environment|token|secret|credential|credentials|authorization"
+    r"|private_?key|api_?key|pass_phrase|[a-z0-9]*(?:password|passwd|passphrase))(?:$|[_-])",
+    re.I,
+)
+_ACRONYM_END = re.compile(r"([A-Z])([A-Z][a-z])")
+_CAPITAL_AFTER = re.compile(r"([a-z0-9])([A-Z])")
 
 Leaf = tuple[str, ...]
 Scalar = str | int | bool
+
+
+def _named_credential(key: str) -> bool:
+    """Whether a key names a credential or the environment for the two relaxing answers."""
+    words = _CAPITAL_AFTER.sub(r"\1_\2", _ACRONYM_END.sub(r"\1_\2", key)).replace("-", "_")
+    return _NAMED_CREDENTIAL.search(words) is not None
 
 
 class RenderError(ValueError):
@@ -783,7 +802,7 @@ def _entry(entry: Any) -> _Entry:
     unexamined = [
         (item, tuple(_parts(item))) for item in _selectors(entry.get("unexamined", []), 64)
     ]
-    if any(not any(_secret_key(part) for part in leaf) for _, leaf in unexamined):
+    if any(not any(_named_credential(part) for part in leaf) for _, leaf in unexamined):
         raise RenderError("Only a credential or environment subtree may stay unexamined")
     independent = [(item, _selector(item)) for item in _selectors(entry.get("independent", []), 16)]
     classifies = bool(plans) or bool(_RENDER_KEYS & set(entry))
@@ -910,7 +929,7 @@ def _render(
             unexamined += 1
         elif leaf in planned:
             continue
-        elif any(_secret_key(part) for part in leaf):
+        elif any(_named_credential(part) for part in leaf):
             # Never inspected either, and never covered by a constant's subtree.
             unclassified += 1
         elif isinstance(value, str) and settings.live_address(value):
