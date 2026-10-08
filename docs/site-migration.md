@@ -1,9 +1,15 @@
 # Existing-host migration and stop conditions
 
-Version 0.3 implements the read-only extraction stage. No owner is promoted by
+Version 0.4 implements the read-only extraction stage. No owner is promoted by
 this release. Retained 0.2 owner internals and mock installation tests document
 future mechanics; native authority-expanding entrypoints are gated. Never replace
 a working installed owner merely because a source checkout has a newer version.
+
+Use the detailed [readiness gate matrix](migration-readiness.md),
+[staged runbook and retirement rules](migration-runbook.md),
+[offline health checkpoints](migration-health.md), and
+[administrator-session design](migration-privilege-session.md) to prepare the
+private per-owner plan. They preserve these gates and authorize no native work.
 
 ## Readiness and inventory
 

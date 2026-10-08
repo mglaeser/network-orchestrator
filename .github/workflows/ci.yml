@@ -86,6 +86,7 @@ jobs:
           "$smoke_dir/venv/bin/python" -m netorch.bonjour_owner --help
           "$smoke_dir/venv/bin/python" -m netorch.pf_owner --help
           "$smoke_dir/venv/bin/python" -m netorch.workloads --help
+          "$smoke_dir/venv/bin/python" -m netorch.migration_health --help
           "$smoke_dir/venv/bin/python" -c 'from importlib.resources import files; p = files("netorch"); assert all(p.joinpath(n + ".schema.json").is_file() for n in ("deployment", "instance", "host-evidence", "workload-contract", "acceptance-evidence")); assert p.joinpath("platform/macos/pf/backend.sh").is_file(); assert p.joinpath("observer_child.py").is_file()'
           "$smoke_dir/venv/bin/netorch" demo
       - name: Save test reports

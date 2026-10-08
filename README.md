@@ -36,6 +36,14 @@ records the 0.4.0 corrections and proposal dispositions. The
 [0.4.1 closure record](docs/reviews/2026-10-08-closure-and-qualification.md) separates
 repository fixes from remaining conformance and production qualification gates.
 
+Migration preparation now has an explicit [gate matrix](docs/migration-readiness.md),
+[owner-by-owner runbook and sunset criteria](docs/migration-runbook.md),
+[complete dashboard health checkpoints](docs/migration-health.md), and
+[bounded administrator-session concept](docs/migration-privilege-session.md).
+These prepare a future reviewed window; they neither start a migration nor
+implement a privileged session runner. The offline checkpoint tool cannot
+authenticate evidence or open the existing activation gate.
+
 ## Goals and hard gates
 
 1. **Robust:** preserve identity, negative intent and independently admitted scope;

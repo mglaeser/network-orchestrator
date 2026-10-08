@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.2 — migration preparation and health checkpoints
+
+- Document parity and native qualification gates, one-owner migration and
+  predecessor retirement, scoped rollback, and a bounded administrator-session
+  concept for a future preapproved window. No privileged runner is implemented.
+- Add offline validation of the complete reviewed dashboard roster after each
+  step, rollback and soak. Reject stale, partial, failed, duplicated or mismatched
+  recordings without collecting data, changing services or authenticating claims.
+- Add adversarial checkpoint tests and preserve all native activation gates.
+  No production owner, application or networking setting is changed.
+
 ## 0.4.1 — historical runtime job proof
 
 - Refuse stopped-workload and retained-peer readiness when any loaded Apple
