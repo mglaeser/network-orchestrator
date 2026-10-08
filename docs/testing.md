@@ -79,7 +79,7 @@ ranges, injected clocks, closed synthetic observations and fake owners.
 | Area | Required claims |
 |---|---|
 | Instance/import | Canonical byte equality, literal-only extraction, exact source/owner conformance, no executable/live-endpoint data, two privacy guards |
-| Host view | Six verbs make no writes, owner calls or network probes; synthetic/unsigned/stale/wrong-context evidence cannot qualify native support |
+| Host view | Seven verbs make no writes, owner calls or network probes; synthetic/unsigned/stale/wrong-context evidence cannot qualify native support |
 | Input | Duplicate keys at every depth, nonfinite values, booleans in numeric fields, unknown fields/versions and invalid types are rejected |
 | Policy | Duplicate IDs, bad references, overlapping claims, wrong address scopes and incompatible guest/return ranges are rejected |
 | Content | Canonical key ordering preserves digests; authority-relevant content changes invalidate admission |

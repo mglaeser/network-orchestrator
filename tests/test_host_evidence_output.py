@@ -313,9 +313,9 @@ def test_emitting_evidence_writes_no_file(
 def test_documented_command_sequence_runs_as_written(
     tmp_path: Path, capsys: Any, collector: Collector
 ) -> None:
-    """The six lines of the instance guide, with its private paths mapped to a lab."""
+    """The seven lines of the instance guide, with its private paths mapped to a lab."""
     guide = (ROOT / "docs/instances.md").read_text(encoding="utf-8")
-    block = re.search(r"## Six commands\n.*?```sh\n(.*?)```", guide, re.DOTALL)
+    block = re.search(r"## Seven commands\n.*?```sh\n(.*?)```", guide, re.DOTALL)
     assert block is not None
     lines = block[1].strip().splitlines()
     assert sorted(shlex.split(line)[1] for line in lines) == sorted(host_cli.COMMANDS)

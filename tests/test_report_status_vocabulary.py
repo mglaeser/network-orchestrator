@@ -20,7 +20,15 @@ STATUSES = frozenset(
     {"fulfilled-verified", "unverified", "accepted-residual", "not-applicable", "not-fulfilled"}
 )
 # The outputs that print a status moved to 2 when the word changed; the others did not.
-SCHEMA_VERSIONS = {"validate": 1, "preflight": 1, "status": 2, "plan": 2, "check": 2, "report": 2}
+SCHEMA_VERSIONS = {
+    "validate": 1,
+    "preflight": 1,
+    "status": 2,
+    "plan": 2,
+    "check": 2,
+    "report": 2,
+    "supervision-gaps": 1,
+}
 
 
 def carried(value: Any) -> set[str]:

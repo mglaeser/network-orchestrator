@@ -1,4 +1,4 @@
-"""Six read-only host operations; no install/admit/recover/apply namespace."""
+"""Seven read-only host operations; no install/admit/recover/apply namespace."""
 
 from __future__ import annotations
 
@@ -13,9 +13,15 @@ from typing import Any
 from . import __version__
 from .codec import canonical_json
 from .host_report import build_report, empty_evidence, parse_host_evidence
-from .instance import load_instance, read_data, verify_release
+from .instance import (
+    InstanceError,
+    load_instance,
+    read_data,
+    retained_supervision_gaps,
+    verify_release,
+)
 
-COMMANDS = ("validate", "preflight", "status", "plan", "check", "report")
+COMMANDS = ("validate", "preflight", "status", "plan", "check", "report", "supervision-gaps")
 Collector = Callable[[Any], dict[str, Any]]
 
 
@@ -103,9 +109,9 @@ def main(
             release_verified=release_verified,
             evidence_directory=args.evidence_dir,
         )
+        valid = all(item["state"] == "present" for item in report["contracts"])
         result: dict[str, Any]
         if args.command == "validate":
-            valid = all(item["state"] == "present" for item in report["contracts"])
             result = {
                 "schema_version": 1,
                 "instance": instance.instance,
@@ -166,6 +172,22 @@ def main(
                 "platform": report["platform"],
             }
             code = 0 if report["fully_served"] else 1
+        elif args.command == "supervision-gaps":
+            if not valid:
+                # Answered only for an instance that `validate` accepts with the same
+                # arguments. Anything else is the closed error below, never a list.
+                raise InstanceError("no answer for an instance that is not valid")
+            # The function's own answer, as it gives it: pointers, never values.
+            gaps = list(retained_supervision_gaps(instance))
+            result = {
+                "schema_version": 1,
+                "read_only": True,
+                "mutation_available": False,
+                "retained_supervision_gaps": gaps,
+            }
+            # As `check` does: the answer is printed in full, and the status tells a list
+            # that names a member from an empty one.
+            code = 1 if gaps else 0
         else:
             result = report
             code = 0

@@ -1,4 +1,4 @@
-"""All six host commands are offline/read-only; recorded proof is not live authority."""
+"""All seven host commands are offline/read-only; recorded proof is not live authority."""
 
 from __future__ import annotations
 

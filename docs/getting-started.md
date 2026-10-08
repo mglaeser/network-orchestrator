@@ -20,8 +20,10 @@ netorch-host plan --instance examples/instance.json
 netorch-host report --instance examples/instance.json
 ```
 
-All six verbs are read-only: `validate`, `preflight`, `status`, `plan`, `check`
-and `report`. `check` exits nonzero while requirements are unfulfilled. The host
+All seven verbs are read-only: `validate`, `preflight`, `status`, `plan`, `check`,
+`report` and `supervision-gaps`. `check` exits nonzero while requirements are
+unfulfilled, and `supervision-gaps` while the instance states a supervision member
+that the retained supervisor cannot honour. The host
 command refuses root and never calls an owner, Bonjour or a local-network socket.
 No verb installs, admits, resumes, restarts or applies anything. `--collect-local`
 is an explicit option for preflight/status/report only, using a fixed bounded
