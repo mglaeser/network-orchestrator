@@ -47,6 +47,7 @@ from .instance_model import (
     VisibilityDecision,
     Workload,
 )
+from .platform_contract import PF_ANCHOR_BYTES
 from .profile_library import AUTOMATIC_TYPES, discovery_profile, strategy
 from .requirements import REQUIREMENTS
 from .safety_contract import RECOVERY_FAILURE_EXIT_CODE, assess_bounded_safety
@@ -558,6 +559,12 @@ def validate_instance(instance: Instance) -> None:
     if any(len(value) > 128 for key, value in resolved.items() if key.endswith("label")) or any(
         len(resolved[key]) > 63 for key in ("bonjour_prefix", "import_prefix")
     ):
+        raise InstanceError("namespace-derived names exceed native name bounds; pin explicit names")
+    # A derived anchor is the name the retained packet-rule owner would be
+    # installed with, so it is held to that owner's bound for the complete path
+    # (the namespace is ASCII: characters are bytes). A pinned anchor is not
+    # judged here: the schema lets a site state the name it really uses.
+    if instance.names.pf_anchor is None and len(resolved["pf_anchor"]) > PF_ANCHOR_BYTES:
         raise InstanceError("namespace-derived names exceed native name bounds; pin explicit names")
     labels = [value for key, value in resolved.items() if key.endswith("label")]
     if (

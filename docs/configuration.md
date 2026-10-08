@@ -28,9 +28,14 @@ public checkout. This release models IPv4; it does not silently derive IPv6 rule
 Top-level fields are `schema_version` (currently `1`), `site` (an operator label)
 and these five collections. IDs are stable lowercase names of at most 64
 characters. The ID of an `external-root` owner, and of every profile such an
-owner executes, may have at most 63: that owner names its anchor after its own
-ID and keys its protected admission and rule records by profile ID, and those
-accept no more. A longer one is refused when the policy is validated.
+owner executes, may have at most 63: that owner's installation record takes
+an owner ID of at most that length, and its protected admission and rule
+records, which are keyed by profile ID, take a profile ID of at most that
+length. A longer one is refused when the policy is validated. An owner that
+keeps the product's own anchor, which is named after its ID, needs an ID of
+at most 45 characters; that is a rule of its installation record, not of the
+policy, and an owner with a longer ID
+[pins its anchor](pf-owner.md#exact-admission).
 Transport and discovery IDs cannot collide. Port ranges have inclusive `first`
 and `last`.
 The service's owner observes its workload; a profile's owner can independently

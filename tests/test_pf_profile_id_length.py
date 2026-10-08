@@ -80,7 +80,8 @@ def test_the_bound_is_the_one_the_owner_stores_and_anchor_accept(environment: An
         stored(name(bound + 1))
 
     def installation(owner: str) -> Installation:
-        return Installation(owner, f"com.apple/netorch.{owner}", {}, "0" * 64, "/report.json")
+        # A pinned anchor: the product anchor of an identifier ends at 55 characters.
+        return Installation(owner, "com.apple/example-site", {}, "0" * 64, "/report.json")
 
     assert installation(name(bound)).owner == name(bound)
     with pytest.raises(PFError, match="identity"):
