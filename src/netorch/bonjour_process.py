@@ -497,13 +497,46 @@ class Registration:
             # it enters its event loop (Clients/dns-sd.c:1315-1320 at the tag the
             # owner guide cites). Its other exit(0), a daemon that stopped, first
             # prints "Error code %d" on a line of its own (dns-sd.c:245-246).
+            # That line goes to stderr, so it can follow a cut stdout line. An
+            # unknown interface ends with status 0 as well (dns-sd.c:2104,
+            # 2405-2408), and a callback can arrive after the last poll that
+            # saw the client running. So the end is that timer's only if the
+            # complete output is clean.
             if (
                 status == 0
                 and time.monotonic() - self.spawned >= self.lifetime_seconds
-                and re.search(rb"(?m)^Error code -?[0-9]+$", self.output) is None
+                and self._clean()
             ):
                 raise RegistrationExpired()
             raise DiscoveryFailure("unavailable")
+        self.active = self._confirmed()
+        if not self.active and time.monotonic() - self.started > 5:
+            raise DiscoveryFailure("timed-out")
+        return self.active
+
+    def _clean(self) -> bool:
+        """Whether the complete output of an ended client passes a running one's checks."""
+        # exit(0) flushes whole lines, so an unterminated last line is not the
+        # timer's end. With the last newline in place every line is complete,
+        # and the checks see the whole output.
+        if not self.output.endswith(b"\n"):
+            return False
+        # A registration prints the interface it was asked to use, once, before
+        # anything else (dns-sd.c:2135). Output without that line is not one's.
+        if bytes(self.output).splitlines().count(f"Using interface {self.index}".encode()) != 1:
+            return False
+        try:
+            self._confirmed()
+        except DiscoveryFailure:
+            return False
+        return True
+
+    def _confirmed(self) -> bool:
+        """Check the output read so far; return whether both names are confirmed.
+
+        A running client fails with the reason raised here. An ended client is
+        judged by the same checks but keeps the reason ``unavailable``.
+        """
         if len(self.output) > MAX_OUTPUT:
             raise DiscoveryFailure("incomplete")
         text = bytes(self.output)
@@ -546,14 +579,11 @@ class Registration:
             raise DiscoveryFailure()
         if any(line not in {expected_service, expected_address} for line in callbacks):
             raise DiscoveryFailure("identity-mismatch")
-        self.active = (
+        return (
             lines.count(f"Using interface {self.index}".encode()) == 1
             and expected_service in callbacks
             and expected_address in callbacks
         )
-        if not self.active and time.monotonic() - self.started > 5:
-            raise DiscoveryFailure("timed-out")
-        return self.active
 
     def close(self) -> None:
         if self.closed:
