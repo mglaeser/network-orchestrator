@@ -7,6 +7,11 @@ look at each fact on its own: it was read as a value of its documented form, or
 it is unknown for a reason a hosted runner can honestly have. It is never
 `malformed`, the reason the collector gives when a parser refused the output.
 
+The per-fact topology expectations run only in GitHub Actions. A developer Mac
+may have container bridges and multiple addressed adapters; with no instance
+selection the collector correctly refuses to guess which is the LAN. Schema and
+command round-trip checks below still run on any Mac.
+
 The collection makes no network call, needs no privilege and writes nothing. A
 pass is evidence for the runner image that ran it and qualifies no production
 macOS build. A failure names the fact and how it was classified, never what a
@@ -203,6 +208,9 @@ def collection() -> dict[str, Any]:
 @pytest.mark.darwin
 @pytest.mark.skipif(sys.platform != "darwin", reason=HOSTED)
 @pytest.mark.parametrize("key", sorted(OBSERVED))
+@pytest.mark.skipif(
+    os.environ.get("GITHUB_ACTIONS") != "true", reason="hosted-runner topology expectations"
+)
 def test_fact_is_read_or_unknown_for_a_stated_reason(collection: dict[str, Any], key: str) -> None:
     with annotated():
         check(collection, key)

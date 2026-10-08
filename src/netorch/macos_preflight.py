@@ -206,7 +206,10 @@ def _extensions(text: str) -> list[str]:
         if len(lines) != 1:
             raise ValueError("unexpected empty extension inventory content")
         return []
-    values: list[str] = []
+    values: set[str] = set()
+    rows: set[tuple[str, str, str, str]] = set()
+    teams: dict[str, str] = {}
+    current: set[str] = set()
     category = False
     columns = False
     group_rows = 0
@@ -224,18 +227,29 @@ def _extensions(text: str) -> list[str]:
             columns = True
             continue
         row = re.fullmatch(
-            r"\s*(?:\*\s+){0,2}[A-Z0-9]{10}\s+"
+            r"\s*(?:\*\s+){0,2}(?P<team>[A-Z0-9]{10})\s+"
             r"(?P<id>[A-Za-z][A-Za-z0-9-]*(?:\.[A-Za-z0-9-]+)+)\s+"
-            r"\([^()\r\n]+\)\s+[^\r\n]+\s+"
-            r"\[(?:activated (?:enabled|disabled|waiting for user)|"
-            r"terminated waiting for uninstall on reboot)\]",
+            r"\((?P<version>[^()\r\n]+)\)\s+[^\r\n]+\s+"
+            r"\[(?P<state>activated (?:enabled|disabled|waiting for user)|"
+            r"terminated waiting (?:for|to) uninstall on reboot)\]",
             line,
         )
-        if not columns or row is None or row["id"] in values:
+        if not columns or row is None:
             raise ValueError("malformed or duplicate extension row")
-        values.append(row["id"])
+        identity = (row["team"], row["id"], row["version"], row["state"])
+        if identity in rows or teams.get(row["id"], row["team"]) != row["team"]:
+            raise ValueError("malformed or duplicate extension row")
+        if row["state"].startswith("activated "):
+            if row["id"] in current:
+                raise ValueError("ambiguous current extension identity")
+            current.add(row["id"])
+        # macOS may retain a terminated version until reboot while its replacement
+        # is already active. Count native rows, but report each bundle identity once.
+        rows.add(identity)
+        teams[row["id"]] = row["team"]
+        values.add(row["id"])
         group_rows += 1
-    if len(values) != expected or not columns or not group_rows:
+    if len(rows) != expected or not columns or not group_rows:
         raise ValueError("incomplete extension inventory")
     return sorted(values)
 
