@@ -268,8 +268,14 @@ def parse_settings(value: Any) -> RuntimeSettings:
             for key in ("scope", "name", "gateway", "helper_domain", "helper_label")
         ):
             raise ValueError("invalid network identity")
+        # The vendor's service manager registers a job in the domain of the calling
+        # session: `system`, `gui/<uid>` for a login session, `user/<uid>` for a
+        # background one (apple/container `ServiceManager.getDomainString`, one
+        # file at tags 1.2.0, 1.4.1 and 1.5.0). Its API service registers the
+        # network helper that way, so the helper is in the API's own domain.
         if (
-            item["helper_domain"] not in {"system", f"gui/{account['uid']}"}
+            item["helper_domain"]
+            not in {"system", f"gui/{account['uid']}", f"user/{account['uid']}"}
             or type(item["helper_uid"]) is not int
             or item["helper_uid"] < 0
         ):
