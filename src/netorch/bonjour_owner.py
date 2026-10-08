@@ -750,6 +750,9 @@ _COUNTED_AS_MISS = frozenset({"malformed"})
 # answered its resolve at all (scan_policy). Counted as a miss, such a pass is a
 # read that did not complete, and its candidate names it as the list above does.
 _UNANSWERED = "incomplete"
+# What a candidate may name as the failure it carried records through: the
+# reason of the pass that counted as a miss, never another one.
+_TOLERATED = _COUNTED_AS_MISS | {_UNANSWERED}
 
 
 def counts_as_miss(failure: BaseException) -> bool:
@@ -946,10 +949,8 @@ def scan_pass(
                 records = carried_through(config, settings, policy, snapshot, ready, now, missed)
                 if records:
                     # Written as a completed pass that carried them, and the
-                    # failure stays visible beside them. A pass in which no
-                    # instance answered is named as the closed list names a
-                    # read that did not complete.
-                    tolerated, error = ("malformed" if error == _UNANSWERED else error), None
+                    # failure stays visible beside them, under its own reason.
+                    tolerated, error = error, None
         candidates[policy.id] = {
             "policy_digest": discovery_digest(config, policy),
             "service_generation": snapshot.services[policy.service].generation,
@@ -1060,7 +1061,7 @@ def lease_records(
     # unless that pass carried records, and one of the reasons that can count.
     if "tolerated_failure" in candidate and (
         type(candidate["tolerated_failure"]) is not str
-        or candidate["tolerated_failure"] not in _COUNTED_AS_MISS
+        or candidate["tolerated_failure"] not in _TOLERATED
         or not candidate["records"]
     ):
         return None

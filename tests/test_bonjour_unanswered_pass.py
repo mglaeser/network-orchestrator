@@ -129,10 +129,10 @@ def test_pass_in_which_no_listed_instance_answered_counts_as_a_miss(
     failed = link.run()[IMPORT]
     if setting:
         assert failed["records"] == seen["records"] and "reason" not in failed
-        # Named as the candidate reader names every read that did not complete.
-        assert failed["tolerated_failure"] == "malformed"
+        # Named by the reason of the pass it carried records through.
+        assert failed["tolerated_failure"] == "incomplete"
         assert set((link.counts() or {}).values()) == {1}
-        assert shown(link.tick()[IMPORT]) == ("present", "verified", 2, "malformed")
+        assert shown(link.tick()[IMPORT]) == ("present", "verified", 2, "incomplete")
     else:
         assert (failed["records"], failed["reason"]) == ([], "incomplete")
         assert "tolerated_failure" not in failed and link.counts() is None
@@ -180,7 +180,9 @@ def test_one_rule_whatever_another_scan_of_the_pass_did(
     failed = link.run()[IMPORT]
     if carried:
         assert failed["records"] == seen["records"] and "reason" not in failed
-        assert failed["tolerated_failure"] == "malformed"
+        # The reason of the first scan that failed: the stopped browse, or the
+        # pass in which no listed instance answered.
+        assert failed["tolerated_failure"] == ("malformed" if beside else "incomplete")
     else:
         # The reason is that of the first scan that failed, as before.
         expected = "malformed" if beside else "incomplete"

@@ -250,7 +250,7 @@ policy unless the settings count it as a miss
 | The answers form no valid record: a host name longer than 255 bytes | `scan` | the instance is left out |
 | Instances to leave out and no instance of the policy read in the same pass | `scan_policy` | the policy is withdrawn |
 | More usable records than the policy's `max_records`, a duplicate or an unverified dependency in the projection | `scan_policy`, `project_records` | the policy is withdrawn |
-| A candidate whose `skipped` is not an integer from 1 to its bound, or whose `tolerated_failure` is not `malformed` beside at least one record, stale or foreign evidence | `lease_records` | the policy is withdrawn |
+| A candidate whose `skipped` is not an integer from 1 to its bound, or whose `tolerated_failure` is not `malformed` or `incomplete` beside at least one record, stale or foreign evidence | `lease_records` | the policy is withdrawn |
 
 An instance is left out only by a command that has proved itself, that is
 seen to have entered its event loop (its `...STARTING...` line) and whose every
@@ -437,8 +437,10 @@ left out unless something was read
 ([above](#one-instance-and-the-scan-as-a-whole)) or where a scan reached its
 fifth such instance before it had read one. With the setting it counts as one
 miss, also beside another scan of the pass whose read did not complete, and
-its candidate names it `malformed`, as for every read that did not complete;
-where nothing can be kept it stands with `incomplete`. An instance that printed
+its candidate names the reason of the failure it carried records through:
+`incomplete` for such a pass, `malformed` where another scan of the pass
+failed first by a read that did not complete; where nothing can be kept it
+stands with `incomplete`. An instance that printed
 any reply line has answered, also where its replies cannot be used (replies
 that differ, a port or target that cannot be published), and a pass with such
 an instance and nothing read keeps failing, beside another scan whose read did
@@ -463,8 +465,9 @@ report or an interface check), a scanner restart and a changed digest or
 generation forget as before.
 
 A failed pass that counted as a miss stays visible. Its candidate has
-`tolerated_failure` with the reason, which is `malformed` (also for a pass in
-which no listed instance answered), in the place of `reason`, and the observation of a policy that reads `present` from that
+`tolerated_failure` with the reason, which is `malformed`, or `incomplete`
+for a pass in which no listed instance answered, in the place of `reason`, and
+the observation of a policy that reads `present` from that
 candidate shows the same member beside `record_count`. A pass that completes
 writes neither. The policy keeps reading `present` while its records are
 kept, so whoever wants to know that passes are failing reads that member. The

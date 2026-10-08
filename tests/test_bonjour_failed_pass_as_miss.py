@@ -1848,10 +1848,10 @@ def leased_candidate(
     )
 
 
+@pytest.mark.parametrize("reason", ["malformed", "incomplete"])
 def test_candidate_with_a_tolerated_failure_is_leased(
-    config: Config, settings: owner.BonjourSettings, monkeypatch: pytest.MonkeyPatch
+    config: Config, settings: owner.BonjourSettings, monkeypatch: pytest.MonkeyPatch, reason: str
 ) -> None:
-    reason = "malformed"
     link = Link(monkeypatch, leased(config), settings)
     link.lan.devices = (KITCHEN, STUDY)
     link.requested()
@@ -1868,7 +1868,6 @@ def test_candidate_with_a_tolerated_failure_is_leased(
     [
         # The reason of a scan whose own time is used up: no pass writes it here.
         "timed-out",
-        "incomplete",
         "local-network-denied",
         "identity-mismatch",
         "unavailable",
