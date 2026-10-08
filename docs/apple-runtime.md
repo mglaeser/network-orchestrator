@@ -122,6 +122,38 @@ their protected path, parent, owner and type still have to agree. Symlink and
 shared-writer ambiguity produces unknown. Writable nested/aliased mounts belonging
 to another inventoried container are rejected; read-only sharing is allowed.
 
+Such a second writer is a mount of another definition that names a host path
+and is not read-only. A mount in guest memory names none. What follows about it
+is read from the vendor's source and is not captured from the tool. Its type is
+the `tmpfs` case of
+[`Filesystem.FSType`](https://github.com/apple/container/blob/1.5.0/Sources/ContainerResource/Container/Filesystem.swift#L50-L63),
+an enumeration whose encoder Swift derives, so the inventory states it as
+`{"tmpfs":{}}`. The vendor's Linux runtime gives the source of such a mount to
+the guest as a label
+([`asMount`](https://github.com/apple/container/blob/1.5.0/Sources/Services/RuntimeLinux/Server/RuntimeService.swift#L1488-L1497))
+and attaches nothing of the host for it
+([`Mount.configure`](https://github.com/apple/containerization/blob/0.47.0/Sources/Containerization/Mount.swift#L298-L317)).
+That runtime is the plugin `container-runtime-linux`, and a definition names its
+runtime in `runtimeHandler`, a member that is always written and has this name
+as its default
+([`ContainerConfiguration`](https://github.com/apple/container/blob/1.5.0/Sources/ContainerResource/Container/ContainerConfiguration.swift#L48)).
+The reader passes over a peer's mount of exactly that type, whatever its source
+says, where the peer's `runtimeHandler` is exactly `container-runtime-linux`. A
+type written in any other way, or left out, is compared as before, an empty
+source included. So is every mount of a peer that names another handler, has no
+such member or has one that is not text: nothing establishes what the type
+means there. The vendor's builder definition (`buildkit`) is created with that
+default handler and has such a mount with an empty source
+([`BuilderStart`](https://github.com/apple/container/blob/1.5.0/Sources/ContainerCommands/Builder/BuilderStart.swift#L258-L279)),
+which would otherwise be the prefix of every path. It needs no entry in
+`tolerated_stopped_peers`: that setting, described next, is for a definition
+that names the same host path. The builder's other mount, a writable export
+directory, is a host path and is compared like any other. The cited code is the
+same at tags 1.2.0 and 1.4.1, which pin the library at 0.40.1 and 0.45.0. The
+rule concerns peers: an enrolled workload's own mounts are each an enrolled
+path, so a workload that has a memory-backed mount itself still reads
+`identity-mismatch`.
+
 A site that keeps a second definition over the same writable path without ever
 running it, for example a retained test definition, can enroll that definition's
 name in the contract's `tolerated_stopped_peers`. The peer is then accepted only
