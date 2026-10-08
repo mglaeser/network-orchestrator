@@ -20,9 +20,10 @@ Every job is rendered with the launchd key `ProcessType`. Its value is
 rendered.
 
 The installer checks ownership of existing files and whether a new label is
-already loaded before any stop operation. It uses `bootout`, `bootstrap` and
-`print` only for its declared jobs. It never changes Apple runtime launch jobs,
-Login Items, automatic login or application LaunchAgents. Hardware acceptance
-must use the actual user job identity after login and reboot.
+already loaded before any stop operation, and before a rollback it makes the
+same two checks for a job that only the previous release has. It uses `bootout`,
+`bootstrap` and `print` only for its declared jobs. It never changes Apple
+runtime launch jobs, Login Items, automatic login or application LaunchAgents.
+Hardware acceptance must use the actual user job identity after login and reboot.
 
 Native reference: [launchd.plist(5)](https://keith.github.io/xcode-man-pages/launchd.plist.5.html).

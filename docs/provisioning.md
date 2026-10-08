@@ -242,6 +242,19 @@ attempt still requires the current release's exact job bytes. A journal left
 by a failed rollback of an earlier version has no scope or digests and is not
 resumed.
 
+Without a receipt there is no release to roll back, and rollback refuses. A job
+that only the previous release has is new to the installation. Rollback checks
+it as an installation checks a new job, before it takes its suspension, writes
+its journal or stops anything: a file of that job's name in the launchd
+directory refuses the rollback, and so does a label of that name that
+`launchctl print` does not report absent. Only a repeated rollback accepts such
+a file, and only with the previous release's exact bytes. Its first attempt
+writes that file before it loads the job, so with the file launchd is not asked
+about the label, and without it the label must be absent as on a first attempt.
+An upgrade or a recovery does not wait for a job that it stops and does not load
+again. A rollback started while launchd still reports such a job is refused by
+this check; nothing has changed then, and the same command is repeated.
+
 An interrupted rollback also stops and retains its phase. An unexpected foreign
 file, changed boundary, damaged intent, replaced release, unavailable restore
 material or ambiguous state inhibits recovery instead of inventing a repair.
