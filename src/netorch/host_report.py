@@ -390,6 +390,8 @@ def _applicable(instance: Instance, requirement: Requirement) -> bool:
         "components": any(item.components for item in instance.workloads),
         "transport": bool(instance.transport),
         "root-transport": bool(strategies - {"published-port", "guest-lan-alias"}),
+        # Every scope but the default one asks for the packet from outside.
+        "any-source": any(item.source_scope != "lan" for item in instance.transport),
         "bounded": any(
             strategy(item.strategy, item.version).gate == "bounded" for item in instance.transport
         ),
@@ -420,7 +422,13 @@ def _acceptance(
         or (requirement.applicability == "media-audio" and _has_return_path(instance, item))
         or (requirement.applicability == "exports" and item.direction == "export")
     }
-    if requirement.applicability in {"transport", "root-transport", "bounded", "bounded-udp"}:
+    if requirement.applicability in {
+        "transport",
+        "root-transport",
+        "any-source",
+        "bounded",
+        "bounded-udp",
+    }:
         relevant = {
             item.id
             for item in instance.transport
@@ -429,6 +437,7 @@ def _acceptance(
                 requirement.applicability == "root-transport"
                 and item.strategy not in {"published-port", "guest-lan-alias"}
             )
+            or (requirement.applicability == "any-source" and item.source_scope != "lan")
             or (
                 requirement.applicability == "bounded"
                 and strategy(item.strategy, item.version).gate == "bounded"
