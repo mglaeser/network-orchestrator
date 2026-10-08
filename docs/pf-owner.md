@@ -1224,8 +1224,9 @@ that was replaced during a repair. A report with `held: true` and
 next pass retires the rules. While a held service has profiles of this owner a
 pass ends `inhibited`, as during a pause, and prints its result. A hold that
 arrives between a pass's plan and its activation of a profile of that service
-stops that activation the way a pause does, with a failed pass that needs the
-administrator's acknowledgement.
+stops that activation the way a pause does: nothing is written for that
+profile, it is deferred with the reason `inhibited`, no acknowledgement is
+owed, and the pass after the release activates it.
 
 ## Deployment, rollback and acceptance
 
