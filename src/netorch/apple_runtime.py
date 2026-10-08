@@ -531,7 +531,21 @@ def _receipt_metadata(info: os.stat_result) -> tuple[int, ...]:
     )
 
 
-def _mounts(configuration: Mapping[str, Any]) -> list[tuple[str, bool]]:
+# The type of a mount in guest memory as every accepted version states it. The
+# vendor's `Filesystem.FSType` is an enum whose encoder Swift derives: one key
+# named after the case, holding the case's values, and `tmpfs` has none. The
+# other cases are written under `virtiofs`, `block` and `volume`.
+_MEMORY_BACKED: dict[str, dict[str, Any]] = {"tmpfs": {}}
+# What that type means is read from the vendor's own Linux runtime, so it is
+# established for a definition that names this runtime and for no other. Every
+# accepted version writes a definition's runtime into `runtimeHandler`; this
+# name is that member's default and the name of the vendor's runtime plugin.
+_LINUX_RUNTIME = "container-runtime-linux"
+
+
+def _mounts(
+    configuration: Mapping[str, Any], *, without_guest_memory: bool = False
+) -> list[tuple[str, bool]]:
     raw = configuration.get("mounts")
     if not isinstance(raw, list):
         raise RuntimeReadError()
@@ -543,6 +557,10 @@ def _mounts(configuration: Mapping[str, Any]) -> list[tuple[str, bool]]:
             or not isinstance(item.get("options"), list)
         ):
             raise RuntimeReadError()
+        # The runtime opens nothing on the host for guest memory: the source of
+        # such a mount is a label for the guest, whatever it says, not a path.
+        if without_guest_memory and item.get("type") == _MEMORY_BACKED:
+            continue
         result.append((item["source"], "ro" not in item["options"]))
     return result
 
@@ -577,7 +595,14 @@ def _check_contract(
             # stopped it writes nothing. Running, stopping or unknown is refused.
             if peer["id"] in contract.tolerated_stopped_peers and peer["state"] == "stopped":
                 continue
-            for other, other_writable in _mounts(peer["configuration"]):
+            # Only a mount with a host path can be a second writer of one. That a
+            # memory-backed mount has none is known for a peer that names the
+            # vendor's Linux runtime; under another handler, or without the
+            # member, every mount of the peer is compared.
+            guest_memory = peer["configuration"].get("runtimeHandler") == _LINUX_RUNTIME
+            for other, other_writable in _mounts(
+                peer["configuration"], without_guest_memory=guest_memory
+            ):
                 if other_writable and (
                     source == other
                     or source.startswith(other.rstrip("/") + "/")
