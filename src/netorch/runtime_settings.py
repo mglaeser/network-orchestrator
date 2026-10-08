@@ -544,12 +544,13 @@ def settings_to_dict(settings: RuntimeSettings) -> dict[str, Any]:
     if value["read_timeout_seconds"] is None:
         # As above: without the key a read has the bound it always had.
         del value["read_timeout_seconds"]
+    if value["fleet_start"] is None:
+        # Left out while undeclared: settings without it keep their bytes and digests.
+        # Dropped before the bytes are taken, so that the size bound judges the stored form.
+        del value["fleet_start"]
+    elif value["fleet_start"]["runtime_start"] is None:
+        del value["fleet_start"]["runtime_start"]
+    elif value["fleet_start"]["runtime_start"]["timeout_seconds"] is None:
+        del value["fleet_start"]["runtime_start"]["timeout_seconds"]
     result: dict[str, Any] = strict_loads(canonical_bytes(value))
-    # Left out while undeclared: settings without it keep their bytes and digests.
-    if result["fleet_start"] is None:
-        del result["fleet_start"]
-    elif result["fleet_start"]["runtime_start"] is None:
-        del result["fleet_start"]["runtime_start"]
-    elif result["fleet_start"]["runtime_start"]["timeout_seconds"] is None:
-        del result["fleet_start"]["runtime_start"]["timeout_seconds"]
     return result
