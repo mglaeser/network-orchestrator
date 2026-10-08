@@ -18,6 +18,8 @@ from typing import Any
 from .state import Observation
 
 EFFECTIVE_UNKNOWN_LIMIT = 1
+# Also the ThrottleInterval of every generated launchd job, and therefore the
+# least interval a periodic job of a deployment manifest may declare.
 LAUNCHD_INTERVAL_FLOOR_SECONDS = 10
 RECOVERY_FAILURE_EXIT_CODE = 42
 UNKNOWN_CHECK_EXIT_CODE = 1

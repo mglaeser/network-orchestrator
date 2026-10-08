@@ -9,7 +9,11 @@ directory and `gui/UID` domain. The independent forwarding job is installed only
 by a separate administrator invocation in `system`. Its fixed command pulls the
 root-owned forwarding snapshot. The coordinator cannot call it or supply a plan.
 
-Periodic tasks use `StartInterval`, `RunAtLoad` and a throttle. Long-lived Bonjour
+Periodic tasks use `StartInterval`, `RunAtLoad` and a throttle. Every job is
+rendered with `ThrottleInterval` 10, and by `launchd.plist(5)` launchd does not
+start a job more often than its throttle. A periodic job therefore declares an
+interval of at least 10 seconds; the manifest refuses a shorter one, which would
+name a schedule the job does not get. Long-lived Bonjour
 and Monit processes use `KeepAlive` without a competing interval. Jobs get a
 minimal environment, private umask and separate logs. Launchd creates a process;
 it does not supply Bonjour privacy consent or prove application readiness.
