@@ -120,9 +120,11 @@ def test_actual_service_domain_grammar_without_loading_or_starting_jobs(kind):
         count = identity.get("service count", "")
         diagnostic = {
             "category": str(exc),
-            "line_shape": re.sub(r"[^ \t{}=]", "x", line),
+            "line_shape": re.sub(r"[^ \t{}=]", "x", line[:256]),
             "labels_parsed": len(state.get("labels", ())),
-            "declared_count": int(count) if count.isascii() and count.isdecimal() else None,
+            "declared_count": int(count)
+            if len(count) <= 10 and count.isascii() and count.isdecimal()
+            else None,
         }
     assert labels is not None, diagnostic
     assert labels, "native contract fixture needs a nonempty domain"

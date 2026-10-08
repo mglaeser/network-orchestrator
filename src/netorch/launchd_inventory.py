@@ -91,15 +91,21 @@ def domain_services(report: str, domain: str) -> frozenset[str]:
             stack.append(key)
             continue
         if stack == ["domain"]:
-            if indent != 1 or " = " not in text:
+            if " = " not in text:
                 raise ValueError("invalid launchd domain field")
             key, value = text.split(" = ", 1)
             if key in {"type", "handle", "service count"}:
+                if indent != 1:
+                    raise ValueError("misplaced launchd domain identity")
                 if key in identity:
                     raise ValueError("repeated launchd domain identity")
                 identity[key] = value
             elif key == "services":
                 raise ValueError("invalid launchd services block")
+            # Native descriptive scalar fields can have extra tab alignment.
+            # They supply no absence evidence. Identity fields and structural
+            # blocks retain their exact indentation; displaced rows were refused
+            # above, so alignment cannot conceal an actual service-table row.
     if stack or service_blocks != 1 or set(identity) != {"type", "handle", "service count"}:
         raise ValueError("incomplete launchd domain inventory")
     kind = domain.split("/", 1)[0]

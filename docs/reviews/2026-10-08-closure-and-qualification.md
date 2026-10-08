@@ -72,8 +72,11 @@ Executable evidence:
   exhausted observation budgets. The eight core counterexamples failed before
   the correction and pass after it.
 - `test_launchd_inventory.py`: closed envelope, count, row, duplicate and boundary
-  checks plus actual read-only macOS userspace grammar. The combined 99 tests pass
-  locally; the parser has complete statement and branch coverage in that group.
+  checks plus actual read-only macOS userspace grammar. Together with the 16
+  metadata-alignment regressions, the combined 115 tests pass locally; the parser
+  has complete statement and branch coverage in that group. Hosted CI exposed an
+  extra-indented descriptive scalar; the correction accepts its alignment without
+  relaxing service rows, identity, counts or structural boundaries.
 - The existing runtime and PF observation group passes 639 tests (three hosted
   topology checks skipped locally). Deadline scenarios explicitly account for
   the six added inventory reads; no production deadline is increased.
