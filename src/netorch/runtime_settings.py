@@ -18,6 +18,19 @@ _VERSIONS = {"1.2.0", "1.4.1", "1.5.0"}
 # the same at tags 1.2.0, 1.4.1 and 1.5.0): any name its inventory can hold.
 _PEER = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{1,62}\Z")
 _UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\Z")
+# Seconds one complete read may take without `read_timeout_seconds`. It is also
+# the least that can be stated: a smaller bound would be a new way to make every
+# read unknown.
+READ_TIMEOUT_DEFAULT = 8
+# Seconds that whatever waits for one read waits beyond the bound of that read.
+# A convention this code already keeps, not a measured figure: the owner protocol
+# ends its endpoint after ten seconds for a read of eight, and the shipped
+# manifest gives the probe's check ten.
+READ_TIMEOUT_MARGIN = 2
+# The greatest bound that can be stated: the largest timeout a monitor's check
+# can be given (120 seconds in the deployment schema) less that margin. The
+# bundle renderer applies the same margin to a probe whose settings state a bound.
+READ_TIMEOUT_MAXIMUM = 120 - READ_TIMEOUT_MARGIN
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,6 +124,8 @@ class RuntimeSettings:
     start_timeout_seconds: int | None = None
     fleet_start: FleetStart | None = None
     restart_budget: RestartBudget | None = None
+    # Bound of one complete read; unset keeps READ_TIMEOUT_DEFAULT.
+    read_timeout_seconds: int | None = None
 
     @classmethod
     def from_dict(cls, value: Any) -> RuntimeSettings:
@@ -249,6 +264,7 @@ def parse_settings(value: Any) -> RuntimeSettings:
             "start_timeout_seconds",
             "fleet_start",
             "restart_budget",
+            "read_timeout_seconds",
         },
     )
     if (
@@ -264,6 +280,15 @@ def parse_settings(value: Any) -> RuntimeSettings:
     if type(legacy) is not bool or (data["accepted_version"] == "1.2.0" and not legacy):
         raise ValueError("legacy runtime requires explicit risk acknowledgment")
     start_timeout = _start_timeout(data)
+    read_timeout = data.get("read_timeout_seconds")
+    if "read_timeout_seconds" in data and (
+        type(read_timeout) is not int
+        or not READ_TIMEOUT_DEFAULT <= read_timeout <= READ_TIMEOUT_MAXIMUM
+    ):
+        raise ValueError(
+            "read timeout must be a whole number of seconds from "
+            f"{READ_TIMEOUT_DEFAULT} to {READ_TIMEOUT_MAXIMUM}"
+        )
     account = _object(data["account"], {"uid", "gid", "home"})
     if (
         type(account["uid"]) is not int
@@ -424,6 +449,7 @@ def parse_settings(value: Any) -> RuntimeSettings:
         start_timeout_seconds=start_timeout,
         fleet_start=fleet,
         restart_budget=budget,
+        read_timeout_seconds=read_timeout,
     )
 
 
@@ -440,6 +466,9 @@ def settings_to_dict(settings: RuntimeSettings) -> dict[str, Any]:
     if value["restart_budget"] is None:
         # Left out while there is no budget, for the same reason.
         del value["restart_budget"]
+    if value["read_timeout_seconds"] is None:
+        # As above: without the key a read has the bound it always had.
+        del value["read_timeout_seconds"]
     result: dict[str, Any] = strict_loads(canonical_bytes(value))
     # Left out while undeclared: settings without it keep their bytes and digests.
     if result["fleet_start"] is None:

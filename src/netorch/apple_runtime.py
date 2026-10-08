@@ -17,10 +17,10 @@ import re
 import stat
 import sys
 import time
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import replace
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 from .codec import canonical_bytes, canonical_json, digest, strict_load, strict_loads
 from .config import config_digest, load_config, parse_config, profile_digest, to_dict
@@ -29,6 +29,7 @@ from .model import Config, Profile
 from .pf_owner import reject_acl as reject_privileged_acl
 from .process import OutputLimit, ProcessTimeout, Result, run
 from .runtime_settings import (
+    READ_TIMEOUT_DEFAULT,
     FileIdentity,
     FleetStart,
     RestartBudget,
@@ -104,7 +105,10 @@ class Reader:
     def __init__(self, settings: RuntimeSettings, runner: Runner = run) -> None:
         self.settings = settings
         self.runner = runner
-        self.deadline = time.monotonic() + 8
+        # One complete read ends here, after the bound the settings state for
+        # it. Each call still gets no more than its own smaller bound.
+        seconds = settings.read_timeout_seconds
+        self.deadline = time.monotonic() + (READ_TIMEOUT_DEFAULT if seconds is None else seconds)
         self.checked_acls: set[ACLKey] = set()
 
     def remaining(self, maximum: float) -> float:
@@ -1167,12 +1171,16 @@ def handle_request(
         or request.get("owner") != settings.owner
     ):
         raise ValueError("invalid runtime owner envelope")
+    # This endpoint answers the owner protocol, whose clients wait ten seconds
+    # for it. Its reads keep the bound that fits into those: a longer read would
+    # be cut off from outside instead of ending as unknown by itself.
+    reading = replace(settings, read_timeout_seconds=None)
     if request.get("operation") == "observe":
         if set(request) != {"protocol_version", "operation", "owner", "config"} or config_digest(
             parse_config(canonical_bytes(request["config"]))
         ) != config_digest(config):
             raise ValueError("runtime policy differs from installed policy")
-        full = observe_runtime(config, settings, runner)
+        full = observe_runtime(config, reading, runner)
         result = snapshot_to_dict(
             Snapshot(
                 full.observed_at,
@@ -1211,7 +1219,7 @@ def handle_request(
             or request["profile_digest"] != profile_digest(config, profile)
         ):
             raise ValueError("publication authority mismatch")
-        snapshot = observe_runtime(config, settings, runner)
+        snapshot = observe_runtime(config, reading, runner)
         observed = snapshot.profiles[profile.id]
         # Native published sockets are part of the workload definition. The
         # networking executor must never stop or recreate an application to
@@ -1242,8 +1250,27 @@ def handle_request(
     return {"protocol_version": 1, "owner": settings.owner, "result": result}
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+class _Reading(argparse.ArgumentParser):
+    """This module's command line for a caller that only asks what it says.
+
+    Arguments that `main` would refuse, or answer with its help, raise here.
+    Nothing is printed and the process is not ended.
+    """
+
+    def error(self, message: str) -> NoReturn:
+        raise ValueError(message)
+
+    def exit(self, status: int = 0, message: str | None = None) -> NoReturn:
+        raise ValueError("the command line names no command to run")
+
+    def print_help(self, file: Any = None) -> None:
+        return None
+
+
+def _command_line(
+    factory: type[argparse.ArgumentParser] = argparse.ArgumentParser,
+) -> argparse.ArgumentParser:
+    parser = factory(description=__doc__)
     parser.add_argument("--settings", required=True, type=Path)
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("request")
@@ -1257,7 +1284,25 @@ def main(argv: list[str] | None = None) -> int:
     for command in ("probe", "start"):
         item = commands.add_parser(command)
         item.add_argument("--service", required=True)
-    args = parser.parse_args(argv)
+    return parser
+
+
+def probe_settings(arguments: Sequence[str]) -> str | None:
+    """The settings file that these arguments make this module read as the probe.
+
+    None for every other command and for arguments that `main` would refuse.
+    They are read with the parser `main` uses, so every spelling that `main`
+    accepts is the same command here. Nothing is opened and nothing is run.
+    """
+    try:
+        args = _command_line(_Reading).parse_args(list(arguments))
+    except ValueError:
+        return None
+    return str(args.settings) if args.command == "probe" else None
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _command_line().parse_args(argv)
     try:
         if args.command == "start":
             require_mutation_qualified("workload-recovery")
