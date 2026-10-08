@@ -318,7 +318,9 @@ COMMAND_FAILURES: dict[str, tuple[Failure, str | None]] = {
     "interface-not-acknowledged": (without_interface_line, "malformed"),
     "interface-acknowledged-twice": (with_interface_line_twice, "malformed"),
     "line-that-is-no-reply": (with_line("unexpected line"), "malformed"),
-    "time-limit": (timed_out, None),
+    # The reader raises the runner's time limit as its own failure, with the
+    # reason a scanner pass has always written for it.
+    "time-limit": (timed_out, "malformed"),
     "output-bound": (flooded, None),
 }
 # The diagnostics each command prints for one request.

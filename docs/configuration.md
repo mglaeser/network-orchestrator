@@ -129,7 +129,10 @@ given for the same entry without the setting does not apply to it.
 `misses` is the entry's own miss tolerance, an integer from 1 to 8: the number
 of consecutive completed passes that may fail to find a record of this entry
 before its discovery owner withdraws that record. With 1 a record is withdrawn
-in the first pass that does not find it. An entry that states the member
+in the first pass that does not find it. Whether a pass that fails counts as
+well is the owner's own matter; the bundled owner counts a read that did not
+complete when its settings say so (`failed_pass`). An entry that states the
+member
 replaces its owner's own setting for that entry alone, and an entry without it
 follows that setting; for the bundled owner that is `miss_tolerance` of its
 settings file ([Bonjour owner](bonjour-owner.md#supervision-leases-and-recovery)).
