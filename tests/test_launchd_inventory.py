@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import contextlib
 import os
+import re
 import sys
 from collections.abc import Callable
 
@@ -105,7 +105,24 @@ def test_actual_service_domain_grammar_without_loading_or_starting_jobs(kind):
     # Keep a failed native parse from printing host paths or unrelated labels in
     # pytest's argument/traceback display. Evidence is the shape/count, not data.
     labels = None
-    with contextlib.suppress(ValueError):
+    diagnostic = {}
+    try:
         labels = domain_services(result.stdout.decode("utf-8", "strict"), domain)
-    assert labels is not None, "native domain format is unsupported; no absence proved"
+    except ValueError as exc:
+        # Exception messages are fixed parser categories. Reveal structure/counts
+        # only, never native paths, environment values or unrelated job labels.
+        trace = exc.__traceback__
+        while trace is not None and trace.tb_next is not None:
+            trace = trace.tb_next
+        state = {} if trace is None else trace.tb_frame.f_locals
+        line = state.get("line", "")
+        identity = state.get("identity", {})
+        count = identity.get("service count", "")
+        diagnostic = {
+            "category": str(exc),
+            "line_shape": re.sub(r"[^ \t{}=]", "x", line),
+            "labels_parsed": len(state.get("labels", ())),
+            "declared_count": int(count) if count.isascii() and count.isdecimal() else None,
+        }
+    assert labels is not None, diagnostic
     assert labels, "native contract fixture needs a nonempty domain"
