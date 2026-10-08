@@ -219,11 +219,12 @@ def sized(enrolled: Any, count: int) -> tuple[Any, Any, dict[str, Any]]:
         (1, (), 12),
         (4, (), 16),
         (8, (), 20),
-        # A stopped row needs three independent guest-job reads, less the
-        # port-range read where it is the stopped one.
-        (4, ("example-camera",), 19),
-        (4, ("example-media-controller",), 18),
-        (8, ("example-relay",), 23),
+        # A stopped row needs three exact guest-job reads. Three domain
+        # inventories and their final three rechecks exclude historical handlers
+        # once per pass, less the port-range read where it is the stopped one.
+        (4, ("example-camera",), 25),
+        (4, ("example-media-controller",), 24),
+        (8, ("example-relay",), 29),
         # Every workload is stopped: the all-stopped guard ends the pass after
         # the inventory, whatever the size of the fleet.
         (1, ("example-camera",), 7),
@@ -257,17 +258,17 @@ def test_one_read_makes_this_many_calls(
     assert acl_paths(paced) == len(Path(settings.contracts[0].mounts[0].path).parents) + count
     vendor = [name for name, _ in paced.calls if name.startswith("vendor ")]
     # Version, the network twice, the inventory, then the per-workload reads.
-    assert len(vendor) == calls - 7 - 3 * len(stopped)
+    assert len(vendor) == calls - 7 - 3 * len(stopped) - (6 if stopped else 0)
 
 
 @pytest.mark.parametrize(
     "count,stopped,calls",
-    [(1, False, 16), (4, False, 20), (8, False, 24), (1, True, 19), (4, True, 31), (8, True, 47)],
+    [(1, False, 16), (4, False, 20), (8, False, 24), (1, True, 25), (4, True, 37), (8, True, 53)],
 )
 def test_one_read_with_the_fleet_start_evidence(
     enrolled: Any, monkeypatch: pytest.MonkeyPatch, count: int, stopped: bool, calls: int
 ) -> None:
-    """Four more calls for the API job, and three for each guest listed as stopped."""
+    """API evidence, exact stopped jobs and one fenced domain inventory per pass."""
     config, settings, inner = declared(sized(enrolled, count))
     if stopped:
         inner.stop_everything()
@@ -302,9 +303,6 @@ BASE_READ = [
     ("vendor network", 1.875),
     ("ifconfig", 1.4375),
 ]
-# The same for a whole recovery of one stopped workload, 0.125 seconds a call:
-# SHA-256 of the list of calls and bounds, taken on that tree.
-BASE_RECOVERY = "1955c134e0d5e1bbdf5ed6ae442e5899db2e0e9dfe65d943164365c285ec9337"
 
 
 def test_without_the_member_a_read_is_the_read_it_was(
@@ -333,8 +331,35 @@ def test_default_recovery_includes_independent_stopped_job_reads(
     paced = Paced(monkeypatch, inner, step=0.125)
     result = runtime.recover_service(config, settings, "camera", paced)
     assert result.services["camera"].state == "present"
-    assert len(paced.calls) == 2 * 19 + 16 + 1
-    assert hashlib.sha256(repr(paced.calls).encode()).hexdigest() == BASE_RECOVERY
+    # At this pace each read fits without shortening any per-call cap. Build the
+    # explicit transcript from the independently specified running pass above:
+    # three exact-label reads plus three historical inventories precede the
+    # generation fence; three fresh inventories finish each stopped pass.
+    running = [(name, 4 if name.startswith("vendor ") else 3) for name, _ in BASE_READ]
+    stopped = [*running[:12], *[("launchctl", 3)] * 6, *running[12:], *[("launchctl", 3)] * 3]
+    expected = [*stopped, *stopped, ("vendor start", 4), *running]
+    assert len(paced.calls) == len(expected) == 2 * 25 + 16 + 1
+    assert paced.calls == expected
+    assert paced.elapsed == len(expected) * 0.125
+    # A count alone could conceal repeated reads of one domain. Prove the exact
+    # three identities and the independent final reads for both stopped passes.
+    domains = ("system", f"gui/{settings.account.uid}", f"user/{settings.account.uid}")
+    network = settings.networks[0]
+    helper = f"{network.helper_domain}/{network.helper_label}"
+    label = "com.apple.container.container-runtime-linux.example-camera"
+    stopped_targets = [
+        helper,
+        *(f"{domain}/{label}" for domain in domains),
+        *domains,
+        helper,
+        *domains,
+    ]
+    assert [argv[2] for argv, _ in inner.calls if argv[:2] == ["/bin/launchctl", "print"]] == [
+        *stopped_targets,
+        *stopped_targets,
+        helper,
+        helper,
+    ]
 
 
 def _authored() -> dict[str, Any]:
@@ -689,12 +714,12 @@ def test_a_stopped_fleet_under_load_is_proven_stopped_only_with_the_member(
     ):
         settings = with_bound(declared_settings, seconds)
         assert "fleet_start" in settings_to_dict(settings)
-        # 31 calls of 0.4375 seconds: includes all three runtime domains.
+        # 37 calls of 0.4375 seconds: exact jobs plus fenced domain inventories.
         paced = Paced(monkeypatch, inner, step=0.4375)
         observed = runtime.observe_runtime(config, settings, paced)
         assert states(observed) == {outcome}
         if seconds is not None:
-            assert paced.elapsed == 31 * 0.4375
+            assert paced.elapsed == 37 * 0.4375
             # The service manager's answers are single calls with their own cap.
             assert max(paced.bounds("launchctl", "ps")) == 3
 
@@ -779,7 +804,7 @@ def test_each_read_of_a_recovery_has_the_whole_bound(
     assert result.services["camera"].state == "present"
     # Two stopped reads include job absence; the final running read does not.
     # One bound shared by all three would run out in the second read.
-    assert paced.elapsed == (2 * 19 + 16 + 1) * 0.75
+    assert paced.elapsed == (2 * 25 + 16 + 1) * 0.75
     assert paced.bounds("vendor --version") == [4, 4, 4]
     # The start call is one call and keeps its own bound.
     assert paced.bounds("vendor start") == [4]

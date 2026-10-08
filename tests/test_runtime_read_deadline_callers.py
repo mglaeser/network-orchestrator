@@ -827,7 +827,10 @@ def test_while_one_recovery_reads_another_ends_busy_and_so_does_an_operator_comm
 ) -> None:
     """A recovery holds the state lock for three reads; nobody else gets it meanwhile."""
     config, plain, items = enrolled
-    settings = with_bound(plain, 20)
+    # Two stopped guests require 28 reads, including historical-job inventory
+    # fences: 21 seconds at this injected pace. The configured 25-second bound
+    # admits that pass; no production default or per-call cap is changed.
+    settings = with_bound(plain, 25)
     inner = FakeRunner(settings, items)
     for name in ("example-camera", "example-resolver"):
         inner.items[name]["status"]["state"] = "stopped"
@@ -844,7 +847,7 @@ def test_while_one_recovery_reads_another_ends_busy_and_so_does_an_operator_comm
                     config, settings, "resolver", paced, clock=clock, sleep=clock.sleep
                 )
             waited.append(sum(clock.slept))
-        if len(paced.calls) in {0, 22, 44, 63}:
+        if len(paced.calls) in {0, 28, 56, 81}:
             # What `pause` and the coordinator's pass do first: at the start of
             # the first two reads, at the start call and at the last call of all.
             with pytest.raises(Busy), Store(Path(settings.state_dir)).lock():
@@ -857,10 +860,10 @@ def test_while_one_recovery_reads_another_ends_busy_and_so_does_an_operator_comm
     assert result.services["camera"].state == "present"
     # The other workload's recovery gave up after its five seconds and read nothing.
     assert waited == [runtime.START_LOCK_WAIT_SECONDS] == [5.0]
-    assert len(paced.calls) == 2 * 22 + 19 + 1 and paced.bounds("vendor start") == [4]
+    assert len(paced.calls) == 2 * 28 + 25 + 1 and paced.bounds("vendor start") == [4]
     # Both stopped peers require job reads; the final pass has one stopped peer.
-    assert busy == [0.0, 16.5, 33.0, 47.25]
-    assert paced.elapsed == (2 * 22 + 19 + 1) * 0.75
+    assert busy == [0.0, 21.0, 42.0, 60.75]
+    assert paced.elapsed == (2 * 28 + 25 + 1) * 0.75
     with Store(Path(settings.state_dir)).lock():
         pass
 

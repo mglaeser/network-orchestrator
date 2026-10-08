@@ -26,6 +26,7 @@ from typing import Any, NoReturn
 from .codec import canonical_bytes, canonical_json, digest, strict_loads
 from .config import config_digest, load_config, parse_config, profile_digest, to_dict
 from .darwin_volume import volume_uuid
+from .launchd_inventory import domain_services
 from .model import Config, Profile
 from .pf_owner import reject_acl as reject_privileged_acl
 from .process import OutputLimit, ProcessTimeout, Result, run
@@ -262,6 +263,8 @@ class Reader:
         seconds = settings.read_timeout_seconds
         self.deadline = time.monotonic() + (READ_TIMEOUT_DEFAULT if seconds is None else seconds)
         self.checked_acls: set[ACLKey] = set()
+        self._domain_services: dict[str, frozenset[str]] | None = None
+        self._absent_jobs: set[str] = set()
 
     def remaining(self, maximum: float) -> float:
         remaining = min(maximum, self.deadline - time.monotonic())
@@ -438,6 +441,42 @@ class Reader:
         for domain in domains:
             if not self.job_absent(domain, label):
                 raise RuntimeReadError("generation-mismatch")
+        if self._domain_services is None:
+            self._domain_services = self._read_domain_services()
+        self._require_no_guest_job(self._domain_services, name)
+        # Only successful absence proofs are watched. A failed workload does not
+        # invalidate independent workloads that were observed successfully.
+        self._absent_jobs.add(name)
+
+    def _read_domain_services(self) -> dict[str, frozenset[str]]:
+        uid = self.settings.account.uid
+        return {
+            domain: domain_services(self.tool(["/bin/launchctl", "print", domain]), domain)
+            for domain in ("system", f"gui/{uid}", f"user/{uid}")
+        }
+
+    @staticmethod
+    def _require_no_guest_job(services: dict[str, frozenset[str]], name: str) -> None:
+        # Historical handlers need not match the current configuration's spelling
+        # or remain installed. Their labels are live native service identities.
+        # Dotted container names and dotted old handlers can be ambiguous; refuse
+        # that ambiguity instead of decoding a reassuring but unproven handler.
+        suffix = "." + name
+        if any(
+            label.startswith(VENDOR_RUNTIME_PREFIX)
+            and label.endswith(suffix)
+            and len(label) > len(VENDOR_RUNTIME_PREFIX) + len(suffix)
+            for labels in services.values()
+            for label in labels
+        ):
+            raise RuntimeReadError("generation-mismatch")
+
+    def fence_absent_jobs(self) -> None:
+        """Reread complete inventories after the other snapshot fences."""
+        if self._absent_jobs:
+            services = self._read_domain_services()
+            for name in self._absent_jobs:
+                self._require_no_guest_job(services, name)
 
     def runtime_job(self, fleet: FleetStart, start: RuntimeStart, domain: str) -> str:
         """The API job as the declared start loads it: `absent`, `idle` or `running`.
@@ -1215,6 +1254,7 @@ def observe_runtime(
             raise RuntimeReadError("generation-mismatch")
         if fleet is not None and api != reader.api(fleet, domain):
             raise RuntimeReadError("generation-mismatch")
+        reader.fence_absent_jobs()
     except (ValueError, OSError, RuntimeReadError, ProcessTimeout, OutputLimit) as exc:
         generation = None
         services = {
@@ -1589,10 +1629,11 @@ def runtime_state(settings: RuntimeSettings, runner: Runner = run) -> str:
     reader.version()
     check_launch_file(settings, fleet, start, reader)
     check_configuration(settings, start)
-    # An earlier start from a background session registers the job in the
-    # account's other domain; a job there is as loaded as one here.
-    if not reader.job_absent(f"user/{settings.account.uid}", fleet.api_label):
-        raise RuntimeReadError("generation-mismatch")
+    # Earlier API instances may have registered in either other supported
+    # domain. Neither a loaded job nor an unavailable read proves absence.
+    for other_domain in ("system", f"user/{settings.account.uid}"):
+        if not reader.job_absent(other_domain, fleet.api_label):
+            raise RuntimeReadError("generation-mismatch")
     if job == "absent":
         # "No such job" is evidence only while the domain itself answers.
         listing = reader.runner(

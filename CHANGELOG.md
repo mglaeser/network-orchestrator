@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.4.1 — historical runtime job proof
+
+- Refuse stopped-workload and retained-peer readiness when any loaded Apple
+  runtime job still names the container, including a historical runtime handler.
+- Bound and validate complete service-domain inventories; recheck absence at the
+  end of the observation. Missing domains and unknown output cannot authorize
+  recovery. Keep current-label checks as independent evidence.
+- Refuse a vendor-runtime start if its API job remains loaded in the system
+  domain, or that cross-domain read is unavailable.
+- Add adversarial history, lifecycle, parser and native userspace grammar tests.
+  Preserve the closed native qualification gate and existing production owners.
+- Record repository closure separately from remaining production parity and
+  hardware acceptance in the [closure record](docs/reviews/2026-10-08-closure-and-qualification.md).
+
 ## 0.4.0 — reviewed extraction and retained owner contracts
 
 - Review and integrate the 86 proposals #24–109 with exact-head dispositions,

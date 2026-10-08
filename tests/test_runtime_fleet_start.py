@@ -34,7 +34,7 @@ from netorch.runtime_settings import (
 )
 from netorch.safety_contract import recovery_exit_code
 from netorch.state import Intent, Observation, Snapshot, intent_to_dict
-from tests.test_apple_runtime import FakeRunner, enrolled
+from tests.test_apple_runtime import FakeRunner, domain_report, enrolled
 from tests.test_runtime_settings import authored
 
 __all__ = ["enrolled"]
@@ -121,6 +121,17 @@ class FleetRunner(FakeRunner):
             if self.pid_at_pass is not None:
                 self.api_pid = self.pid_at_pass(self.passes)
         if argv[:2] == ["/bin/launchctl", "print"]:
+            if argv[2] in {
+                "system",
+                f"gui/{self.settings.account.uid}",
+                f"user/{self.settings.account.uid}",
+            }:
+                self.calls.append((argv, kwargs))
+                labels = {
+                    f"{JOB_PREFIX}{self.items[name]['configuration']['runtimeHandler']}.{name}"
+                    for name in self.jobs.get(argv[2], set())
+                }
+                return Result(0, domain_report(argv[2], labels), b"")
             domain, _, label = argv[2].rpartition("/")
             if label == API_LABEL:
                 self.calls.append((argv, kwargs))
