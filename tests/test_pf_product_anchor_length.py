@@ -448,8 +448,12 @@ COMPONENT = 63
 
 
 def script_expression() -> str:
-    """The anchor expression of the shipped script, wherever the script states it."""
-    found = set(re.findall(r"\^com\\\.apple/[^\s'\"]+\$", SCRIPT.read_text()))
+    """The anchor expression of the shipped script: the one its argument check applies.
+
+    The anchor is the script's second argument. A sibling's name, which the
+    script checks against an expression of its own, is not the anchor.
+    """
+    found = set(re.findall(r"\"\$2\" =~ (\^com\\\.apple/[^\s'\"]+\$)", SCRIPT.read_text()))
     assert len(found) == 1, found
     return found.pop()
 
