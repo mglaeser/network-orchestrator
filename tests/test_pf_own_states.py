@@ -1,7 +1,7 @@
 """A retained state of a record is one that the record's own rules can have created.
 
-Every address and port is a documentation value and every kernel tool is a
-fake. The row forms are those the state reader accepts; which form a macOS
+Addresses are documentation values, ports are synthetic choices and every kernel
+tool is a fake. The row forms are those the state reader accepts; which form a macOS
 state table shows for a redirect or a return flow is not established here.
 """
 
@@ -39,7 +39,7 @@ REDIRECTED = f"ALL udp {RESOLVER}:53 <- {HOST}:53 <- {CLIENT}:54321 MULTIPLE:MUL
 RETURNED = f"ALL udp {MEDIA}:45001 -> {HOST}:45001 -> {CLIENT}:7000 SINGLE:MULTIPLE"
 # Connections a guest opens itself, through the vendor's own translation.
 OWN_TCP = f"ALL tcp {RESOLVER}:51000 -> {HOST}:51000 -> {PEER}:443 ESTABLISHED:ESTABLISHED"
-OWN_UDP = f"ALL udp {RESOLVER}:40000 -> {HOST}:40000 -> {PEER}:53 SINGLE:MULTIPLE"
+OWN_UDP = f"ALL udp {RESOLVER}:49211 -> {HOST}:49211 -> {PEER}:53 SINGLE:MULTIPLE"
 # A state of the redirect whose peer is the host's own LAN address: the rule
 # matches every source inside the LAN prefix, and that address is one of them.
 FROM_HOST = f"ALL udp {RESOLVER}:53 <- {HOST}:53 <- {HOST}:54321 SINGLE:NO_TRAFFIC"
@@ -319,7 +319,7 @@ def test_a_state_the_rules_of_the_record_can_have_created_is_retained(
         pytest.param(
             "dns-udp",
             RESOLVER,
-            f"all udp {RESOLVER}:40000 -> {CLIENT}:53 SINGLE:MULTIPLE",
+            f"all udp {RESOLVER}:49211 -> {CLIENT}:53 SINGLE:MULTIPLE",
             id="the peer has the port, the target has not",
         ),
         pytest.param(
@@ -340,7 +340,7 @@ def test_a_state_the_rules_of_the_record_can_have_created_is_retained(
         pytest.param(
             "dns-udp",
             RESOLVER,
-            f"all udp {CAMERA}:40000 -> {RESOLVER}:53 SINGLE:MULTIPLE",
+            f"all udp {CAMERA}:49211 -> {RESOLVER}:53 SINGLE:MULTIPLE",
             id="the peer is another guest",
         ),
         pytest.param(

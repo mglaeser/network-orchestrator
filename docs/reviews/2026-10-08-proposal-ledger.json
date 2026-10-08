@@ -1,0 +1,1539 @@
+{
+  "schema_version": 1,
+  "baseline": "c419a62fc3ec9846556b66d1c4be891a18cb6fda",
+  "integration_candidate": "b067431",
+  "review_scope": "All109existingPRs;86newexactheads;privateimplementationfitcheckedwithoutproductionmutation",
+  "native_acceptance": false,
+  "prior_prs": [
+    {
+      "number": 1,
+      "state": "closed",
+      "merged": false,
+      "merge_commit_in_baseline": false,
+      "head": "c5b47d8d4dfd79a30e2d1294000b5300c92c65c1",
+      "disposition": "historical-closed-incorporated-by-prior-consolidation",
+      "evidence": "Prior October6 review disposition retained; baseline ownership/parser/guard regression tests re-run in combined suite."
+    },
+    {
+      "number": 2,
+      "state": "closed",
+      "merged": false,
+      "merge_commit_in_baseline": false,
+      "head": "e36fbcbeff5ee0b0ae6ae64b19fbe986df7db01c",
+      "disposition": "historical-closed-incorporated-by-prior-consolidation",
+      "evidence": "Prior October6 review disposition retained; baseline ownership/parser/guard regression tests re-run in combined suite."
+    },
+    {
+      "number": 3,
+      "state": "closed",
+      "merged": false,
+      "merge_commit_in_baseline": false,
+      "head": "873f730488157e667668a646dfab7483023383a8",
+      "disposition": "historical-closed-incorporated-by-prior-consolidation",
+      "evidence": "Prior October6 review disposition retained; baseline ownership/parser/guard regression tests re-run in combined suite."
+    },
+    {
+      "number": 4,
+      "state": "closed",
+      "merged": true,
+      "merge_commit_in_baseline": true,
+      "head": "52997e57ec8c6d6d4c54ebefd715a0b8f4aafde7",
+      "disposition": "historical-merged-revalidated-in-baseline",
+      "evidence": "Prior October6 review disposition retained; baseline ownership/parser/guard regression tests re-run in combined suite."
+    },
+    {
+      "number": 5,
+      "state": "closed",
+      "merged": true,
+      "merge_commit_in_baseline": true,
+      "head": "aea0a3e95b5199df93e121a9cc19c28fcf7038bd",
+      "disposition": "historical-merged-revalidated-in-baseline",
+      "evidence": "Prior October6 review disposition retained; baseline ownership/parser/guard regression tests re-run in combined suite."
+    },
+    {
+      "number": 6,
+      "state": "closed",
+      "merged": true,
+      "merge_commit_in_baseline": true,
+      "head": "60fc9d100fd60e02e3237d48741fb663d3d8ea68",
+      "disposition": "historical-merged-revalidated-in-baseline",
+      "evidence": "Prior October6 review disposition retained; baseline ownership/parser/guard regression tests re-run in combined suite."
+    },
+    {
+      "number": 7,
+      "state": "closed",
+      "merged": false,
+      "merge_commit_in_baseline": false,
+      "head": "8e28f5c0a8d86f9cc5475bd1575a0f5925d6c6be",
+      "disposition": "historical-closed-incorporated-by-prior-consolidation",
+      "evidence": "Prior October6 review disposition retained; baseline ownership/parser/guard regression tests re-run in combined suite."
+    },
+    {
+      "number": 8,
+      "state": "closed",
+      "merged": false,
+      "merge_commit_in_baseline": false,
+      "head": "7e1c5232a49eb03e93850e473a85f8f154d3f0c0",
+      "disposition": "historical-closed-incorporated-by-prior-consolidation",
+      "evidence": "Prior October6 review disposition retained; baseline ownership/parser/guard regression tests re-run in combined suite."
+    },
+    {
+      "number": 9,
+      "state": "closed",
+      "merged": false,
+      "merge_commit_in_baseline": false,
+      "head": "bac2b771c9e30a4551d8580eb8b33d5d931d603b",
+      "disposition": "historical-closed-incorporated-by-prior-consolidation",
+      "evidence": "Prior October6 review disposition retained; baseline ownership/parser/guard regression tests re-run in combined suite."
+    },
+    {
+      "number": 10,
+      "state": "closed",
+      "merged": false,
+      "merge_commit_in_baseline": false,
+      "head": "bb3f33dd5e780c2820fd9ec2e29335c47744ad7b",
+      "disposition": "historical-closed-incorporated-by-prior-consolidation",
+      "evidence": "Prior October6 review disposition retained; baseline ownership/parser/guard regression tests re-run in combined suite."
+    },
+    {
+      "number": 11,
+      "state": "closed",
+      "merged": false,
+      "merge_commit_in_baseline": false,
+      "head": "92249525d1a54f53ad9cbceb02c9263d32d0d0f5",
+      "disposition": "historical-closed-incorporated-by-prior-consolidation",
+      "evidence": "Prior October6 review disposition retained; baseline ownership/parser/guard regression tests re-run in combined suite."
+    },
+    {
+      "number": 12,
+      "state": "closed",
+      "merged": false,
+      "merge_commit_in_baseline": false,
+      "head": "0c2bfad2ab858db26e84a928f1b104433e71f8a7",
+      "disposition": "historical-closed-incorporated-by-prior-consolidation",
+      "evidence": "Prior October6 review disposition retained; baseline ownership/parser/guard regression tests re-run in combined suite."
+    },
+    {
+      "number": 13,
+      "state": "closed",
+      "merged": false,
+      "merge_commit_in_baseline": false,
+      "head": "77560d05a89b36055b1050924d7caf0a367e7a64",
+      "disposition": "historical-closed-incorporated-by-prior-consolidation",
+      "evidence": "Prior October6 review disposition retained; baseline ownership/parser/guard regression tests re-run in combined suite."
+    },
+    {
+      "number": 14,
+      "state": "closed",
+      "merged": false,
+      "merge_commit_in_baseline": false,
+      "head": "bad386ca8061a10ab5f6397a625488588553e40e",
+      "disposition": "historical-closed-incorporated-by-prior-consolidation",
+      "evidence": "Prior October6 review disposition retained; baseline ownership/parser/guard regression tests re-run in combined suite."
+    },
+    {
+      "number": 15,
+      "state": "closed",
+      "merged": false,
+      "merge_commit_in_baseline": false,
+      "head": "b0e6d8d0b031f3ea856929b7a820e7ef9e5c601e",
+      "disposition": "historical-closed-incorporated-by-prior-consolidation",
+      "evidence": "Prior October6 review disposition retained; baseline ownership/parser/guard regression tests re-run in combined suite."
+    },
+    {
+      "number": 16,
+      "state": "closed",
+      "merged": false,
+      "merge_commit_in_baseline": false,
+      "head": "c9ee3fd223279982b4d412792d37866c5731c356",
+      "disposition": "historical-closed-incorporated-by-prior-consolidation",
+      "evidence": "Prior October6 review disposition retained; baseline ownership/parser/guard regression tests re-run in combined suite."
+    },
+    {
+      "number": 17,
+      "state": "closed",
+      "merged": false,
+      "merge_commit_in_baseline": false,
+      "head": "21c49201363a2a5e355aaee098600cdb6e37fd74",
+      "disposition": "historical-closed-incorporated-by-prior-consolidation",
+      "evidence": "Prior October6 review disposition retained; baseline ownership/parser/guard regression tests re-run in combined suite."
+    },
+    {
+      "number": 18,
+      "state": "closed",
+      "merged": false,
+      "merge_commit_in_baseline": false,
+      "head": "583b5b83c1affbf87916678843d47a7e26c41109",
+      "disposition": "historical-closed-incorporated-by-prior-consolidation",
+      "evidence": "Prior October6 review disposition retained; baseline ownership/parser/guard regression tests re-run in combined suite."
+    },
+    {
+      "number": 19,
+      "state": "closed",
+      "merged": false,
+      "merge_commit_in_baseline": false,
+      "head": "ba2ea30f83fe2d551ead050f74a726b76f11c728",
+      "disposition": "historical-closed-incorporated-by-prior-consolidation",
+      "evidence": "Prior October6 review disposition retained; baseline ownership/parser/guard regression tests re-run in combined suite."
+    },
+    {
+      "number": 20,
+      "state": "closed",
+      "merged": false,
+      "merge_commit_in_baseline": false,
+      "head": "299cca205ddf69be49b3cae54b3fca1484683ef1",
+      "disposition": "historical-closed-incorporated-by-prior-consolidation",
+      "evidence": "Prior October6 review disposition retained; baseline ownership/parser/guard regression tests re-run in combined suite."
+    },
+    {
+      "number": 21,
+      "state": "closed",
+      "merged": false,
+      "merge_commit_in_baseline": false,
+      "head": "bf8b285474bad5096300f914d0277a4eefab53bf",
+      "disposition": "historical-closed-incorporated-by-prior-consolidation",
+      "evidence": "Prior October6 review disposition retained; baseline ownership/parser/guard regression tests re-run in combined suite."
+    },
+    {
+      "number": 22,
+      "state": "closed",
+      "merged": true,
+      "merge_commit_in_baseline": true,
+      "head": "0d9d863762e59775191857a001b6bd6dc541bad9",
+      "disposition": "historical-merged-revalidated-in-baseline",
+      "evidence": "Prior October6 review disposition retained; baseline ownership/parser/guard regression tests re-run in combined suite."
+    },
+    {
+      "number": 23,
+      "state": "closed",
+      "merged": true,
+      "merge_commit_in_baseline": true,
+      "head": "a9cc9f0ac9464f7b841b0718e3bb5f0b3bc91d99",
+      "disposition": "historical-merged-revalidated-in-baseline",
+      "evidence": "Prior October6 review disposition retained; baseline ownership/parser/guard regression tests re-run in combined suite."
+    }
+  ],
+  "proposals": [
+    {
+      "number": 24,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/24",
+      "head": "cbfc74490dc2cd92ee21653533b8fcff0404a927",
+      "title": "Read the PF enable reference back on every pass with loaded rules",
+      "disposition": "accept",
+      "requirement_mapping": "Fresh PF enable-reference readiness",
+      "evidence": "Main no-op pass never checks saved token; independent baseline test observes0 readbacks. Candidate reads reference+enabled and withholds readiness on missing/error without implicit acquisition.",
+      "test_files": [
+        "test_pf_enable_reference.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 25,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/25",
+      "head": "56db89886d0daf2d6a535e640c286772b58f0256",
+      "title": "Do not treat a pass that wrote nothing as an interrupted write",
+      "disposition": "accept",
+      "requirement_mapping": "Crash/no-op resilience without forgetting failed writes",
+      "evidence": "Independent baseline replay of no-op durable states retires working rules; candidate exact-first-journal exemption plus failed-phase preservation covers candidate writes, no silent acknowledgement.",
+      "test_files": [
+        "test_pf_noop_pass_interruption.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 26,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/26",
+      "head": "1f1666e8c4b37b428cec3a48c626cd1518ef5804",
+      "title": "Report the guest's hardware address in the runtime observation",
+      "disposition": "confirmed_bug_accept",
+      "requirement_mapping": "Observe exact native guest MAC for independent identity/neighbor checks.",
+      "evidence": "Baseline: 23 failed, 1 passed; the old observer drops a present native MAC. Candidate observer rejects malformed/conflicting MAC rows and emits the native address.",
+      "test_files": [
+        "tests/test_runtime_observer_guest_mac.py"
+      ],
+      "comments_inspected": 2,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 27,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/27",
+      "head": "a70e9a2d383c188002b8b41c1b73d6f8a26b4468",
+      "title": "Refuse root-owned identifiers the root owner cannot store",
+      "disposition": "accept",
+      "requirement_mapping": "Root store identifier grammar",
+      "evidence": "Independent baseline four64-character root-profile tests all incorrectly accept; candidate rejects before persistence while nonroot64-character IDs remain representable.",
+      "test_files": [
+        "test_pf_profile_id_length.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 28,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/28",
+      "head": "99c47468b725fde60ca56e65fd7fdc80dc034701",
+      "title": "Refuse socket publications in workload recipes",
+      "disposition": "confirmed_bug_accept",
+      "requirement_mapping": "Do not provision destructive or unmodeled Socketainer/socket-backed definitions; preserve current publication topology.",
+      "evidence": "Baseline: 4 failed, 2 passed. Recipe parser formerly accepted --publish-socket despite lacking corresponding publication verification; candidate refuses it before mutation.",
+      "test_files": [
+        "tests/test_workloads_publish_socket.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 29,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/29",
+      "head": "3bdfc6f5701604623a501d9a181e0a0b854d8c95",
+      "title": "Allow only vendor-defined options in workload recipes",
+      "disposition": "confirmed_bug_accept",
+      "requirement_mapping": "Use the installed Apple Container CLI grammar, not Linux Docker-shaped options.",
+      "evidence": "Baseline: 11 failed, 1 passed. Vendor source and parser counterexamples confirm --sysctl/--init compatibility gaps; candidate closes allowlist and updates modeled kernel args.",
+      "test_files": [
+        "tests/test_starter_examples.py",
+        "tests/test_workloads.py",
+        "tests/test_workloads_vendor_options.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 30,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/30",
+      "head": "620962f6b811895b672707957f8c9680006dea7b",
+      "title": "Report unfamiliar native rows as unknown and keep lookups redacted",
+      "disposition": "confirmed_bug_accept",
+      "requirement_mapping": "Unknown/malformed evidence never becomes stopped or authorizes recovery; diagnostics must not expose native credentials.",
+      "evidence": "Baseline: 32 failed, 6 passed. Closed state/shape validation and redacted native lookups reject malformed JSON and CLI output.",
+      "test_files": [
+        "tests/test_apple_runtime.py",
+        "tests/test_runtime_reader_strictness.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 31,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/31",
+      "head": "42e31d058da095e515a3509d85b21bc30da06dda",
+      "title": "Let an enrollment tolerate a named peer definition while stopped",
+      "disposition": "confirmed_bug_amend",
+      "requirement_mapping": "Retain the stopped NPM test definition without authorizing a concurrent writer of the production bind.",
+      "evidence": "Baseline: 14 failed, 18 passed confirms original missing exception. Independent candidate counterexample: two tests failed because a retained peer marked stopped by reset API was ignored while its runtime job was still loaded. Supplement requires actual fixed-label service-manager absence in both account domains before ignoring a conflicting writable peer.",
+      "test_files": [
+        "tests/test_runtime_tolerated_stopped_peer.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 32,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/32",
+      "head": "6ddc99f257f285db9de57e74fd36b1ead396fb53",
+      "title": "Let a failed rollback be repeated and keep it off other journals",
+      "disposition": "accept-with-supplement",
+      "requirement_mapping": "Explicit repeatable rollback and holder preservation",
+      "evidence": "Independent baseline interrupted rollback fails in both scopes; original fix supports retry but candidate completion trusted stale receipt. Six fresh drift regressions fail before supplemental fe1d750 and pass after.",
+      "test_files": [
+        "test_deployment_rollback_reentrant.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 33,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/33",
+      "head": "e9a2ff53ae2f4c4cc4f271cb2cfd30b27cf51a81",
+      "title": "Add an optional repeat interval to the Monit recovery rule",
+      "disposition": "accept-opt-in",
+      "requirement_mapping": "Single Monit recovery owner and repeated proven-stopped recovery",
+      "evidence": "Schema/renderer adds bounded optional repeat clause only to reserved42 recovery action. Default bytes preserved; runtime uncertainty never becomes42 through this change. Actual complete legacy Monit rendering still requires conformance.",
+      "test_files": [
+        "test_monit_recovery_repeat.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 34,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/34",
+      "head": "03ad4eaacbe0c636059411fa7ac6d0006cc6ef58",
+      "title": "Let the discovery scanner's pass interval be set up to 120 seconds",
+      "disposition": "accept-with-recorded-limits",
+      "requirement_mapping": "Fits a 20-second scanner rest while preserving independent fast publisher expiry. Static half-lease check is no measured scan-time guarantee.",
+      "evidence": "Fits a 20-second scanner rest while preserving independent fast publisher expiry. Static half-lease check is no measured scan-time guarantee.",
+      "test_files": [
+        "tests/test_bonjour_pass_interval.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 35,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/35",
+      "head": "0820a7238b5d4f5cb064882812b090ff0336fcdf",
+      "title": "Make an interrupted installation recoverable",
+      "disposition": "accept",
+      "requirement_mapping": "Interrupted installs and exclusive operation holds",
+      "evidence": "Independent baseline KeyboardInterrupt leaves no failed_phase; candidate handles all open phases, exact digest recovery and interruption after release without automatic rollback.",
+      "test_files": [
+        "test_deployment_interrupted_install.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 36,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/36",
+      "head": "85216c54741a0cf7260bb84eb57b17b95ceb8f37",
+      "title": "Wait a bounded time for a busy owner lock instead of failing",
+      "disposition": "accept",
+      "requirement_mapping": "Busy lock is not missing admission or permission to bypass lock",
+      "evidence": "Five-second wait budget retries only exit75; fixed owner command prefix and no launchctl/Monit retry. Existing persistent inode retained. Deadline bounds wait not arbitrary kernel-blocked calls; native timing unverified.",
+      "test_files": [
+        "test_owner_lock_busy.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 37,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/37",
+      "head": "157b775fe377c51320ffabee1f3914fd06ad33f4",
+      "title": "Read lower-case assignment keys and decimal text for integer fields",
+      "disposition": "accept",
+      "requirement_mapping": "Data-only legacy import",
+      "evidence": "Lowercase literal keys and origin-limited decimal conversion are useful; typed JSON/TOML/plist strings remain unconverted, substitutions remain refused. One-author conflict check intentionally precedes later conversion. Prior blanket lowercase refusal was a limitation, not required safety.",
+      "test_files": [
+        "tests/test_importer_keys_and_numbers.py"
+      ],
+      "comments_inspected": 2,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 38,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/38",
+      "head": "f85fc7984c9a678c167497ba4bfe8894bf277a86",
+      "title": "Make every check in the PF backend script explicit",
+      "disposition": "accept",
+      "requirement_mapping": "Narrow script mutation boundary on system Bash",
+      "evidence": "Independent system-Bash/fake-PF experiment: original backend accepts drain0.0.0.0/0, exits0, issues two global-range fake kills; candidate exits64 with zero calls. Strict checked assignments prevent failed empty reads becoming proof. No actual PF invoked.",
+      "test_files": [
+        "test_pf_backend_script.py"
+      ],
+      "comments_inspected": 4,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 39,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/39",
+      "head": "b975cc717b4c7bc3eafccc4db3652764c2a461b8",
+      "title": "Report shared-space, IPv6 and hardware addresses in the public guard",
+      "disposition": "accept",
+      "requirement_mapping": "Public/private data boundary",
+      "evidence": "Address and hardware detection expanded without host-specific values. Generic locally-administered MAC exclusion is explicitly limited; known private values remain necessary.",
+      "test_files": [
+        "tests/test_privacy_addresses.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 40,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/40",
+      "head": "937ce4432db4b21b403fc97645610ae4d7b4bf0f",
+      "title": "Let preflight print the evidence document that --evidence reads",
+      "disposition": "accept",
+      "requirement_mapping": "Reusable read-only observations",
+      "evidence": "Collected evidence round-trips through strict parser; ordinary report is not an evidence file, timestamps remain bounded.",
+      "test_files": [
+        "tests/test_host_evidence_output.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 41,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/41",
+      "head": "d148912102e1ba6aca38236120b0f75f65fc1fb7",
+      "title": "Correct the read-only guides where they contradict the code",
+      "disposition": "accept",
+      "requirement_mapping": "Truthful read-only workflow",
+      "evidence": "Checked docs against workflow_gate, entrypoints and two examples. Mutation remains refused, and reports make no active platform claim.",
+      "test_files": [],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 42,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/42",
+      "head": "e15903f6637237263a4ee6fc55f12268fae5d3a4",
+      "title": "Keep a retired policy id and one bulky candidate from stopping others",
+      "disposition": "accept-with-recorded-limits",
+      "requirement_mapping": "Fits policy isolation: retired private request identifiers cannot authorize records; a bulky candidate loses only its own policy. Corrupt envelope remains a global failure.",
+      "evidence": "Fits policy isolation: retired private request identifiers cannot authorize records; a bulky candidate loses only its own policy. Corrupt envelope remains a global failure.",
+      "test_files": [
+        "tests/test_bonjour_request_file_ids.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 43,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/43",
+      "head": "4092bcd0b8aebfe309dbfda58e735f2f43f7b255",
+      "title": "Renew one expired registration without withdrawing its policy",
+      "disposition": "accept-with-amendments",
+      "requirement_mapping": "Amend: retain per-record clean native-timer replacement, reject the proposal to claim present/verified while every current registration is unconfirmed. Final pipe output and foreign-interface checks also repaired.",
+      "evidence": "Amend: retain per-record clean native-timer replacement, reject the proposal to claim present/verified while every current registration is unconfirmed. Final pipe output and foreign-interface checks also repaired.",
+      "test_files": [
+        "tests/test_bonjour_record_expiry.py"
+      ],
+      "comments_inspected": 2,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 44,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/44",
+      "head": "2dc428d205ee3a6932cb879dd26a17476b92e2cf",
+      "title": "Prove the recovery sequence and five other runtime properties",
+      "disposition": "suitable_tests_accept",
+      "requirement_mapping": "Prove recovery needs two fresh stopped observations, current admission and single-writer safety.",
+      "evidence": "All 31 newly supplied tests already pass baseline main, consistent with tests-only proof addition. Tests inspect call sequence and failed starts; source review found no production mutation in mock tier.",
+      "test_files": [
+        "tests/test_runtime_proving.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 45,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/45",
+      "head": "61201f59c80fb010cdcf6fa00cc09a62d3385a33",
+      "title": "Refuse owner settings whose own import can never import",
+      "disposition": "accept-with-recorded-limits",
+      "requirement_mapping": "Fits actual Apple-model anchoring: an import without _airplay._tcp cannot select devices and must be refused by this owner.",
+      "evidence": "Fits actual Apple-model anchoring: an import without _airplay._tcp cannot select devices and must be refused by this owner.",
+      "test_files": [
+        "tests/test_bonjour_import_anchor.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 46,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/46",
+      "head": "f0cd1bd762d819f8b070b791978f2532fd39766b",
+      "title": "Refuse a retained release before the hold and the journal",
+      "disposition": "accept",
+      "requirement_mapping": "No extra outage for already retained immutable release",
+      "evidence": "Independent baseline retained-release replay changes journal/hold on refusal; candidate refuses before either. Existing record and loaded jobs stay unchanged.",
+      "test_files": [
+        "test_deployment_retained_release.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 47,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/47",
+      "head": "307190d61cf0c650e2b1d4b243af7e2cba5a0391",
+      "title": "Create every directory of a bundle and a release with mode 0700",
+      "disposition": "accept",
+      "requirement_mapping": "Private installation artifacts under every umask",
+      "evidence": "Independent baseline test creates intermediate0755 directories under022. Candidate creates each directory0700 without recursive permission changes.",
+      "test_files": [
+        "test_deployment_private_directories.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 48,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/48",
+      "head": "4caed302342d9812d78b96870c403dbccfacc0f1",
+      "title": "Give an unknown identifier the closed diagnostic, not a traceback",
+      "disposition": "accept",
+      "requirement_mapping": "Redacted diagnostics",
+      "evidence": "Unknown lookup identifiers are closed JSON errors; baseline traceback reproduced by selected tests.",
+      "test_files": [
+        "tests/test_cli_closed_lookup_errors.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 49,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/49",
+      "head": "8b7416c07f45e0fdb65ccdcd90cf8502b8f2520b",
+      "title": "Refuse compound password keys and passphrases in the importer",
+      "disposition": "accept",
+      "requirement_mapping": "Credential exclusion",
+      "evidence": "Compound password names and passphrases are refused at selector and nested projection boundaries; arbitrary mislabeled secrets remain outside guarantee.",
+      "test_files": [
+        "tests/test_importer_password_compounds.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 50,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/50",
+      "head": "0fc94998404c12e855cdc85bba022e9f4164c4d8",
+      "title": "Refuse a second mapping to one destination whatever it yields",
+      "disposition": "accept",
+      "requirement_mapping": "One setting author",
+      "evidence": "Null, missing and nested mapping conflicts are rejected structurally before file projection; baseline counterexamples reproduced.",
+      "test_files": [
+        "tests/test_importer_one_author.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 51,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/51",
+      "head": "de6642556183cbcbcca33251658cc49a671d6a34",
+      "title": "Read PF state rows in the forms the macOS state model prints",
+      "disposition": "accept-with-provenance-correction",
+      "requirement_mapping": "Darwin PF translated states and exact address parsing",
+      "evidence": "Independent three-endpoint sanitized row is refused by main, accepted with all three addresses by candidate. Shapes from legacy fixture/printer lineage are not raw-capture evidence; fe1d750 corrects misleading test header.",
+      "test_files": [
+        "test_pf_state_row_forms.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 52,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/52",
+      "head": "882a6efca1c6a01ea6b3b00a30810e08b9f8540e",
+      "title": "Refuse live addresses before a full stop and routed IPv6 in instances",
+      "disposition": "accept",
+      "requirement_mapping": "No desired runtime addresses",
+      "evidence": "Sentence-final IPv4 and routed IPv6 are rejected; free prose is not executed. Baseline accepts the documented counterexamples.",
+      "test_files": [
+        "tests/test_instance_free_text_addresses.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 53,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/53",
+      "head": "d6ae89c2f73edadad60a062cbd4d58dfba699aba",
+      "title": "Refuse a second LAN alias row for one workload",
+      "disposition": "accept",
+      "requirement_mapping": "One LAN alias per workload",
+      "evidence": "Duplicate alias supplies no independent setting and is refused; baseline counterexample reproduced.",
+      "test_files": [
+        "tests/test_instance_one_lan_alias.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 54,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/54",
+      "head": "9a9e0ae6061e34878c2dbb7b6572a56d46fcaded",
+      "title": "Rename the status fulfilled-unverified to unverified",
+      "disposition": "accept",
+      "requirement_mapping": "Evidence vocabulary",
+      "evidence": "No proof becomes unverified rather than fulfilled-unverified. Changed output vocabulary is version2, preflight/validate remainversion1.",
+      "test_files": [
+        "tests/test_host_cli.py",
+        "tests/test_instance_strictness.py",
+        "tests/test_report_guards.py",
+        "tests/test_report_status_vocabulary.py",
+        "tests/test_report_truthfulness.py",
+        "tests/test_safety_contract.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 55,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/55",
+      "head": "d0a19df245fcc022b9dec249f1392138789b3c1e",
+      "title": "Make the passing result of check reachable for a listed platform",
+      "disposition": "accept",
+      "requirement_mapping": "Qualification gate",
+      "evidence": "Positive check path requires shipped platform listing plus correct retained evidence; test-only listing does not alter empty production matrix.",
+      "test_files": [
+        "tests/test_check_positive_path.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 56,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/56",
+      "head": "de261086e31449a3f39ad50e9f2c9df7b4ec1cb1",
+      "title": "Compare projected URL hosts by DNS case",
+      "disposition": "accept-with-recorded-limits",
+      "requirement_mapping": "Fits DNS ASCII case equivalence and existing HA endpoint URL projection. External and credentials-bearing URLs remain unchanged.",
+      "evidence": "Fits DNS ASCII case equivalence and existing HA endpoint URL projection. External and credentials-bearing URLs remain unchanged.",
+      "test_files": [
+        "tests/test_bonjour_url_host_case.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 57,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/57",
+      "head": "8134743e010daff61b0f9e762485adc7fe29aba2",
+      "title": "Find instance names in capitals and as a label of a dotted name",
+      "disposition": "accept",
+      "requirement_mapping": "Private identifiers",
+      "evidence": "Case and dotted-label variants are detected without widening unrelated port matching. Synthetic matching tests passed.",
+      "test_files": [
+        "tests/test_instance_guard_spellings.py",
+        "tests/test_privacy_trailing_dot.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 58,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/58",
+      "head": "18ef0a0d61250d7cc88a73211d19810b6813d3ed",
+      "title": "Correct the guide's reader sentence and two smaller statements",
+      "disposition": "accept",
+      "requirement_mapping": "Accurate protection claims",
+      "evidence": "Documentation distinguishes static general readers from protected owner state; subsequent #93 extends protected runtime reads.",
+      "test_files": [],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 59,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/59",
+      "head": "200aa8846a1f6b8debddb78d511eb267d5fe6189",
+      "title": "Add declared baseline names to the per-instance guard",
+      "disposition": "accept",
+      "requirement_mapping": "Private native owner names",
+      "evidence": "Declared VPN/proxy/extension names join known private literal inventory; generic heuristics alone are not enough.",
+      "test_files": [
+        "tests/test_privacy_baseline_names.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 60,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/60",
+      "head": "d7a6bd83372d327d5e0fc8615b0ebf2456322678",
+      "title": "Let a deployment job choose the Standard launchd process type",
+      "disposition": "accept-opt-in",
+      "requirement_mapping": "Preserve existing Standard process type where explicitly declared",
+      "evidence": "Current recovery template uses Standard; candidate can express that without changing default Background. This alone does not preserve current throttle30 because renderer still fixes10.",
+      "test_files": [
+        "test_deployment_job_process_type.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 61,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/61",
+      "head": "58354fb1ae8779673bffd46962dc177d923cbb2a",
+      "title": "Wait for launchd to remove a job before loading it again",
+      "disposition": "accept",
+      "requirement_mapping": "Avoid immediate bootout/bootstrap race",
+      "evidence": "Bounded wait reads exact target label and only3/113 prove absence; no foreign mutation. Post-timeout bootstrap retains normal error path. Live asynchronous bootout behavior remains unverified.",
+      "test_files": [
+        "test_deployment_bootout_wait.py"
+      ],
+      "comments_inspected": 1,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 62,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/62",
+      "head": "accb7c1f7b229e72b103f8fe1c3a453128522057",
+      "title": "Let one discovery selection state its own miss tolerance",
+      "disposition": "accept-with-recorded-limits",
+      "requirement_mapping": "Needed to express differing outward (three passes) and inward (immediate) loss policy without duplicating owner logic.",
+      "evidence": "Needed to express differing outward (three passes) and inward (immediate) loss policy without duplicating owner logic.",
+      "test_files": [
+        "tests/test_discovery_selection_misses.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 63,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/63",
+      "head": "fcf9f96bacb793dbdcd2d753c37d35f06ed47218",
+      "title": "Let a discovery selection name its DNS-SD service types",
+      "disposition": "accept-with-recorded-limits",
+      "requirement_mapping": "Useful explicit narrowing/data representation, but no auto-tcp implementation. Existing dynamic outward enumeration is not fully replaced by an explicit list; keep extraction/conformance gap.",
+      "evidence": "Useful explicit narrowing/data representation, but no auto-tcp implementation. Existing dynamic outward enumeration is not fully replaced by an explicit list; keep extraction/conformance gap.",
+      "test_files": [
+        "tests/test_discovery_service_types.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 64,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/64",
+      "head": "ee267430065db09683043a1d18e3d4c2dd0d3a75",
+      "title": "Let a discovery import say it does not depend on the return path",
+      "disposition": "accept-with-recorded-limits",
+      "requirement_mapping": "Fits installed inward discovery independence from the separate audio-return owner. Discovery does not prove audio. Explicit policy digest and exact context still required.",
+      "evidence": "Fits installed inward discovery independence from the separate audio-return owner. Discovery does not prove audio. Explicit policy digest and exact context still required.",
+      "test_files": [
+        "tests/test_discovery_independent_import.py"
+      ],
+      "comments_inspected": 1,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 65,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/65",
+      "head": "eaf0fe7942d68c08a47efca6f7f92d535aac60ff",
+      "title": "Let a workload contract state the facts of a real definition",
+      "disposition": "suitable_declaration_accept_with_gaps",
+      "requirement_mapping": "Represent current workload resources, pinned images, privilege, named volumes and mounts as separate configuration data.",
+      "evidence": "Inspected closed definition-fact schema and executable tests for resource/mount/port facts, explicit false/empty values and strict bounds; candidate suite passes.",
+      "test_files": [
+        "tests/test_contract_definition_facts.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 66,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/66",
+      "head": "d306a08ba990b92db967e720b3c0b9026eac4a6f",
+      "title": "Let an instance describe a site supervisor's statuses and deadlines",
+      "disposition": "accept-with-limits",
+      "requirement_mapping": "Existing supervisor representation",
+      "evidence": "Custom statuses/deadlines can be represented without granting retained supervisor unsupported capability. Ambiguous statuses are unmet, unsupported actions reported by gaps.",
+      "test_files": [
+        "tests/test_instance_supervision_vocabulary.py"
+      ],
+      "comments_inspected": 1,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 67,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/67",
+      "head": "17fce7c9d15f30d9ce5c9fbc75495688f6b63910",
+      "title": "Let an instance name the tool that starts its workloads after a boot",
+      "disposition": "suitable_declaration_accept_with_gates",
+      "requirement_mapping": "One Monit/startup owner declares which tool starts the runtime and/or workload fleet; no second controller.",
+      "evidence": "Baseline: 9 failed, 9 passed; prior schema rejected existing fleet-start ownership vocabulary. Candidate accepts owner declaration and produces unresolved gate where authority is not accepted.",
+      "test_files": [
+        "tests/test_instance_fleet_starter.py",
+        "tests/test_report_truthfulness.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 68,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/68",
+      "head": "76c7d27efe2cb48c4b51d312361b8bd92e18a50c",
+      "title": "Let an enrollment bind a volume identifier instead of a device number",
+      "disposition": "suitable_feature_accept_with_native_gate",
+      "requirement_mapping": "Bind persistent data on external/APFS volumes across reboot without trusting a volatile st_dev.",
+      "evidence": "Inspected Darwin volume UUID parsing, whole mount root binding, inode/path checks, malformed metadata refusals. Original combined suite includes hosted read-only volume grammar tests.",
+      "test_files": [
+        "tests/test_darwin_volume_hosted.py",
+        "tests/test_runtime_volume_identity.py"
+      ],
+      "comments_inspected": 1,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 69,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/69",
+      "head": "a7f935b84505f5c4aa1d1284ce41dac9cbe18463",
+      "title": "Let the root owner keep a site's pinned packet-rule anchor",
+      "disposition": "accept-gated",
+      "requirement_mapping": "Preserve existing anchor identity and ordering",
+      "evidence": "Existing installed anchor parses with candidate and main rejects a nonproduct pin. Drift refusal prevents claiming existing foreign rules; an actual owner handoff remains blocked by installed-source and protected-state gaps.",
+      "test_files": [
+        "test_pf_pinned_anchor.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 70,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/70",
+      "head": "f13c572f64aa785be57702be373211d8985e661d",
+      "title": "Let a host redirect declare an unrestricted source (source_scope)",
+      "disposition": "accept-opt-in-with-local-gap",
+      "requirement_mapping": "NPM router-forwarded arbitrary client sources",
+      "evidence": "Installed owner uses from-any for NPM; candidate allows only structural host destination with separately acknowledged content digest. DirectDNS also currently renders from-any but candidate correctly forbids guest-direct any-source, leaving declared narrowing/conformance gap.",
+      "test_files": [
+        "test_any_source.py"
+      ],
+      "comments_inspected": 2,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 71,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/71",
+      "head": "834069e06da64aa8fd6b22340d7d50a2f200816a",
+      "title": "Read dns-sd diagnostics only where the client prints them",
+      "disposition": "accept-with-recorded-limits",
+      "requirement_mapping": "Fits genuine record preservation: diagnostic-looking names/TXT are data, while actual native denial/failure grammar fails. Source-derived fixtures, not host captures.",
+      "evidence": "Fits genuine record preservation: diagnostic-looking names/TXT are data, while actual native denial/failure grammar fails. Source-derived fixtures, not host captures.",
+      "test_files": [
+        "tests/test_bonjour_browse_diagnostics.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 72,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/72",
+      "head": "b6b66624007c04ba2dbe596dc9e6d45f21cd6904",
+      "title": "Leave out one unusable instance instead of failing its policy",
+      "disposition": "accept-with-amendments",
+      "requirement_mapping": "Fits healthy device isolation when another instance cannot supply usable records. Wrong interface, failed command, output/budget failures and wholly unproved scans still fail. Amended interaction with missed memory prevents republishing a rejected source.",
+      "evidence": "Fits healthy device isolation when another instance cannot supply usable records. Wrong interface, failed command, output/budget failures and wholly unproved scans still fail. Amended interaction with missed memory prevents republishing a rejected source.",
+      "test_files": [
+        "tests/test_bonjour_record_isolation.py"
+      ],
+      "comments_inspected": 1,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 73,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/73",
+      "head": "77e6a5b7859b9d3cd5276de486590a7fc05652f7",
+      "title": "Take the prefixes of projected host names from the policy",
+      "disposition": "accept-with-recorded-limits",
+      "requirement_mapping": "Fits private prefix separation and loop exclusion. Does not preserve exact legacy hostname suffix algorithm/length; exact-name conformance remains unresolved.",
+      "evidence": "Fits private prefix separation and loop exclusion. Does not preserve exact legacy hostname suffix algorithm/length; exact-name conformance remains unresolved.",
+      "test_files": [
+        "tests/test_discovery_name_prefixes.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 74,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/74",
+      "head": "7b7f20c844002eb72adcd7bc5cd5c00dfe87e967",
+      "title": "Let the scanner keep a missed record for a set number of passes",
+      "disposition": "accept-with-amendments",
+      "requirement_mapping": "Fits outward completed-pass tolerance while preserving original sight time and independent lease expiry. Amended to discard exact rejected (name,type) identities from memory. Do not enable tolerance above one for the installed inward behavior.",
+      "evidence": "Fits outward completed-pass tolerance while preserving original sight time and independent lease expiry. Amended to discard exact rejected (name,type) identities from memory. Do not enable tolerance above one for the installed inward behavior.",
+      "test_files": [
+        "tests/test_bonjour_miss_tolerance.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 75,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/75",
+      "head": "fe73e197a327beed235d53974e5d2736dc2ead27",
+      "title": "Let an installation choose to take a lost PF enable reference again",
+      "disposition": "accept-opt-in",
+      "requirement_mapping": "Existing owner reacquires missing PF reference",
+      "evidence": "Readable installed source acquire_reference reacquires on missing token. Candidate makes this explicit, digest-bound and requires fresh verified profiles, no holds/acknowledgement or kept-unknown paths. Default remains read-only verification.",
+      "test_files": [
+        "test_pf_reference_reacquire.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 76,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/76",
+      "head": "a5954c3a1a8fd930d58198abca7808eff27751df",
+      "title": "Make the PF owner's behaviour after a reboot an explicit choice",
+      "disposition": "accept-opt-in",
+      "requirement_mapping": "Restart after proven new kernel generation",
+      "evidence": "Explicit self-heal drops old address records only with changed boot-session and empty owned anchor; no old guest invalidation. Stored failed acknowledgement remains owed. Mock/hosted UUID reads are not unattended reboot acceptance.",
+      "test_files": [
+        "test_pf_cold_start.py"
+      ],
+      "comments_inspected": 1,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 77,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/77",
+      "head": "ae39adc8ec07bf307df966d29f8a05bef70cc20a",
+      "title": "Defer one profile on an unmet precondition; count only own states",
+      "disposition": "accept-with-limits",
+      "requirement_mapping": "Independent NPM/DNS/HA failure domains and meaningful drain",
+      "evidence": "Baseline one failed endpoint aborts entire owner. Candidate defers only affected profiles; successful kill plus retained matching states is distinct from unreadable/failed kill, which remains failed+ack. Narrow own-state matcher excludes outside flows and includes host-LAN peer. No proof of packet safety beyond mocked rows.",
+      "test_files": [
+        "test_pf_deferral.py",
+        "test_pf_own_states.py"
+      ],
+      "comments_inspected": 2,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 78,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/78",
+      "head": "dcc92e347a0b8ae4831222a224fd781a37f43928",
+      "title": "Hold one service without pausing the site",
+      "disposition": "accept-gated",
+      "requirement_mapping": "Stop one service without disabling all networking",
+      "evidence": "Service-specific negative holds union with operator pause/root gates; wrong holder cannot release and unknown service damages intent. Preservation tested across owner/deployment while no unprivileged positive root authority added.",
+      "test_files": [
+        "test_service_holds.py",
+        "test_service_holds_root.py",
+        "test_service_holds_deployment.py"
+      ],
+      "comments_inspected": 1,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 79,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/79",
+      "head": "ea478a28c687ce3a8f68d578b94a6576980d67fe",
+      "title": "Render literal owner inputs from the instance and search programs",
+      "disposition": "accept-renderer-reject-lexical-promotion",
+      "requirement_mapping": "Single-author conformance",
+      "evidence": "Literal spans round-trip with preserved style. Clean lexical program inventory incorrectly allowed promotion despite hardcoded numeric settings. Independent proof requires supplemental refusal; rendering remains available. Supplemental regression preserves hardcoded program interval while changing rendered interval; automatic promotion now refuses inventory programs and search-only TOML.",
+      "test_files": [
+        "tests/test_importer_render_manifest.py",
+        "tests/test_render_promotion.py",
+        "tests/test_render_properties.py",
+        "tests/test_render_sources.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 80,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/80",
+      "head": "fe8431cf193d77e232bb25a4bfa8483dade72f76",
+      "title": "Document where the release pin comes from and what it proves",
+      "disposition": "accept",
+      "requirement_mapping": "Reproducible artifacts",
+      "evidence": "File hash/version checks are accurately described as pin verification, not proof of the running distribution. Revision is bound but not independently authenticated.",
+      "test_files": [
+        "tests/test_release_pin_limits.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 81,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/81",
+      "head": "050abd3f672728ba72a8c5f24a8b696acc727f7a",
+      "title": "Let recovery give the vendor start call its own time bound",
+      "disposition": "suitable_feature_accept_with_bound_scope",
+      "requirement_mapping": "Long Apple Container start calls need an explicit finite budget independent of read deadlines.",
+      "evidence": "Baseline: 11 failed, 14 passed. Candidate passes timeout to the one vendor start subprocess and leaves defaults stable.",
+      "test_files": [
+        "tests/test_runtime_start_timeout.py"
+      ],
+      "comments_inspected": 1,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 82,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/82",
+      "head": "4a2741ceeaebbaa321fe81bcfa15411e8e59e339",
+      "title": "Add hosted macOS contract tests for the local preflight collector",
+      "disposition": "amend",
+      "requirement_mapping": "Real native parser contracts",
+      "evidence": "Candidate local run had four failures: three no-instance LAN ambiguity, one real retired-plus-active extension parser gap. Correct native shape, keep schema/roundtrip on all Macs, constrain strict topology expectations to hosted CI. Sanitized native regression and direct saved read-only inventory both parse after correction.",
+      "test_files": [
+        "tests/test_darwin_preflight_hosted.py"
+      ],
+      "comments_inspected": 1,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 83,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/83",
+      "head": "e21370d0801e306e2eb5a9d0ed4b3f1fdcafb9ce",
+      "title": "Name the boot by its session identifier in the network generation",
+      "disposition": "confirmed_bug_accept",
+      "requirement_mapping": "A network generation must identify the actual boot, not mutable wall-clock-derived boottime.",
+      "evidence": "Baseline: 31 failures from missing session-ID implementation and changed fake command expectations. Candidate uses bounded sysctl boot-session UUID, rejects malformed output and binds generations; source and hosted grammar checks reviewed.",
+      "test_files": [
+        "tests/test_apple_runtime.py",
+        "tests/test_runtime_boot_session.py",
+        "tests/test_workloads.py"
+      ],
+      "comments_inspected": 1,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 84,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/84",
+      "head": "1c9ece85300b9315f1cd13db2dffdd5341db7c74",
+      "title": "Start a fully stopped fleet on service-manager evidence (opt-in)",
+      "disposition": "confirmed_bug_amend",
+      "requirement_mapping": "Distinguish a truly stopped fleet from API reset while guest runtime jobs survive.",
+      "evidence": "Independent candidate proof: 3 tests failed because arbitrary vendor prefix/API labels were accepted and nonexistent jobs falsely established absence. Supplement constrains fixed Apple labels at parser AND direct runtime boundary; retained-peer proof uses the same helper. Upstream Plugin.getLaunchdLabel hardcodes prefix in supported tags.",
+      "test_files": [
+        "tests/test_runtime_fleet_start.py"
+      ],
+      "comments_inspected": 1,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 85,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/85",
+      "head": "188f32ebd07dbb9cd9f6aff83d21a26c2cc4d3bd",
+      "title": "Test the installer statefully and reach its unreached checks",
+      "disposition": "accept-tests-only",
+      "requirement_mapping": "Meaningful install/recovery sequence coverage",
+      "evidence": "Stateful machine models filesystem/tool state, operator pause and holder union; disk fsync deliberately mocked, fake launchd. Passing model sequences do not establish native durability.",
+      "test_files": [
+        "test_deployment_stateful.py",
+        "test_deployment_unreached_checks.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 86,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/86",
+      "head": "2a3481f137da8896b7d2e93f89bdca7d145d5b57",
+      "title": "Reword the hard-bounds row and ask for the packet from outside",
+      "disposition": "accept",
+      "requirement_mapping": "Truthful any-source authority and packet acceptance",
+      "evidence": "Updates hard-bound wording to declared+admitted, requires outside-source packet evidence on explicit any-source profile rather than upgrading generic proof. No host instance acceptance is invented.",
+      "test_files": [
+        "test_requirements_any_source.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 87,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/87",
+      "head": "2a179e24385cc6b4766507179ef46413153d6196",
+      "title": "Keep the predecessor when a failed upgrade is recovered",
+      "disposition": "accept",
+      "requirement_mapping": "Failed upgrade recovery retains prior rollback target",
+      "evidence": "Recovery preserves full replaced receipt including one predecessor; successful installs cap nested history, bounded journal beforehold. Candidate tests interrupted upgrade/recovery and historical formats.",
+      "test_files": [
+        "test_deployment_recovered_receipt.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 88,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/88",
+      "head": "580509dada0a666c417a8edc4b5b2b1d3c9ec972",
+      "title": "Check the predecessor's own jobs before a rollback changes anything",
+      "disposition": "accept-with-supplement",
+      "requirement_mapping": "No foreign predecessor job clobber during rollback",
+      "evidence": "Prior-only file/label check precedes hold/journal/tool writes; resume accepts only its own predecessor bytes. Closing-write repeat works; supplemental fe1d750 additionally verifies current restored state before holdrelease.",
+      "test_files": [
+        "test_deployment_rollback_preflight.py",
+        "test_deployment_rollback_closing_write.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 89,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/89",
+      "head": "d1bb980f3528c5fe13f644a3efcfed1abaed3a46",
+      "title": "Refuse a job interval below the launchd throttle it is rendered with",
+      "disposition": "accept-with-local-gap",
+      "requirement_mapping": "Honor actual scheduler floor in bounded timing",
+      "evidence": "Intervals below fixed10 throttle refused; single constant feeds parser and renderer. Existing Monit template throttle30 remains not representable, so no full launcher byte-parity claim. Recovery over older invalid failed release reads only boundaries.",
+      "test_files": [
+        "test_deployment_interval_throttle.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 90,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/90",
+      "head": "53071922bd63a1b33c54480a1507c09fdf202a36",
+      "title": "Let a workload's contract state its own start bound",
+      "disposition": "accept-vendor-call-bound-amend-conformance",
+      "requirement_mapping": "Keep heavy workload start budgets separate while respecting the actual supervision contract.",
+      "evidence": "Per-workload start bound precedence, strict bounds, defaults and subprocess timeout covered by candidate tests. Independent source review shows no end-to-end action deadline; parent is correcting instance conformance reporting. Independent 40/120-second call budgets yielded42.5/122.5-second whole actions; whole-action gaps now remain explicitly unsupported.",
+      "test_files": [
+        "tests/test_instance_supervision_vocabulary.py",
+        "tests/test_runtime_start_bound_per_workload.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 91,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/91",
+      "head": "3d2f9369fed3cea41a82658dccc96cb0ce469273",
+      "title": "Hold a workload whose restart budget is spent",
+      "disposition": "suitable_feature_accept_with_semantic_caveat",
+      "requirement_mapping": "Repeated failed recovery must hold only the affected service, persist through restart, and not unpause or stop the fleet.",
+      "evidence": "Inspected durable budget reservation before start, monotonic-compatible wall-time record validation, corruption/clock reversal conservatism, operation lock and service hold tests. Supplemental fixture test now proves a separately named intent cannot bypass operator pause with or without a budget.",
+      "test_files": [
+        "tests/test_instance_supervision_vocabulary.py",
+        "tests/test_runtime_restart_budget.py",
+        "tests/test_runtime_restart_budget_edges.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 92,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/92",
+      "head": "e4bd4ae830ba61cff0a6bd2483119efaab548661",
+      "title": "Let the supervisor start the vendor runtime where settings opt in",
+      "disposition": "suitable_opt_in_feature_accept_with_gate",
+      "requirement_mapping": "A separately enrolled single owner may start vendor runtime in the user GUI context before recovery; preserve runtime data.",
+      "evidence": "Inspected root/env validation, executable/plist identity, fresh stopped evidence before vendor start, no shell use and post-start checks. Candidate tests exercise command/environment/deadline failures. Fixed-label amendment also closes alternate label loophole when runtime_start omitted.",
+      "test_files": [
+        "tests/test_runtime_start_vendor_runtime.py"
+      ],
+      "comments_inspected": 1,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 93,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/93",
+      "head": "cf700adff5582b7e40c0dbe3434ee8d148e5c9ef",
+      "title": "Read the runtime owner's intent and admissions as protected files",
+      "disposition": "confirmed_bug_amend",
+      "requirement_mapping": "Operator pause, holds and approved admissions must be authoritative, protected, bounded and share recovery locking.",
+      "evidence": "Independent candidate proofs: 2 failed. A recovery lock on state_dir used a different private unpaused intent file while authoritative intent was paused; UnsafeState escaped CLI redaction. Supplement binds intent exactly to state_dir/intent.json and redacts UnsafeState. Existing file-type/owner/mode/hardlink/no-follow checks retained.",
+      "test_files": [
+        "tests/test_runtime_protected_inputs.py",
+        "tests/test_runtime_protected_inputs_store_rule.py"
+      ],
+      "comments_inspected": 1,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 94,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/94",
+      "head": "09b3d2bc733c2c26a29a452369b30a422a333fb6",
+      "title": "Accept the account's user/<uid> domain as network helper domain",
+      "disposition": "confirmed_compatibility_accept",
+      "requirement_mapping": "Apple API registered in user/<uid> context must be readable without inventing gui/<uid> identity.",
+      "evidence": "Source ServiceManager domain grammar confirms own-user, gui and system variants. Candidate closed parser rejects another UID and cross-domain mismatch; bounded fixture tests pass.",
+      "test_files": [
+        "tests/test_runtime_helper_domain_user.py",
+        "tests/test_runtime_settings.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 95,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/95",
+      "head": "e5fda3a29fd074d9ff48500b829a84447edcaf86",
+      "title": "Refuse at enrollment what the settings loader would not read back",
+      "disposition": "confirmed_bug_accept",
+      "requirement_mapping": "Captured enrollment must reload exactly and fail before producing unusable/potentially dangerous contracts.",
+      "evidence": "Reviewed pre-enrollment type checks, stored size validation, roundtrip digests and invalid volume types. Candidate tests cover all declared optional members and former unloadable definitions.",
+      "test_files": [
+        "tests/test_runtime_enrollment_kinds.py",
+        "tests/test_runtime_enrollment_stored_form.py",
+        "tests/test_runtime_volume_identity.py"
+      ],
+      "comments_inspected": 1,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 96,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/96",
+      "head": "2e5b77a528352b48cdd2c064d921e82348a79b14",
+      "title": "Check a recipe's environment file and look up its init image",
+      "disposition": "confirmed_bug_accept",
+      "requirement_mapping": "No inherited host environment/secret value ambiguity and no unreviewed init-image fetch during provision.",
+      "evidence": "Vendor Parser env-file behavior and candidate tests verify literal key=value lines, reject inherited bare keys, and inspect the additional init image before mutation.",
+      "test_files": [
+        "tests/test_workloads_env_file_and_init_image.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 97,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/97",
+      "head": "5609523c149ba8a23f54693d83c194b8093ac2bf",
+      "title": "Pass over a peer's memory-backed mount in the single-writer check",
+      "disposition": "confirmed_bug_accept",
+      "requirement_mapping": "A peer tmpfs does not write a host bind, but unknown runtime/mount kinds cannot bypass single-writer checks.",
+      "evidence": "Reviewed exact native handler+mount-kind recognition; malformed/type-confusion tests and writable-peer controls pass. Updated interaction test uses independently proven stopped peer instead of trusting API state.",
+      "test_files": [
+        "tests/test_runtime_peer_mount_without_host_path.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 98,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/98",
+      "head": "404378c40b2f126d433c7c055bf575d330c70ba6",
+      "title": "Let the runtime settings state the bound of one complete read",
+      "disposition": "suitable_feature_accept_with_deadline_caveat",
+      "requirement_mapping": "One finite observation pass includes all subprocess/ACL reads without per-call deadline multiplication.",
+      "evidence": "Candidate tests exercise accumulated deadlines, malformed bounds, remaining-time propagation and start/provision callers. Runtime read deadline independent from vendor start is appropriate.",
+      "test_files": [
+        "tests/test_runtime_read_deadline.py",
+        "tests/test_runtime_read_deadline_callers.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 99,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/99",
+      "head": "1a64843eb23c333a43b8a44eb074ceb05ff53bbd",
+      "title": "Print what the retained supervisor cannot honour of an instance",
+      "disposition": "accept",
+      "requirement_mapping": "Explicit incomplete supervision",
+      "evidence": "Command reports actual unsupported pointers without values or silently translating semantics; all common input and contract gates remain active.",
+      "test_files": [
+        "tests/test_host_cli.py",
+        "tests/test_host_evidence_output.py",
+        "tests/test_instance_strictness.py",
+        "tests/test_instance_supervision_gaps_command.py",
+        "tests/test_report_status_vocabulary.py"
+      ],
+      "comments_inspected": 1,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 100,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/100",
+      "head": "d383640152cdb22225d3f1fb0c59297b136fa00d",
+      "title": "Read a contract file only from inside the data directory",
+      "disposition": "accept-with-limits",
+      "requirement_mapping": "Read-only contract containment",
+      "evidence": "Resolved directory containment blocks static symlink escape before content read; descriptor and content hash checks retained. Layout precheck is not atomic protection against concurrent parent replacement and does not claim to be.",
+      "test_files": [
+        "tests/test_instance_contract_containment.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 101,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/101",
+      "head": "c9256444fea995e30e6e3e24ca24b3f6d7649032",
+      "title": "Hold a PF anchor to what the tool and the kernel can take",
+      "disposition": "accept",
+      "requirement_mapping": "Usable pinned PF anchor length",
+      "evidence": "Full argument max63 narrows kernel-only component assumption; existing anchor is inside bound. Hosted CI notes corroborate tool63-byte limit; fresh local kernel acceptance was not run.",
+      "test_files": [
+        "test_pf_product_anchor_length.py"
+      ],
+      "comments_inspected": 2,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 102,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/102",
+      "head": "5d0285783b19929dab57b6e15fee0cd705dd580f",
+      "title": "Tell a pfctl listing refused for a notice from one that failed",
+      "disposition": "accept",
+      "requirement_mapping": "Unknown PF listings stay failures without leaking raw stderr",
+      "evidence": "Backend reserved76 carries only count; owner closes vocabulary and does not treat warning-only reads as emptiness. Arbitrary stderr not exposed. Parser-only pfctl warning exempt, not assumed harmless for live reads.",
+      "test_files": [
+        "test_pf_listing_notice.py"
+      ],
+      "comments_inspected": 1,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 103,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/103",
+      "head": "c18b14887653d6c676c964f7d9a924aa81856c5e",
+      "title": "Gate the UDP return pair on a verified translation order",
+      "disposition": "accept-opt-in",
+      "requirement_mapping": "HA static-port NAT ordering preserving Broadlink first packet",
+      "evidence": "Readable installed source already checks fixed stock hook order and sibling translations; candidate explicit verified option gates activation/readiness but does not flush global state or retire merely for foreign-order uncertainty. Live hook form and packet path unverified.",
+      "test_files": [
+        "test_pf_translation_order.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 104,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/104",
+      "head": "13b81402c49f6f3a85f8d1d674bc8d93552d74b2",
+      "title": "Let an installation keep host paths without runtime evidence",
+      "disposition": "accept-opt-in-with-residual",
+      "requirement_mapping": "Retain structural host path during observation timeout",
+      "evidence": "Only exact admitted alreadyloaded host targets, held PF reference and current fullport listener inventory qualify; only timeout/previouslyvalid stale evidence, never changed generation/identity or unavailable error; no new activation/reference. Listener alone is residual availability policy, not identity proof. Default retire retained. Exact-head3.12 CI cancelled, must pass combined final revision.",
+      "test_files": [
+        "test_pf_host_paths_on_unknown_runtime.py",
+        "test_pf_host_paths_observer_reasons.py"
+      ],
+      "comments_inspected": 1,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 105,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/105",
+      "head": "dcc7c4b32c5234ff8e7c9e5d3ce63f6a38e22125",
+      "title": "Let a discovery policy state its own miss tolerance",
+      "disposition": "accept-with-recorded-limits",
+      "requirement_mapping": "Needed to bind each policy miss threshold into its own digest and express the installed direction-specific behavior. Authoritative instance-to-owner rendering is root review work.",
+      "evidence": "Needed to bind each policy miss threshold into its own digest and express the installed direction-specific behavior. Authoritative instance-to-owner rendering is root review work.",
+      "test_files": [
+        "tests/test_bonjour_miss_tolerance_per_policy.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 106,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/106",
+      "head": "d846b70eea7653c9e74b126173c5c238b0677124",
+      "title": "Renew a registration beside the client it replaces, as an option",
+      "disposition": "accept-with-amendments",
+      "requirement_mapping": "Retain as opt-in candidate only; overlap can maintain truthful present only when a current predecessor/successor actually confirms. No native duplicate-registration/cache-continuity acceptance; not automatically enabled for the host.",
+      "evidence": "Retain as opt-in candidate only; overlap can maintain truthful present only when a current predecessor/successor actually confirms. No native duplicate-registration/cache-continuity acceptance; not automatically enabled for the host.",
+      "test_files": [
+        "tests/test_bonjour_renewal_overlap.py",
+        "tests/test_bonjour_renewal_overlap_clock.py"
+      ],
+      "comments_inspected": 0,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 107,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/107",
+      "head": "f839f99332995e5c899ca75ec21841cf99d926c0",
+      "title": "Let a scan pass whose read did not complete count as a miss",
+      "disposition": "accept-with-amendments",
+      "requirement_mapping": "Retain bounded opt-in failure forms with visible tolerated_failure and unchanged source timestamp. Never infer this is inward legacy behavior. Amended cross-type failure path to discard an explicitly unusable answer even beside unfinished sibling reads.",
+      "evidence": "Retain bounded opt-in failure forms with visible tolerated_failure and unchanged source timestamp. Never infer this is inward legacy behavior. Amended cross-type failure path to discard an explicitly unusable answer even beside unfinished sibling reads.",
+      "test_files": [
+        "tests/test_bonjour_failed_pass_as_miss.py",
+        "tests/test_bonjour_failed_pass_unfinished_reads.py"
+      ],
+      "comments_inspected": 1,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 108,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/108",
+      "head": "c90e2d95a57d0fbc470f26bc3328e9e16dc18d13",
+      "title": "Refuse credential keys that a capital inside the word used to hide",
+      "disposition": "accept-amended-integration",
+      "requirement_mapping": "Credential and conformance interaction",
+      "evidence": "Wider refusing guard correctly detects irregular capitals. Integrated separate narrow relaxation guard prevents widening unexamined subtrees; regression tests verify replyToKen containing undeclared address is refused.",
+      "test_files": [
+        "tests/test_importer_credential_boundaries.py",
+        "tests/test_importer_credential_capitals.py"
+      ],
+      "comments_inspected": 1,
+      "review_threads": 0,
+      "native_acceptance": false
+    },
+    {
+      "number": 109,
+      "url": "https://github.com/mglaeser/network-orchestrator/pull/109",
+      "head": "795f59939788e78e3ca0f4f45e984fdeb7b7b0dd",
+      "title": "Give the macOS test job time for the suite the open changes add",
+      "disposition": "accept",
+      "requirement_mapping": "Complete macOS CI",
+      "evidence": "Only test-job timeout changes15to45minutes; matrix, coverage, action pins and dependency locks unchanged. Previous combined hosted run exceeded15minutes in allthreePythonjobs.",
+      "test_files": [],
+      "comments_inspected": 1,
+      "review_threads": 0,
+      "native_acceptance": false
+    }
+  ]
+}
