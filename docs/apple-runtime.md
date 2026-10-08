@@ -21,7 +21,7 @@ loader. Operator data supplies:
 | Table | Fields and purpose |
 |---|---|
 | Account | UID, GID, HOME of the genuine vendor runtime user |
-| Runtime | Absolute CLI path, exact accepted version, legacy-risk acknowledgement, optional `start_timeout_seconds` |
+| Runtime | Absolute CLI path, exact accepted version, legacy-risk acknowledgement, optional `start_timeout_seconds` and `read_timeout_seconds` |
 | Networks | Scope, native network name/gateway, launchd helper domain/label, expected program and UID |
 | Service contracts | Service/name/scope, full native configuration fingerprint, persistent mount identities, hashed file receipts, optional tolerated stopped peer names |
 | Paths | Private generated policy, user admissions, durable intent and state directory |
@@ -130,7 +130,8 @@ under this binding.
 
 ## A complete live observation
 
-Each pass has an eight-second aggregate deadline, with smaller process limits:
+Each pass has an aggregate deadline, eight seconds unless the settings state
+[another bound](#the-bound-of-one-read), with smaller process limits:
 
 1. Verify the exact CLI version against its reader contract.
 2. Read the kernel's boot session identifier and the actual helper PID, start
@@ -226,12 +227,14 @@ The vendor `start` call of that sequence is cut off after four seconds, like
 every other vendor call, unless the runtime settings carry
 `start_timeout_seconds`: a whole number from 1 to 120, left out by default and
 never written as `null`. The setting bounds that one call. The observations
-before and after it keep the eight-second pass and its smaller limits, and the
-running readback stays the only statement that the workload started. A call
+before and after it keep the deadline of their pass
+([the bound of one read](#the-bound-of-one-read)) and its smaller limits, and
+the running readback stays the only statement that the workload started. A call
 that is cut off ends recovery as unknown; the vendor service may still complete
 the start, which a later probe then reports. Recovery holds the user operation
-lock for the whole sequence, three passes and the start call: about 28 seconds
-at most without the setting and about 144 with its largest value. Until it ends, the
+lock for the whole sequence, three passes and the start call: where a pass has
+eight seconds, about 28 seconds at most without the setting and about 144 with
+its largest value. Until it ends, the
 coordinator's pass, `pause` and every other command that takes that lock report
 busy and have to be repeated. The probe takes no lock, and the supervisor's
 check timeout (`monitors[].timeout_seconds`) is written on the probe's check,
@@ -253,6 +256,104 @@ inhibits every workload. Vendor publications are part of existing application
 definitions; an operator pause or a hold is not permission to stop those
 applications. Missing native publication or a changed definition
 therefore reports a maintenance requirement rather than hidden recreation.
+
+### The bound of one read
+
+One complete read, a pass as listed under
+[A complete live observation](#a-complete-live-observation), ends after eight
+seconds unless the runtime settings carry `read_timeout_seconds`: a whole number
+from 8 to 118, left out by default and never written as `null`. A read that runs
+out of time is unknown (`timed-out`) for every workload: the probe returns 69,
+recovery starts nothing and the root forwarding owner retires its rules. A read
+is many short processes. For the example's four workloads, all running with one
+mount each, it is 16 calls of the vendor tool and of system tools, and 20 for
+eight workloads; `fleet_start` adds four, and two for each guest listed as
+stopped (one where the helper domain is `system`). On macOS there is also one
+`ls` for each mount or receipt and for each directory above them. The setting
+is for a fleet whose read takes longer than eight seconds under load.
+
+The setting bounds a pass and nothing smaller. A vendor call is still cut off
+after four seconds, a system tool after three, an ACL read after two and the
+checks of one mount or receipt after five, so a call that hangs costs what it
+cost before. Every pass of the reader takes the bound: the probe, `observe`,
+enrollment, the passes of initial provisioning, and each of the three passes of
+recovery, which has the whole bound to itself as it has eight seconds without
+the setting. Recovery then holds the user operation lock for up to three times
+the bound and the start call, 474 seconds with both settings at their largest
+values. With reads of twelve seconds that is about 37 seconds. Until it ends,
+another workload's recovery gives up after its five seconds (exit 75, nothing
+read; the supervisor runs it again only where `recovery_repeat_cycles` is set),
+and `pause` and the coordinator's pass answer busy.
+
+The owner endpoint (`request`) does not take the bound. The coordinator and the
+discovery owner end it after ten seconds ([owner protocol](owner-protocol.md)),
+and its read keeps the eight seconds that fit into those. A fleet whose read
+needs longer is therefore read by the probe, by recovery and by the root
+forwarding owner, and is still unknown to the coordinator and the discovery
+owner: discovery is not published for such a fleet. An example with a read that
+takes twelve seconds and a bound of twenty in both settings objects: the probe
+answers after twelve seconds, and the root owner keeps its rules loaded and
+reports them ready. The endpoint ends its own read after eight seconds, so the
+coordinator sees every workload as unknown (`timed-out`) and no network
+generation, counts none of the root owner's rules as ready and plans every
+discovery declaration inactive (`network-unknown`). Closing that needs the owner
+protocol's ten seconds to become a setting of their own, which this setting is
+not.
+
+Whatever waits for a read has to wait longer than the read may take. The runner
+starts each call in a session of its own and ends it when the call's bound runs
+out; a probe that the supervisor ends first has reported nothing itself, and the
+call it was waiting for can be left running with nothing left to end it. This
+code keeps a margin of two seconds for that: the owner protocol's ten for the
+endpoint's eight, and the example's check timeout of 10 for a read of 8. The
+margin is a convention, not a measured start-up time. A check timeout
+(`monitors[].timeout_seconds`) is at most 120 seconds, and the greatest bound
+that can be stated is that less the margin, 118.
+
+Where a bundle is rendered, the margin is enforced for the one case that a
+bundle shows. A monitor whose check runs `-m netorch.apple_runtime` with the
+command `probe` and with settings that are a file of that release
+(`{release}/` and the destination of a user artifact) needs a timeout of at
+least the bound those settings state plus two seconds; otherwise the bundle is
+refused before anything is written. The command line is read as the probe reads
+it, so another spelling of the same options or of the same path is the same
+check. A bundle whose settings do not state the setting renders as it did,
+whatever its timeouts are. What a bundle does not show is not compared: a probe
+reached through a program of the site's own, settings that are not a file of
+the release (another path, a link the site maintains, the state directory), and
+settings that the loader refuses, with which the probe answers unknown at once.
+
+The root forwarding owner parses its `observer` with the same loader, so its
+reads take the bound that the `observer` states and never the user's. The bound
+is part of no generation: the two settings objects may state different values
+and still agree on what they read. A root owner that keeps eight seconds retires
+its rules for a fleet that the probe, with a longer bound, reads as running, so
+state the bound in both. Stating it changes the stored settings. No contract
+and no derived policy changes, but an approved initial provision needs a new
+approval, and in the `observer` the setting changes every root admission
+digest, so each profile is admitted again, as after any change of the trusted
+observer. A release without the setting refuses settings that carry it, which
+makes every workload unknown; bring both scopes to a release that knows it
+first. A value that the loader refuses is found only by a pass, because neither
+installing the document nor admitting a profile parses the `observer`: that pass
+reads nothing and retires every rule, as it does for any malformed observer.
+
+A longer bound has a price on the root side. The owner reads the runtime at
+least twice in a pass, once more for every rule it activates, and holds its lock
+throughout: with reads of twelve seconds a pass takes 24 seconds where it took
+16 (two reads cut off at eight), and with a bound of 30 a pass over a slow fleet
+can take a minute. For that time `pause`, `withdraw` and the owner's other
+commands answer busy (exit 75), for which an installation waits five seconds. A
+profile also accepts evidence only up to its own `safety.max_age_seconds`,
+counted from the start of the read. A read that took longer than that is
+`snapshot-stale` for that profile and retires it as a timed-out read does,
+whatever the bound, and the report that the coordinator and the discovery owner
+read can be as old as the owner's interval and one whole pass. The example's 30
+seconds cover an interval of 10 and two reads of 8; they do not cover two reads
+of 20. For a bounded profile the bound is also the read term of the withdrawal
+window of the [safety contract](safety-contract.md): interval, read bound,
+withdrawal bound and scheduling slack have to fit into the age that the
+decision accepts.
 
 ## Starting a fully stopped fleet
 

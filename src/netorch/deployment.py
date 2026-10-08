@@ -11,6 +11,7 @@ import contextlib
 import hashlib
 import os
 import plistlib
+import posixpath
 import re
 import shlex
 import stat
@@ -33,6 +34,7 @@ from .model import Config
 from .pf_owner import Installation as ForwardingSettings
 from .pf_owner import reject_acl
 from .process import ProcessError, Result, run
+from .runtime_settings import READ_TIMEOUT_MARGIN, parse_settings
 from .state import Intent, intent_from_dict, intent_to_dict
 from .storage import Store
 
@@ -345,6 +347,79 @@ def _monit(deployment: Deployment, release: Path) -> bytes:
     return ("\n".join(lines) + "\n").encode()
 
 
+# The module whose `probe` command is the check of a workload monitor.
+_RUNTIME_MODULE = "netorch.apple_runtime"
+# How an interpreter is told to run a module: `-m`, alone or as the last letter
+# of a group of its options that take no value.
+_MODULE_OPTION = re.compile(r"-[bBdEiIOPqRsStuvx]*m")
+
+
+def _module_arguments(argv: tuple[str, ...]) -> tuple[str, ...] | None:
+    """What a command line hands to the runtime module, if it names that module to run.
+
+    The name is the argument after the interpreter's option or is joined to it.
+    A command that reaches the module through a program of the site's own names
+    it in neither way and is not recognised.
+    """
+    for index, item in enumerate(argv):
+        if _MODULE_OPTION.fullmatch(item) and argv[index + 1 : index + 2] == (_RUNTIME_MODULE,):
+            return argv[index + 2 :]
+        if item.endswith(_RUNTIME_MODULE) and _MODULE_OPTION.fullmatch(
+            item[: -len(_RUNTIME_MODULE)]
+        ):
+            return argv[index + 1 :]
+    return None
+
+
+def _probe_timeouts(deployment: Deployment, captures: dict[str, bytes], release: Path) -> None:
+    """Refuse a check timeout that ends the runtime probe inside the read its settings allow.
+
+    Whatever waits for one read waits READ_TIMEOUT_MARGIN longer than the read
+    may take. A bundle shows that relation for one case only: a check that runs
+    the probe with settings that are a file of this release and state
+    `read_timeout_seconds`. Settings without the member, settings that are not a
+    file of the release, settings their loader refuses and every other check
+    are not compared, so a manifest that rendered before renders the same.
+    """
+    # Only rendering a bundle reads a probe's command line: an installation
+    # does not load the runtime module through this one.
+    from .apple_runtime import probe_settings
+
+    settings_files = {
+        artifact.destination: captures[f"user/{artifact.destination}"]
+        for artifact in deployment.artifacts
+        if artifact.scope == "user"
+    }
+    state = deployment.user.state_directory
+    for monitor in deployment.monitors:
+        # The command as it will be installed, read as the probe itself reads it.
+        arguments = _module_arguments(
+            tuple(_resolve(item, release, state) for item in monitor.check_argv)
+        )
+        settings = None if arguments is None else probe_settings(arguments)
+        if settings is None:
+            continue
+        path = posixpath.normpath(settings)
+        # Two leading slashes name the same file as one.
+        path = path[1:] if path.startswith("//") else path
+        if not path.startswith(f"{release}/"):
+            continue
+        # The platform's default volume does not tell the case of letters apart,
+        # and the manifest's schema gives every destination in lower case.
+        payload = settings_files.get(path[len(f"{release}/") :].casefold())
+        if payload is None:
+            continue
+        try:
+            bound = parse_settings(strict_loads(payload)).read_timeout_seconds
+        except ValueError:
+            # The probe cannot load these either: it answers unknown at once.
+            continue
+        if bound is not None and monitor.timeout_seconds < bound + READ_TIMEOUT_MARGIN:
+            raise DeploymentError(
+                "probe check timeout leaves no margin above the read bound of its settings"
+            )
+
+
 def render_bundle(deployment: Deployment, config: Config, output: Path) -> dict[str, Any]:
     """Capture all inputs once, validate data and create an immutable hash inventory."""
     validate_deployment(deployment)
@@ -383,6 +458,7 @@ def render_bundle(deployment: Deployment, config: Config, output: Path) -> dict[
     ):
         raise DeploymentError("forwarding schedule cannot exceed its observation age bound")
     release_id = digest({"deployment": deployment_to_dict(deployment), "policy": to_dict(config)})
+    _probe_timeouts(deployment, captures, Path(deployment.user.directory) / "releases" / release_id)
     for scope in ("user", "root"):
         captures[f"{scope}/data/network.json"] = canonical_bytes(to_dict(config)) + b"\n"
         release = Path(deployment.installation(scope).directory) / "releases" / release_id
