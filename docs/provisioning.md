@@ -236,8 +236,12 @@ leaves that journal unchanged. Its own journal records the scope and the bundle
 digests of both releases, so a rollback that failed or was stopped is repeated
 with the same command and digest. The repeat accepts a job file of either of
 the two releases, tolerates a job it had already removed, boots out the jobs of
-both releases before it loads the predecessor's, and only releases its hold and
-closes the journal if the predecessor's receipt is already in place. A first
+both releases before it loads the predecessor's. If the predecessor's receipt
+is already in place, it revalidates that release's retained and installed job
+bytes and requires every restored label to be currently loaded before releasing
+its hold and closing the journal. A receipt alone is not fresh evidence after
+an interruption. Changed files or an absent/unreadable job leave the hold and
+journal unchanged for inspection; completion does not repair them. A first
 attempt still requires the current release's exact job bytes. A journal left
 by a failed rollback of an earlier version has no scope or digests and is not
 resumed.

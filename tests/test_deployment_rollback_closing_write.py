@@ -78,7 +78,7 @@ def test_rollback_whose_closing_journal_write_did_not_complete_is_closed_by_its_
             recover_install(lab.state_dir, scope, expected_failed_digest=digest, runner=runner)
     with pytest.raises(DeploymentError, match="unfinished installation"):
         install_bundle(lab.second, scope, expected_digest=lab.new["bundle_digest"], runner=runner)
-    # The same command with the same digest closes the journal and changes nothing else.
+    # The same command rechecks each restored job before closing the journal.
     calls = len(lab.tools.calls)
     assert lab.rollback(runner) == {
         "phase": "rolled-back",
@@ -86,4 +86,7 @@ def test_rollback_whose_closing_journal_write_did_not_complete_is_closed_by_its_
         "preserved_intent": True,
     }
     assert lab.state() == expected
-    assert len(lab.tools.calls) == calls
+    assert lab.tools.calls[calls:] == [
+        (manifest["launchctl"], "print", f"{manifest[scope]['domain']}/{job['label']}")
+        for job in expected["receipt"]["jobs"]
+    ]

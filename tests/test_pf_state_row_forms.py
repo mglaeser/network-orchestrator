@@ -1,9 +1,10 @@
 """State rows are read in the display forms of the kernel's lan/gwy/ext state model.
 
-The readable forms are those of a reviewed read-only capture of a macOS state
-table. Only the shape of a row is the capture's: every address and port below
-is a documentation value (RFC 5737, RFC 3849), a link-local or a multicast
-constant. Nothing here ran against a kernel.
+The readable forms reproduce sanitized fixtures of an existing site's state
+reader and the printer lineage documented in docs/pf-owner.md. No raw native
+capture or its provenance was reviewed for this change. Every address and port
+below is a documentation value (RFC 5737, RFC 3849), a link-local or a multicast
+constant. These fixtures prove parser behavior, never current kernel behavior.
 """
 
 from __future__ import annotations
@@ -19,6 +20,8 @@ from tests.test_pf_owner import approve_all, environment, run_pass
 
 __all__ = ["environment"]
 
+# The inherited name CAPTURED identifies the source-fixture group only; it is
+# not an assertion that this repository holds or verified a native capture.
 # name -> (row, every IPv4 address the row names, in printed order)
 CAPTURED: dict[str, tuple[str, tuple[str, ...]]] = {
     "translated outbound": (

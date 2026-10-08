@@ -1445,15 +1445,33 @@ def _finish_rollback(
 ) -> dict[str, Any]:
     """Close a rollback that stopped after it had restored the predecessor's receipt.
 
-    The receipt is written only after every restored job was loaded and read
-    back. What can be missing is the release of this rollback's own hold and
-    the closing journal entry.
+    The receipt proves an earlier completion, not current job state after an
+    interruption. Recheck the retained and installed bytes and each loaded
+    label before releasing this rollback's hold or closing its journal.
     """
     if receipt["release_id"] != journal.get("to"):
         raise DeploymentError("unfinished installation needs phase-aware recovery")
     holder = journal["from_bundle_digest"]
     deployment = parse_deployment(canonical_bytes(receipt["deployment"]))
-    _require_platform(scope, deployment)
+    uid = _require_platform(scope, deployment)
+    installation = deployment.installation(scope)
+    privileged = scope == "root"
+    _check_tree(Path(installation.directory), uid, privileged=privileged)
+    _check_tree(Path(installation.launchd_directory), uid, privileged=privileged)
+    _, files = _verified_release(receipt, scope)
+    jobs = {job.label: job for job in deployment.jobs if job.scope == scope}
+    # Finish every byte/trust check before asking launchd or changing intent.
+    for record in receipt["jobs"]:
+        payload = files[f"launchd/{record['label']}.plist"]
+        if _sha(payload) != record["sha256"]:
+            raise DeploymentError("restored job differs from its receipt")
+        installed = Path(installation.launchd_directory) / f"{record['label']}.plist"
+        _fence_job(installed, payload, jobs[record["label"]], uid)
+    for record in receipt["jobs"]:
+        _tool(
+            runner,
+            (deployment.launchctl, "print", f"{installation.domain}/{record['label']}"),
+        )
     if scope == "user":
         intent = intent_from_dict(store.read("intent.json"))
         if intent.damaged:
