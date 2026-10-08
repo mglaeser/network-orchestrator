@@ -32,7 +32,9 @@ See [the instance guide](docs/instances.md), [review traceability](docs/review-t
 and [migration rules](docs/site-migration.md). No production qualification,
 application acceptance or unattended recovery is implied by installing a wheel.
 The [latest adversarial review](docs/reviews/2026-10-08-site-requirements-review.md)
-records the 0.4.0 corrections, proposal dispositions and remaining conformance gates.
+records the 0.4.0 corrections and proposal dispositions. The
+[0.4.1 closure record](docs/reviews/2026-10-08-closure-and-qualification.md) separates
+repository fixes from remaining conformance and production qualification gates.
 
 ## Goals and hard gates
 

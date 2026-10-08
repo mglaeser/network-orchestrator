@@ -130,6 +130,17 @@ def enrolled(tmp_path, monkeypatch):
     return config, settings, items
 
 
+def domain_report(domain, labels=()):
+    """A complete synthetic domain inventory, including loaded idle jobs."""
+    kind = "login" if domain.startswith("gui/") else domain.split("/")[0]
+    handle = "0" if domain == "system" else domain.split("/")[1]
+    rows = "".join(f"\t\t0 - {label}\n" for label in sorted(labels))
+    return (
+        f"{domain} = {{\n\ttype = {kind}\n\thandle = {handle}\n"
+        f"\tservice count = {len(labels)}\n\tservices = {{\n{rows}\t}}\n}}\n"
+    ).encode()
+
+
 class FakeRunner:
     def __init__(self, settings, items):
         self.settings = settings
@@ -193,6 +204,12 @@ class FakeRunner:
         if argv[0] == "/sbin/ifconfig":
             return Result(0, b"en0: flags=0\n inet 192.0.2.10 netmask 0xffffff00\n", b"")
         if argv[0] == "/bin/launchctl":
+            if argv[1] == "print" and argv[2] in {
+                "system",
+                f"gui/{self.settings.account.uid}",
+                f"user/{self.settings.account.uid}",
+            }:
+                return Result(0, domain_report(argv[2]), b"")
             # Explicit service-manager evidence in the ordinary mock scenario.
             # Surviving jobs and unknown reads are separate regression fixtures.
             if argv[2].rpartition("/")[2].startswith("com.apple.container."):

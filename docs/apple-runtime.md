@@ -57,16 +57,29 @@ used by [`register`](https://github.com/apple/container/blob/1.5.0/Sources/Conta
 The API service registers the network helper through it from its own process
 ([`registerWithLaunchd`](https://github.com/apple/container/blob/1.5.0/Sources/ContainerPlugin/PluginLoader.swift#L253-L297)).
 
-Every API row reported as stopped requires an independent absence check of its
-fixed vendor runtime job, including partially running fleets without `fleet_start`.
-A stopped guest's runtime job is asked for in all three vendor-supported domains:
-`system`, `gui/<uid>` and `user/<uid>`. The current network helper's domain does
-not constrain where a previous API incarnation registered a surviving job
-(see [Starting a fully stopped fleet](#starting-a-fully-stopped-fleet)). What
-`launchctl` answers for `gui/<uid>` of an account that has no login session is
-not established. If it is not the answer the reader counts as "absent" (exit
-status 113 and no standard output), every stopped guest reads as unknown on
-such a host and nothing is started there.
+Every API row reported as stopped requires independent absence evidence,
+including partially running fleets without `fleet_start`. The current handler's
+exact job label is checked in `system`, `gui/<uid>` and `user/<uid>`. The reader
+also inventories each complete domain and refuses any fixed-vendor runtime
+label naming that guest, regardless of handler. This covers surviving historical
+jobs after explicit re-enrollment or retained-peer redefinition, even if the old
+plugin is no longer installed. Neither the current definition nor plugin inventory
+is a history of loaded jobs.
+
+Whole-domain output must match the bounded closed parser, including the requested
+domain, native type/handle, declared service count and every service row. Duplicate,
+missing, truncated or unfamiliar data is unknown, never an empty list. A missing
+GUI session is also unknown: status 113 is accepted for an exact job lookup only,
+not for a domain inventory. The three inventories are shared within one pass and
+freshly read again at the final absence fence. A late historical job invalidates
+the observation. Current-label absence is supplemental evidence, not a substitute
+for a complete inventory.
+
+The parser is deliberately conservative because `launchctl print` is diagnostic
+output, not a stable API. Read-only macOS userspace tests verify the exercised
+grammar; they do not qualify a hardware lifecycle or an arbitrary custom-runtime
+transition. An unsupported shape fails closed. See
+[the closure record](reviews/2026-10-08-closure-and-qualification.md).
 
 No receiver IP is enrolled. Media receivers come from genuine current LAN
 DNS-SD records; DHCP changes and additional eligible devices need no code edit.
@@ -177,7 +190,7 @@ A site that keeps a second definition over the same writable path without ever
 running it, for example a retained test definition, can enroll that definition's
 name in the contract's `tolerated_stopped_peers`. The peer is accepted only while the inventory reports it exactly `stopped` and
 the service manager independently proves its runtime job absent: its configuration
-identity and runtime handler must be valid, and no guest job may be loaded in
+identity and runtime handler must be valid, and no current or historical guest job may be loaded in
 `system` or either enrolled account domain. An unavailable service-manager read or a job
 that survives an API restart gives no verified target. Running,
 stopping or unknown peers and every name that is not listed remain refused.
@@ -412,7 +425,10 @@ recovery starts nothing and the root forwarding owner retires its rules. A read
 is many short processes. For the example's four workloads, all running with one
 mount each, it is 16 calls of the vendor tool and of system tools, and 20 for
 eight workloads; `fleet_start` adds four. Each guest listed as stopped adds three
-service-manager reads, even without `fleet_start`. On macOS there is also one
+exact-label service-manager reads, even without `fleet_start`. A pass requiring
+stopped-guest or retained-peer absence also adds six domain inventory reads:
+three cached initial reads and three fresh reads at the final fence, independent
+of fleet size. On macOS there is also one
 `ls` for each mount or receipt and for each directory above them. The setting
 is for a fleet whose read takes longer than eight seconds under load.
 
@@ -656,7 +672,10 @@ stopped-job checks. Anything missing or unfamiliar is unknown:
    every print ends with exit status 113 and no standard output, the service
    manager's answer for a label it has no job for. A job that is printed makes
    that guest unknown (`generation-mismatch`); any other outcome makes it
-   unknown (`unavailable`). Other guests are not affected.
+   unknown (`unavailable`). A complete inventory of all three domains additionally
+   excludes runtime labels naming the guest under any handler. At the end of the
+   pass, fresh complete inventories must still exclude every watched guest; a
+   failed final fence invalidates the pass.
 
 A guest listed as running is read as before. Recovery itself is unchanged: the
 lock, the durable intent read twice, two stopped observations in one network
@@ -804,7 +823,7 @@ Three conditions hold before the call, and each is read on both passes:
 3. **Only a proven absence starts anything.** The service manager itself must
    say that the job is not loaded: `launchctl print gui/<uid>/<api_label>` ends
    with status 113 and no standard output, while `launchctl print gui/<uid>`
-   answers and the same label is not loaded in `user/<uid>` either. The
+   answers and the same label is not loaded in `user/<uid>` or `system` either. The
    session of the caller must be the one whose domain is declared
    (`launchctl managername` answers `Aqua`), because the vendor's command loads
    into the domain of the session that runs it. The label must not be disabled

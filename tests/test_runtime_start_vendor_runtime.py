@@ -162,6 +162,7 @@ class VendorRunner(FakeRunner):
         self.job: dict[str, Any] | None = None
         self.job_answer: Result | None = None
         self.other_domain = NOT_LOADED
+        self.system_domain = NOT_LOADED
         self.domain = Result(0, f"{self.gui} = {{\n\tservices = {{\n\t}}\n}}\n".encode(), b"")
         self.session = Result(0, b"Aqua\n", b"")
         self.disabled = Result(0, DISABLED_LIST, b"")
@@ -185,6 +186,8 @@ class VendorRunner(FakeRunner):
                     if self.job is None
                     else Result(0, job_print(self.gui, self.job), b"")
                 )
+            if argv[1:] == ["print", f"system/{LABEL}"]:
+                return self.system_domain
             if argv[1:] == ["print", f"{self.user}/{LABEL}"]:
                 return self.other_domain
             if argv[1:] == ["print", self.gui]:
