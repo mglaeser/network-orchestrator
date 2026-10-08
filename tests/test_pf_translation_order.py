@@ -689,7 +689,7 @@ def assert_withheld(
 
 
 def test_withholding_reasons_are_a_second_closed_vocabulary() -> None:
-    assert frozenset({REASON}) == owner.WITHHOLDING_REASONS
+    assert frozenset({REASON, "runtime-unknown"}) == owner.WITHHOLDING_REASONS
     assert isinstance(owner.WITHHOLDING_REASONS, frozenset)
     assert list(owner._withholdings({"b": REASON, "a": REASON})) == ["a", "b"]
     assert owner._withholdings({}) == {}

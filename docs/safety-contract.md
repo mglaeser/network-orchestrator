@@ -29,6 +29,17 @@ UTC signature time. The existing owner is stricter than a larger K: its
 effective value is **1**, because the first unknown retires known exposure.
 The report exposes both values; it does not add a delayed-withdrawal algorithm.
 
+A root installation can decide to
+[keep host paths](pf-owner.md#host-paths-while-runtime-evidence-is-unknown)
+on a pass whose read of their service ran out of time, or whose evidence for
+them is merely too old. T and K are then still what they were for
+every rule that names a guest address, which is what they bound: such a rule is
+retired by the first unknown. A rule that ends at the host's own address is not
+counted by any K under that decision. That is the host redirect and the
+fallback form of a bounded profile; it can stay loaded, and not ready, for as
+long as the conditions of the owner guide hold, and the report's values do not
+describe it.
+
 The conditional operational window is:
 
 ```text

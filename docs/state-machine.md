@@ -32,7 +32,12 @@ Unknown never initiates activation or workload recovery. This planner chooses
 the conservative option of retiring a known exposure at the first unknown
 identity. `unknown_limit` is the maximum retry tolerance permitted to an
 independent owner, rather than a promise that this planner retains an exposure
-for that many passes.
+for that many passes. The root owner carries such a retirement out, with one
+exception that its installation can choose and that this planner does not
+know: a loaded rule that ends at the host's own address can be
+[kept and withheld](pf-owner.md#host-paths-while-runtime-evidence-is-unknown)
+while a pass only lacks runtime evidence for it, under the conditions named
+there. `unknown_limit` does not bound that.
 
 ## Admission binds content
 

@@ -30,8 +30,8 @@ from typing import Any, Protocol
 # from outside this package (ctypes), so it is imported here and listed as well.
 from . import darwin_volume  # noqa: F401
 from .codec import MAX_JSON_BYTES, canonical_bytes, digest, strict_loads
-from .config import parse_config, profile_digest, profile_view, to_dict
-from .model import Config, Profile, Scope
+from .config import backing_publication, parse_config, profile_digest, profile_view, to_dict
+from .model import Config, PortRange, Profile, Scope
 from .planner import Action, plan
 from .process import Result, run
 from .state import (
@@ -76,11 +76,34 @@ DEFERRAL_REASONS = frozenset(
         "translation-order-unverified",
     }
 )
-# Why a pass does not report a loaded rule pair ready although it leaves its
-# rules loaded: something its use rests on was not verified by that pass, and
-# the lack of it cannot expose anything. A withheld pair is not a deferred
-# profile: a deferred profile has no rule loaded.
-WITHHOLDING_REASONS = frozenset({"translation-order-unverified"})
+# Why a pass does not report a loaded rule ready although it leaves it loaded.
+# `translation-order-unverified`: something the use of a rule pair rests on was
+# not verified by that pass, and the lack of it cannot expose anything.
+# `runtime-unknown`: the pass has no current runtime evidence for a rule that
+# ends at the host's own address, and the installation chose to keep such a
+# rule. A withheld profile is not a deferred profile: a deferred profile has no
+# rule loaded.
+WITHHOLDING_REASONS = frozenset({"translation-order-unverified", "runtime-unknown"})
+# The plan's reasons for a retirement that can mean that this pass merely has no
+# current runtime evidence: the reading of the runtime ran out of time as a
+# whole, so that the snapshot has no network generation (`network-unknown`), the
+# snapshot is older than the profile allows (`snapshot-stale`), or the service's
+# own observation is unknown or has aged out (`endpoint-unknown`). Every other
+# reason of `planner._profile_plan` states a fact, or concerns an authority or
+# the profile's own readback, and retires as before.
+_EVIDENCE_MISSING = frozenset({"snapshot-stale", "endpoint-unknown", "network-unknown"})
+# None of the three is one statement. The runtime observer also reports as
+# unknown a container that is not the enrolled one, one that its listing does
+# not have, one that two reads describe differently, and a runtime whose
+# version, helper, network or settings are not the accepted ones or changed
+# during the read. This is the one reason of an unknown observation with which
+# a read says only that it gave no answer: it ran out of time. `unavailable` is
+# not such a reason. The observer has it for a tool that answered with an
+# error, which is how the service manager says that it has no such job and how
+# the vendor's tool says that a network or a container does not exist; and the
+# owner records it when the observer raised, which includes the observer's
+# refusal to run code that a user could replace.
+_NO_ANSWER = frozenset({"timed-out"})
 # 2**53 - 1: every JSON reader of the published report represents it exactly.
 _MAX_GATE_REVISION = 9007199254740991
 # The backend script's own exit status for a listing that ended with status 0
@@ -164,6 +187,10 @@ class Installation:
     # What must hold in the main ruleset for a rule pair with an outbound
     # translation. "present": the two parent hooks exist, as before.
     translation_order: str = "present"
+    # What a pass does with a loaded rule that ends at the host's own address
+    # when it has no current runtime evidence. "retire": it is withdrawn like
+    # every other rule, as before.
+    runtime_unknown: str = "retire"
 
     def __post_init__(self) -> None:
         if (
@@ -200,6 +227,11 @@ class Installation:
             "verified",
         }:
             raise PFError("invalid translation-order decision")
+        if not isinstance(self.runtime_unknown, str) or self.runtime_unknown not in {
+            "retire",
+            "keep-host-paths",
+        }:
+            raise PFError("invalid runtime-unknown decision")
         for value in (self.report_path, self.intent_path):
             if value is not None and (
                 not isinstance(value, str) or not os.path.isabs(value) or "\x00" in value
@@ -225,7 +257,8 @@ class Installation:
         }
         if (
             not isinstance(raw, dict)
-            or set(raw) - {"enable_reference", "cold_start", "translation_order"} != required
+            or set(raw) - {"enable_reference", "cold_start", "translation_order", "runtime_unknown"}
+            != required
             or type(raw["schema_version"]) is not int
             or raw["schema_version"] != 1
             # One spelling per decision: a key exists only for the choice that
@@ -233,6 +266,7 @@ class Installation:
             or ("enable_reference" in raw and raw["enable_reference"] != "reacquire")
             or ("cold_start" in raw and raw["cold_start"] != "self-heal")
             or ("translation_order" in raw and raw["translation_order"] != "verified")
+            or ("runtime_unknown" in raw and raw["runtime_unknown"] != "keep-host-paths")
         ):
             raise PFError("unsupported installation schema")
         return cls(**{key: value for key, value in raw.items() if key != "schema_version"})
@@ -251,6 +285,10 @@ class Installation:
             # Left out while it is the default: an installation that never made
             # the decision keeps the bytes it was stored with.
             del value["translation_order"]
+        if self.runtime_unknown == "retire":
+            # Left out while it is the default: an installation that never made
+            # the decision keeps the bytes it was stored with.
+            del value["runtime_unknown"]
         return value
 
 
@@ -324,6 +362,11 @@ def admitted_digest(config: Config, profile: Profile, installation: Installation
                 {}
                 if installation.translation_order == "present"
                 else {"translation_order": installation.translation_order}
+            ),
+            **(
+                {}
+                if installation.runtime_unknown == "retire"
+                else {"runtime_unknown": installation.runtime_unknown}
             ),
         }
     )
@@ -887,6 +930,9 @@ class Backend(Protocol):
     def translation_hooks(self) -> str: ...
     def sibling_anchors(self) -> str: ...
     def sibling(self, anchor: str) -> str: ...
+    # Read-only socket inventory of one protocol for the judgement of a host
+    # path. A pass calls it only where the installation chose to keep such paths.
+    def socket_inventory(self, protocol: str) -> tuple[tuple[str, int, int, str, str], ...]: ...
 
 
 class ShellBackend:
@@ -1144,9 +1190,13 @@ class ShellBackend:
             and sum(x in {"[bridge]", "[ethernet]"} for x in arp[6:]) == 1
         )
 
+    def socket_inventory(self, protocol: str) -> tuple[tuple[str, int, int, str, str], ...]:
+        """Root's own complete socket inventory of one protocol, as the kernel lists it now."""
+        raw = self._native(["/usr/sbin/netstat", "-anlv", "-W", "-p", protocol])
+        return parse_socket_inventory(raw, protocol)
+
     def ports_clear(self, scope: Scope, profile: Profile, *, apple_dns: bool) -> bool:
-        raw = self._native(["/usr/sbin/netstat", "-anlv", "-W", "-p", profile.protocol])
-        rows = parse_socket_inventory(raw, profile.protocol)
+        rows = self.socket_inventory(profile.protocol)
         for row in rows:
             address, port, pid, command, _family = row
             selected_address = address
@@ -1769,6 +1819,203 @@ def _translation_order_verified(
     return clock() < deadline, None
 
 
+def _host_path(
+    config: Config, profile: Profile, record: Mapping[str, Any]
+) -> tuple[PortRange, Profile] | None:
+    """The host ports and the publication of a record whose rules end at the host's own address.
+
+    Such a record is the host redirect, and the fallback form of a guest-direct
+    profile, which is recorded as one. The record and its rules must both say
+    so: an active record of that kind and target, the policy it was rendered
+    from, and rules that are exactly what the renderer writes for this profile
+    with the scope's host address as the target, so that no rule of the record
+    names another target. The ports are the ones those rules translate to; the
+    publication is the native one behind them, whose plan the profile inherits.
+    None for every other record.
+    """
+    scope = config.scope(profile.scope)
+    strategy = record["effective_strategy"]
+    if profile.kind == "host-redirect" and strategy is None:
+        publication = backing_publication(config, profile)
+        ports = profile.target_ports or profile.ports
+    elif profile.fallback_publication is not None and strategy == "degraded-fallback":
+        publication = config.profile(profile.fallback_publication)
+        ports = publication.ports
+    else:
+        return None
+    if (
+        record["active"] is not True
+        or record["kind"] != "host-redirect"
+        or record["target_ipv4"] != scope.host_ipv4
+        or record["policy_digest"] != profile_digest(config, profile)
+        or record["rules"]
+        != render_profile(config, profile, scope.host_ipv4, effective_strategy=strategy)
+    ):
+        return None
+    return ports, publication
+
+
+def _planned_then(
+    config: Config,
+    snapshot: Snapshot,
+    admissions: Mapping[str, Admission],
+    intent: Intent,
+    owned: set[str],
+    now: float,
+) -> tuple[Action, ...]:
+    """The plan of a pass's snapshot at the time the snapshot was taken.
+
+    For evidence that is present and too old: whether age alone made the plan
+    of the pass retire is what this plan says. It is the planner's own plan of
+    the same snapshot, the same admissions and the same intent, with the
+    snapshot's time as its clock. The owner's readback of its own records
+    belongs to this pass, not to the evidence, and is dated at that time for
+    it; so are the admissions that the owner itself gives the runtime's
+    publications on every pass. Everything else is taken as it is: an admission
+    that was given after the snapshot was taken is not valid at that time, and
+    an observation that is older than the snapshot is as old then as it is.
+    A snapshot dated ahead of the clock names no time at which it was taken;
+    nothing is planned for it.
+    """
+    then = snapshot.observed_at
+    if then > now:
+        return ()
+    return plan(
+        config,
+        Snapshot(
+            then,
+            snapshot.network_generation,
+            snapshot.services,
+            {
+                key: replace(item, observed_at=then) if key in owned else item
+                for key, item in snapshot.profiles.items()
+            },
+        ),
+        {
+            key: item if key in owned else replace(item, approved_at=then)
+            for key, item in admissions.items()
+        },
+        intent,
+        then,
+    ).actions
+
+
+def _evidence_missing(
+    profile: Profile,
+    publication: Profile,
+    planned: tuple[Action, ...],
+    observed: Observation | None,
+    earlier: tuple[Action, ...] = (),
+) -> bool:
+    """Whether the plan retires a profile only because the pass has no current runtime evidence.
+
+    Two things must say so. This pass's observation of the profile's service,
+    which is the service of the publication behind it as well, must state no
+    finding. Either it is unknown for the reason in `_NO_ANSWER`: its read ran
+    out of time. Or it is present and age alone made the plan retire:
+    `earlier`, the plan of the same snapshot at the time the snapshot was taken
+    (`_planned_then`), has exactly one action for the profile, the verified
+    no-op that leaves a loaded rule untouched. Present evidence that states
+    another instance, generation, contract, address or publication is a
+    finding, however old it is. And the reason of the profile's withdrawal must
+    be one of `_EVIDENCE_MISSING`. A reason that it inherits from the native
+    publication behind it, `publication-not-ready`, counts only when every
+    action the plan has for that publication carries such a reason itself. A
+    snapshot without a network generation counts only with a service whose
+    read ran out of time: a present service beside it is not what such a read
+    leaves.
+    """
+    if observed is None:
+        return False
+    if observed.state == "present":
+        then = [
+            (action.operation, action.reason) for action in earlier if action.profile == profile.id
+        ]
+        if then != [("noop", "verified")]:
+            return False
+    elif observed.reason not in _NO_ANSWER:
+        # Only an unknown observation can carry that reason.
+        return False
+    reasons = {
+        action.reason
+        for action in planned
+        if action.profile == profile.id and action.operation == "withdraw"
+    }
+    if reasons == {"publication-not-ready"}:
+        reasons = {action.reason for action in planned if action.profile == publication.id}
+    if "network-unknown" in reasons and observed.reason not in _NO_ANSWER:
+        return False
+    return bool(reasons) and reasons <= _EVIDENCE_MISSING
+
+
+def _listening(
+    rows: tuple[tuple[str, int, int, str, str], ...], host_ipv4: str, ports: PortRange
+) -> bool:
+    """Whether a socket inventory lists a listener on every one of the ports.
+
+    A listener is a row of an IPv4 or dual-stack socket whose local address is
+    the wildcard or the host's own address. For TCP the inventory holds only
+    sockets in the listening state. UDP has no such state: there it is a socket
+    bound to the port.
+    """
+    heard = {
+        port
+        for address, port, _pid, _command, family in rows
+        if family == "IPv4" and address in {"*", host_ipv4}
+    }
+    return all(port in heard for port in range(ports.first, ports.last + 1))
+
+
+def _inventory(
+    backend: Backend,
+    inventories: dict[str, tuple[tuple[str, int, int, str, str], ...] | None],
+    protocol: str,
+) -> tuple[tuple[str, int, int, str, str], ...] | None:
+    """A pass's socket inventory of one protocol, read once; None when it could not be read."""
+    if protocol not in inventories:
+        try:
+            inventories[protocol] = backend.socket_inventory(protocol)
+        except (OSError, RuntimeError, ValueError):
+            # Not an empty inventory: nothing is known, so no listener is established.
+            inventories[protocol] = None
+    return inventories[protocol]
+
+
+def _judged(
+    backend: Backend,
+    config: Config,
+    records: Mapping[str, Mapping[str, Any]],
+    candidates: Mapping[str, PortRange],
+) -> tuple[dict[str, str], bool]:
+    """The host paths a pass keeps, of those its plan retires only for missing evidence.
+
+    This is all that is read for the judgement, and a pass reads it before its
+    first action. First the owner's enable reference, with the reader of every
+    pass's final readback: it must be held and listed now. A loaded rule
+    carries nothing while PF is disabled, and the owner never takes the
+    reference for a rule that it has no evidence for; an answer that it is not
+    held, and a read that failed, keep nothing, and the inventory is then not
+    read. Then root's own socket inventory, once for each protocol of a
+    candidate: it must list a listener of the profile's protocol on every port
+    the rule translates to. Whatever is not kept is retired where the plan has
+    it, as it always was.
+
+    The second value says whether the reference read was refused for an
+    unexpected notice of the tool, which the caller records.
+    """
+    held, refused = _reference_held(backend, records)
+    if held is not True:
+        return {}, refused
+    kept: dict[str, str] = {}
+    inventories: dict[str, tuple[tuple[str, int, int, str, str], ...] | None] = {}
+    for key, ports in candidates.items():
+        profile = config.profile(key)
+        rows = _inventory(backend, inventories, profile.protocol)
+        if rows is not None and _listening(rows, config.scope(profile.scope).host_ipv4, ports):
+            kept[key] = "runtime-unknown"
+    return kept, False
+
+
 def _deferrals(deferred: Mapping[str, str]) -> dict[str, str]:
     """A pass's deferred profiles with their reasons, in one order; the vocabulary is closed."""
     if not DEFERRAL_REASONS.issuperset(deferred.values()):
@@ -2018,6 +2265,35 @@ def reconcile(
         actions = [action for action in actions if action.operation == "withdraw"] + [
             action for action in actions if action.operation != "withdraw"
         ]
+        # Where the installation chose it, a loaded rule that ends at the host's
+        # own address is not retired merely because this pass has no current
+        # runtime evidence. Which profiles that can concern is decided here,
+        # from the records, the policy, the plan and the snapshot the plan was
+        # made from: nothing is read for it. Whether such a rule is kept is
+        # judged below, before the first action of the pass, so that no rule is
+        # loaded and unjudged while the pass acts. The plan keeps the order it
+        # has above: a rule that is not kept is retired where the plan has it,
+        # with every other rule.
+        candidates: dict[str, PortRange] = {}
+        if installation.runtime_unknown == "keep-host-paths":
+            withdrawn = {
+                action.profile for action in candidate.actions if action.operation == "withdraw"
+            }
+            earlier: tuple[Action, ...] | None = None
+            for key in sorted(owned & set(records) & withdrawn):
+                host_profile = config.profile(key)
+                path = _host_path(config, host_profile, records[key])
+                observed = snapshot.services.get(host_profile.service)
+                if path is None or observed is None:
+                    continue
+                if observed.state == "present" and earlier is None:
+                    # Evidence that is present although the plan retires: what
+                    # the same snapshot says at the time it was taken.
+                    earlier = _planned_then(config, snapshot, admissions, intent, owned, stamp)
+                if _evidence_missing(
+                    host_profile, path[1], candidate.actions, observed, earlier or ()
+                ):
+                    candidates[key] = path[0]
         root.write(
             "journal.json",
             {
@@ -2045,7 +2321,18 @@ def reconcile(
         # notice in this pass: its operation and count are handed back with the
         # result, so that the listing can be told from the others.
         order_notice: PFListingNotice | None = None
+        # The host paths this pass keeps although its plan would retire them,
+        # and the ones it kept at first and retired after all, before it took
+        # the enable reference: their planned actions are settled.
+        kept: dict[str, str] = {}
+        settled: set[str] = set()
         try:
+            if candidates:
+                # The judgement, before anything is written: the enable
+                # reference and the socket inventory are all that is read for
+                # it, and only a pass with a candidate reads them.
+                kept, refused_reference = _judged(backend, config, records, candidates)
+                noticed = noticed or refused_reference
             for action in actions:
                 if action.operation in {"blocked", "pending", "noop"}:
                     continue
@@ -2057,6 +2344,10 @@ def reconcile(
                     config
                 ):
                     raise PFError("protected desired snapshot changed during pass")
+                if action.profile in kept or action.profile in settled:
+                    # Kept: neither withdrawn nor drained, nothing is written
+                    # for it. Settled: its retirement was carried out already.
+                    continue
                 if action.operation == "activate":
                     # Nothing has been written for this profile in this pass.
                     # A precondition that is not met leaves it without a rule
@@ -2136,8 +2427,51 @@ def reconcile(
                             continue
                     # From here on a failure is a write in doubt, not a deferral:
                     # the enable reference and the rule load change the kernel.
-                    backend.ensure_reference()
-                    acquired = True
+                    if kept:
+                        # The reference is never taken while a kept host path is
+                        # loaded: enabling PF puts every loaded rule into effect,
+                        # and this pass has no evidence for a kept one. It was
+                        # held when the pass judged. It is read back again here,
+                        # and unless it is held and listed now, every kept rule
+                        # is retired before it is taken: this activation then
+                        # finds what it finds without the decision. A host
+                        # redirect has no state to invalidate, so its record
+                        # goes with its rule, as at its drain.
+                        still_held, refused_reference = _reference_held(backend, records)
+                        noticed = noticed or refused_reference
+                        if still_held is not True:
+                            update = {
+                                key: value for key, value in records.items() if key not in kept
+                            }
+                            before = compose_rules(records)
+                            after = compose_rules(update)
+                            root.write(
+                                "journal.json",
+                                {
+                                    "schema_version": 1,
+                                    "phase": "failed" if needs_ack else "applying",
+                                    "actions": [asdict(item) for item in actions],
+                                    "candidate_records": update,
+                                    "started_at": stamp,
+                                    **boot,
+                                },
+                            )
+                            if before != after:
+                                backend.replace(before, after)
+                                if backend.inspect() != backend.normalize(after):
+                                    raise PFError("PF write readback did not match candidate")
+                            records = update
+                            root.write("live.json", {"schema_version": 1, "records": records})
+                            for key in sorted(kept):
+                                changed.extend((f"{key}:withdraw", f"{key}:drain"))
+                            settled.update(kept)
+                            kept = {}
+                    # With a kept rule still loaded, the reference was read back
+                    # as held and listed a moment ago: nothing is to be taken,
+                    # and the one call that can take it is not made.
+                    if not kept:
+                        backend.ensure_reference()
+                        acquired = True
                     update = dict(records)
                     update[action.profile] = {
                         "active": True,
@@ -2257,6 +2591,10 @@ def reconcile(
                 and all(
                     key in verified_profiles for key, record in records.items() if record["active"]
                 )
+                # Never by a pass that keeps a host path, even where its final
+                # evidence verifies that rule again: the pass after it, which
+                # has that evidence from its start, takes the reference.
+                and not kept
                 and not _inhibition(root, installation).blocked
             ):
                 # The administrator chose that a reference which a complete read
@@ -2281,7 +2619,9 @@ def reconcile(
             # unchanged, and it is not reported ready. Nothing is withdrawn or
             # invalidated for this reason: an unverified translation order can
             # cost the path, it cannot expose a guest.
-            withheld: dict[str, str] = {}
+            # A host path that this pass kept is withheld as well: it was judged
+            # before the first action of the pass, and it is not reported ready.
+            withheld: dict[str, str] = dict(kept)
             if installation.translation_order == "verified":
                 pairs = [
                     key
@@ -2294,7 +2634,7 @@ def reconcile(
                         noticed = True
                         order_notice = order_notice or notice
                     if not ordered:
-                        withheld = dict.fromkeys(pairs, "translation-order-unverified")
+                        withheld.update(dict.fromkeys(pairs, "translation-order-unverified"))
             withheld = _withholdings(withheld)
             phase = (
                 "failed"
@@ -2403,10 +2743,15 @@ def reconcile(
             report(
                 installation, Snapshot(final.observed_at, final.network_generation, {}, published)
             )
+            # A kept host path has its rules and is not pending, whatever the
+            # final plan says of it: that is `blocked` for as long as runtime
+            # evidence stays unknown.
             pending = [
                 action.profile
                 for action in status.actions
-                if action.profile in owned and action.operation in {"pending", "blocked"}
+                if action.profile in owned
+                and action.operation in {"pending", "blocked"}
+                and action.profile not in kept
             ]
             pending.extend(key for key in deferred if key not in pending)
             return {
@@ -2721,6 +3066,11 @@ def admit(
                     if installation.translation_order == "present"
                     else {"translation_order": installation.translation_order}
                 ),
+                **(
+                    {}
+                    if installation.runtime_unknown == "retire"
+                    else {"runtime_unknown": installation.runtime_unknown}
+                ),
             },
         }
 
@@ -2890,6 +3240,11 @@ def main(argv: list[str] | None = None) -> int:
                             {}
                             if installation.translation_order == "present"
                             else {"translation_order": installation.translation_order}
+                        ),
+                        **(
+                            {}
+                            if installation.runtime_unknown == "retire"
+                            else {"runtime_unknown": installation.runtime_unknown}
                         ),
                         "expected_digest": admitted_digest(config, profile, installation),
                         "previous": _read_admissions(root.read("admissions.json")).get(profile.id),
