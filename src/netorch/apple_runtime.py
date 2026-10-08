@@ -1010,10 +1010,12 @@ def recover_service(
             raise RuntimeReadError("generation-mismatch")
         contract = settings.contract(service_id)
         # Only this call may take longer than a read, and only when the settings
-        # say how long. Its result is checked like every other vendor call.
-        Reader(settings, runner).native(
-            ["start", contract.name], timeout=settings.start_timeout_seconds
-        )
+        # say how long: the workload's own bound, else the installation's, else
+        # the reader's. Its result is checked like every other vendor call.
+        bound = contract.start_timeout_seconds
+        if bound is None:
+            bound = settings.start_timeout_seconds
+        Reader(settings, runner).native(["start", contract.name], timeout=bound)
         # A successful CLI exit is never the final readiness assertion.
         result = observe_runtime(config, settings, runner)
         if result.services[service_id].state != "present":

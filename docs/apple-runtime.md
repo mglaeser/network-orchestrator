@@ -23,7 +23,7 @@ loader. Operator data supplies:
 | Account | UID, GID, HOME of the genuine vendor runtime user |
 | Runtime | Absolute CLI path, exact accepted version, legacy-risk acknowledgement, optional `start_timeout_seconds` |
 | Networks | Scope, native network name/gateway, launchd helper domain/label, expected program and UID |
-| Service contracts | Service/name/scope, full native configuration fingerprint, persistent mount identities, hashed file receipts, optional tolerated stopped peer names |
+| Service contracts | Service/name/scope, full native configuration fingerprint, persistent mount identities, hashed file receipts, optional tolerated stopped peer names, optional `start_timeout_seconds` of that workload |
 | Paths | Private generated policy, user admissions, durable intent and state directory |
 | Fleet start (optional) | launchd label and program of the vendor API job, label prefix of the per-guest runtime jobs; left out, the all-stopped guard applies |
 
@@ -225,7 +225,11 @@ stopped guest is judged on the evidence described below.
 The vendor `start` call of that sequence is cut off after four seconds, like
 every other vendor call, unless the runtime settings carry
 `start_timeout_seconds`: a whole number from 1 to 120, left out by default and
-never written as `null`. The setting bounds that one call. The observations
+never written as `null`. The member has two places: at the top of the settings
+it is the bound for every workload of the installation, and in one service
+contract it is the bound for that workload alone. Recovery of a workload uses
+its contract's value, else the installation's, else the four seconds. The
+setting bounds that one call. The observations
 before and after it keep the eight-second pass and its smaller limits, and the
 running readback stays the only statement that the workload started. A call
 that is cut off ends recovery as unknown; the vendor service may still complete
@@ -233,9 +237,28 @@ the start, which a later probe then reports. Recovery holds the user operation
 lock for the whole sequence, three passes and the start call: about 28 seconds
 at most without the setting and about 144 with its largest value. Until it ends, the
 coordinator's pass, `pause` and every other command that takes that lock report
-busy and have to be repeated. The probe takes no lock, and the supervisor's
+busy and have to be repeated. The lock is held for as long as the start really
+takes, not only when a start hangs. A recovery of another workload that fires
+in that time waits its five seconds for the lock and, if the start still runs
+then, ends busy, having started nothing; whether it is tried again depends on
+that monitor's `recovery_repeat_cycles` ([deployment.md](deployment.md)).
+A contract's value changes that time for the
+recovery of its own workload only. A workload that needs a long start therefore
+states it in its contract: with the installation's value every workload whose
+start hangs keeps the lock that long. The probe takes no lock, and the supervisor's
 check timeout (`monitors[].timeout_seconds`) is written on the probe's check,
-not on the recovery command. Initial provisioning does not read the setting.
+not on the recovery command. Initial provisioning does not read the setting in
+either place.
+
+A contract's `start_timeout_seconds` is part of that contract. It is left out
+of the stored form and of the contract digest while it is not stated, so an
+enrollment without it keeps its digests and admissions, and `enroll` keeps a
+stated value as authored. Stating, changing or removing it is a change of that
+one contract: its digest changes, `derive-policy` changes that service's
+contract hash, and the profiles of that service are admitted again. The root
+owner's `observer` has to carry the same contract; as after any change of the
+trusted observer, every root profile is then admitted again. The root owner
+starts nothing and reads the member only as part of the contract it compares.
 
 Networking jobs and Monit do not replace the site's initial application startup
 chain after login. Preserve that existing maintained owner during migration;

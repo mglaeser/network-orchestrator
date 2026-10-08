@@ -50,6 +50,9 @@ class RuntimeContract:
     # Other definitions over the same writable path that are accepted while the
     # inventory reports them exactly stopped. Empty unless a site enrolls one.
     tolerated_stopped_peers: tuple[str, ...] = ()
+    # Bound of the vendor `start` call in recovery of this workload; unset
+    # leaves the installation's bound, and without that one the reader's own.
+    start_timeout_seconds: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,11 +110,13 @@ class RuntimeSettings:
 
 
 def _contract_dict(contract: RuntimeContract) -> dict[str, Any]:
-    """Canonical form; an empty tolerance list and an identity without a volume
-    binding are left out, so earlier digests hold."""
+    """Canonical form; an empty tolerance list, an unset start bound and an
+    identity without a volume binding are left out, so earlier digests hold."""
     value = asdict(contract)
     if not value["tolerated_stopped_peers"]:
         del value["tolerated_stopped_peers"]
+    if value["start_timeout_seconds"] is None:
+        del value["start_timeout_seconds"]
     for identity in (*value["mounts"], *value["receipts"]):
         if identity["volume_uuid"] is None:
             del identity["volume_uuid"]
@@ -122,6 +127,8 @@ def contract_digest(contract: RuntimeContract) -> str:
     """No raw application configuration or credentials enter the network policy."""
     # A device-bound contract hashes exactly as before. One that binds a volume
     # is a second form of the enrollment and can never share a digest with it.
+    # A stated start bound is one more member of either form: nothing is
+    # verified differently for it, and the member alone changes the digest.
     volume_bound = any(
         identity.volume_uuid is not None for identity in (*contract.mounts, *contract.receipts)
     )
@@ -148,6 +155,17 @@ def _path(value: Any) -> str:
     ):
         raise ValueError("runtime path must be absolute and canonical")
     return value
+
+
+def _start_timeout(data: dict[str, Any]) -> int | None:
+    """The optional start bound of the installation or of one contract."""
+    # One spelling per meaning: the key is left out when unused, never null.
+    if "start_timeout_seconds" not in data:
+        return None
+    seconds = data["start_timeout_seconds"]
+    if type(seconds) is not int or not 1 <= seconds <= 120:
+        raise ValueError("start timeout must be a whole number of seconds from 1 to 120")
+    return seconds
 
 
 def _identity(value: Any) -> FileIdentity:
@@ -230,12 +248,7 @@ def parse_settings(value: Any) -> RuntimeSettings:
     legacy = data.get("legacy_risk_acknowledged", False)
     if type(legacy) is not bool or (data["accepted_version"] == "1.2.0" and not legacy):
         raise ValueError("legacy runtime requires explicit risk acknowledgment")
-    # One spelling per meaning: the key is left out when unused, never null.
-    start_timeout = data.get("start_timeout_seconds")
-    if "start_timeout_seconds" in data and (
-        type(start_timeout) is not int or not 1 <= start_timeout <= 120
-    ):
-        raise ValueError("start timeout must be a whole number of seconds from 1 to 120")
+    start_timeout = _start_timeout(data)
     account = _object(data["account"], {"uid", "gid", "home"})
     if (
         type(account["uid"]) is not int
@@ -292,7 +305,7 @@ def parse_settings(value: Any) -> RuntimeSettings:
         item = _object(
             raw,
             {"service", "name", "scope", "configuration_sha256", "mounts"},
-            {"receipts", "tolerated_stopped_peers"},
+            {"receipts", "tolerated_stopped_peers", "start_timeout_seconds"},
         )
         if (
             any(
@@ -325,6 +338,7 @@ def parse_settings(value: Any) -> RuntimeSettings:
                 tuple(_identity(entry) for entry in item["mounts"]),
                 tuple(_identity(entry) for entry in item.get("receipts", [])),
                 tuple(peers),
+                _start_timeout(item),
             )
         )
     for values in (
