@@ -189,13 +189,14 @@ An import refuses a second mapping to one destination, and so does the
 renderer. A further place that holds the same value is a composition of that
 one pointer. Fixed text, that is a `text` part or an owner spelling, has at most
 4096 characters and no control character. A credential or environment key word
-is refused in every other selector and in every pointer, and a constant's
-subtree never covers such a key: a leaf below one is either `unexamined` or
-unclassified. Which subtree may stay `unexamined`, and which leaf is never
-inspected, is decided by the key words as they were read before a capital
-inside a word counted as a boundary: `replyToKen` is refused in a selector and
-in a pointer, but a value under it is inspected like any other and cannot be
-left unexamined, so that the wider reading never leaves more values unexamined.
+is refused in every other selector and in every pointer, as in an import. A
+constant's subtree never covers a key that the key words name as they were read
+before a capital inside a word counted as a boundary: a leaf below such a key is
+either `unexamined` or unclassified, and only such a key lets a subtree stay
+`unexamined`. A key that only the wider reading names, such as `replyToKen`, is
+refused in a selector and in a pointer, but a value under it is inspected like
+any other: a constant's subtree covers it, and it cannot be left unexamined, so
+that the wider reading never leaves more values unexamined.
 
 An instance pointer resolves in the canonical instance document, in which
 `names` holds the resolved names, so a derived default is rendered like a pin. A

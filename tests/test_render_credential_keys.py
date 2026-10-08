@@ -78,8 +78,28 @@ def test_the_relaxing_guard_answers_as_the_earlier_guard_on_every_short_key() ->
         for length in range(5)
         for chosen in itertools.product(pieces, repeat=length)
     ]
+    # Letters and digits before a password word, which the earlier guard reads too.
+    password = ["x", "X", "9", "db2", "pass", "word", "wd", "phrase", "_"]
+    keys += [
+        "".join(chosen)
+        for length in range(5)
+        for chosen in itertools.product(password, repeat=length)
+    ]
+    keys += ["x9password", "db2passwd"]
     different = [key for key in keys if _named_credential(key) != refused_before(key)]
     assert different[:8] == []
+    assert _named_credential("x9password") and _named_credential("db2passwd")
+
+
+def test_a_constant_s_subtree_covers_a_key_only_the_wider_guard_names(tmp_path: Path) -> None:
+    counted = {}
+    for key in ("replyToKen", "reply_token"):
+        raw = json.dumps({"name": "example", "settings": {key: "example"}}).encode() + b"\n"
+        path = one(tmp_path, raw, "json", {"/name": NAME}, constants=["/settings"])
+        found = render_sources(path, instance()).sources[0]
+        counted[key] = (found.constants, found.unclassified, found.complete)
+    # The value under the wider-only key is a constant; the other stays unclassified.
+    assert counted == {"replyToKen": (1, 0, True), "reply_token": (0, 1, False)}
 
 
 @settings(max_examples=1500, deadline=None, derandomize=True)
