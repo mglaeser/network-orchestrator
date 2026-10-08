@@ -27,7 +27,7 @@ are single-link regular files mode `0600`:
 
 | File | Purpose |
 |---|---|
-| `installation.json` | Closed installation identity, independently observed runtime settings, owner/anchor, published report path, interval, optional inhibition path (a user-side intent file that can only add inhibition), the optional decision to take a lost PF enable reference again and the optional [cold-start decision](#after-a-reboot) |
+| `installation.json` | Closed installation identity, independently observed runtime settings, owner/anchor, published report path, interval, optional inhibition path (a user-side intent file that can only add inhibition), the optional decision to take a lost PF enable reference again, the optional [cold-start decision](#after-a-reboot) and the optional [translation-order decision](#translation-order-for-the-udp-return-pair) |
 | `policy.json` | Strictly parsed desired catalog, copied by the administrator installer |
 | `admissions.json` | Root's independent resolved-content approvals; installation never broadens this set |
 | `operator-intent.json` | Durable operator pause, operation-owned suspensions and holds on single services, outside installed releases |
@@ -45,6 +45,9 @@ A profile's `states` entry says only whether a state of its own rules remains
 (see "Retained states"); the kernel's state rows, which name peers and LAN
 clients, are not copied into it. A profile that the pass deferred carries
 `deferred` with the reason; no other profile has that entry.
+A rule pair that the pass left loaded and
+[withheld](#translation-order-for-the-udp-return-pair) carries `withheld` with
+the reason in the same way, and is not `root_ready`.
 `admitted` records exact protected approval. The separate `root_ready` flag
 requires that approval, unblocked final root intent, an exact verified final
 plan/readback and, on the same pass, a readback of the owner's PF enable
@@ -132,10 +135,13 @@ An approval binds all resolved parameters included by `profile_digest`, plus:
   makes it. An installation without it has the digests it had before.
 - The [cold-start decision](#after-a-reboot), when the installation makes one.
   An installation without it has the digests it had before.
+- The [translation-order decision](#translation-order-for-the-udp-return-pair),
+  when the installation makes it. An installation without it has the digests it
+  had before.
 
 The administrator first runs `review-admission`. It returns the resolved
-profile, scope, service, prior approval, the installation's cold-start decision
-where it made one, and the proposed digest. The subsequent
+profile, scope, service, prior approval, the installation's cold-start and
+translation-order decisions where it made them, and the proposed digest. The subsequent
 `admit` requires that exact digest and, for a shared guest address, explicit
 `--acknowledge-bounded-risk`. A profile declared with `source_scope: "any"`
 requires `--acknowledge-any-source`; the bounded-risk flag does not satisfy it,
@@ -364,6 +370,7 @@ retried inside a pass. The reasons are a closed vocabulary:
 | `endpoint-unverified` | The interface, route or neighbour check did not pass or could not run |
 | `ports-unverified` | The host socket check did not pass or could not run |
 | `states-retained` | A retained state of the already withdrawn rule remains, or its invalidation or readback failed |
+| `translation-order-unverified` | Only where the installation chose that check, before the activation of a rule pair with an outbound translation: the hooks of the main ruleset are not the accepted ones in their order, a sibling anchor holds a translation rule or a child, or one of these listings could not be read in time ([translation order](#translation-order-for-the-udp-return-pair)) |
 
 A deferred profile has no rule loaded and is never `root_ready`. Its reason is
 recorded as `deferred` in the journal's final record (`{profile: reason}`), in
@@ -373,6 +380,11 @@ profile with `states-retained` keeps its withdrawn record, so the plan holds it
 at "drain only" and no replacement target is activated for it while the state
 remains. A pass that still owes an acknowledgement ends `failed` whatever it
 deferred.
+
+A loaded rule pair whose [translation order](#translation-order-for-the-udp-return-pair)
+a pass could not verify is not deferred: its rules stay loaded. It is
+*withheld*, which is recorded under the key `withheld` in the same three places
+and in the same shape, and such a profile is not in `pending`.
 
 A final runtime observation that fails is not a write either. The pass then
 treats every service as unknown, as it does when its first observation fails:
@@ -487,6 +499,136 @@ it to mask capacity problems. Multiple Apple media receivers therefore use the
 same admitted service capability and fresh device discovery without receiver IP
 allowlists.
 
+### Translation order for the UDP return pair
+
+Translation rules are first match across the hooks of the main ruleset, and the
+vendor's network adds translation hooks of its own there. If one of them is
+evaluated before the hook of the owned anchor's parent, or if a sibling anchor
+below the same parent holds a translation rule, a guest's packet is translated
+by someone else and the static-port rule never applies. The pair then fails
+without a sign: its rules load, their readback is exact, and the replies leave
+from another port. By default the owner checks only that the two parent hooks
+exist.
+
+An installation can require more with `"translation_order": "verified"` in
+`installation.json`. A profile whose rules hold an outbound translation, which
+is the UDP return pair, is then activated, and reported ready, only by a pass on
+which both of these hold:
+
+1. The translation listing of the main ruleset consists of exactly these lines
+   in this order, each with or without a trailing ` all`:
+   `nat-anchor "com.apple/*"`, optionally
+   `nat-anchor "com.apple.internet-sharing"`, `rdr-anchor "com.apple/*"`,
+   optionally `rdr-anchor "com.apple.internet-sharing"`. Any other line, another
+   order or a repeated line is not verified.
+2. The parent anchor has at most 64 children, each listed once under a name
+   that is one component directly below it of letters, digits, `_`, `.` and
+   `-` (at most 63 characters, not beginning with a mark), and every child
+   other than the owned anchor has neither a translation rule nor a child of
+   its own. Each sibling is read by itself; a wildcard listing is not proof.
+
+A listing that cannot be read is not verified, and neither is a check that used
+up its time. The check gates two things and withdraws nothing:
+
+- **Activation.** A pair that is not loaded is activated only by a pass whose
+  check passed immediately before that activation. Otherwise the profile is
+  deferred with the reason `translation-order-unverified`: nothing is written
+  for it, the pass goes on with its other profiles, and the next pass reads
+  everything again.
+- **Readiness.** A pair that is loaded is never withdrawn, and none of its
+  states is invalidated, for this reason. An unverified translation order can
+  cost the path; it cannot expose a guest, and retiring the pair would cost the
+  path for certain. A pass that leaves such a pair loaded makes the check once,
+  after its actions, so that no withdrawal and no invalidation of any profile
+  waits for these reads. If the check does not pass, each loaded pair is
+  *withheld*: its rules stay loaded and unchanged, it is not `root_ready`, and
+  the pass ends `inhibited`. A pass that activates a pair therefore checks
+  twice: immediately before the activation, and after its actions.
+
+A withheld pair is not a deferred profile, because a deferred profile has no
+rule loaded. It is reported where a deferral is and in the same shape, under the
+key `withheld` (`{profile: reason}`): in the journal's final record, in the
+result of the pass and in the profile's published data. All three are absent
+when nothing is withheld, and a withheld profile is not in `pending`. The
+reasons are a second closed vocabulary with one word,
+`translation-order-unverified`.
+
+What an operator sees for a withheld pair is a profile that is loaded and not
+ready, with `withheld` in its published data and in the journal that `status`
+prints. Nothing has to be acknowledged, reloaded or resumed: the first pass
+whose check passes reports the pair ready again. What to do is to find what the
+check found. List the main translation rules (`pfctl -s nat`) and the children
+of the parent anchor (`pfctl -a com.apple -s Anchors`) as root and compare them
+with the two conditions. A vendor hook in another place, a further hook, or a
+sibling that holds rules or children belongs to other software and is changed
+there. A line or a name of another form than the ones above is to be reported:
+the accepted forms are a closed list. An installation that wants the earlier
+behaviour instead takes the decision back and admits its profiles again.
+
+Profiles without an outbound translation are never checked, never deferred and
+never withheld for this reason, and without the decision none of these listings
+is read.
+
+One check makes at most 66 calls of the backend: the hooks, the children, and
+one for each of at most 64 siblings. Each call keeps its own bound of four
+seconds, and the whole check has a bound of eight: no call starts once that is
+used up, and a check that ends after it has not passed. Eight seconds leave each
+of 66 calls about 120 ms, where a call that answers is a shell start and one or
+two listings. A check therefore takes at most twelve seconds, and none of its
+reads happens before the pass has recorded its planned actions. A pass makes one
+check before each activation of a pair and at most one after its actions.
+
+`"verified"` is the only value that can be written; `"present"` and `null` are
+refused, so an installation without the decision keeps its stored bytes and its
+admission digests. Choosing it, or taking it back, changes the digest of every
+admission of that owner: each profile is pending until it is admitted again,
+and `review-admission` and `admit` show the decision where it was made.
+
+The listings are read by three read-only operations of the backend script,
+`translation-hooks`, `siblings` and `sibling <name>`, under the strict rule for
+a listing that names no anchor. Here an empty answer is the one that counts as
+proof, and the public `pfctl` of this lineage answers the listing of a missing
+anchor with a line on standard error and exit status 0
+([FreeBSD 8.4 `contrib/pf/pfctl/pfctl.c`, `pfctl_show_anchors`, lines 1919-1955](https://github.com/freebsd/freebsd-src/blob/release/8.4.0/contrib/pf/pfctl/pfctl.c#L1919-L1955);
+its caller at lines 2192-2193 ignores the result).
+
+A sibling's name is taken from the listing of children as the printer prints
+it. That printer writes each child as two spaces, its full path and a line feed
+(lines 1949-1950 of the same file). Only that indentation is removed, and what
+remains must have the form of condition 2 exactly. A line with any other white
+space, an empty line or a second name on a line makes the listing unusable: the
+check does not pass and no name of that listing is handed on. The owner, and
+then the script, check a name against that form before `pfctl` is given it, and
+it is only ever given to these two listings. The form is wider than the one of
+the owned anchor, because a sibling is somebody else's anchor and need not
+follow the rule this owner sets for its own name.
+
+A read of the check that is refused for an
+[unexpected notice](#a-listing-with-an-unexpected-notice) does not end the pass,
+so no error names it. The pass hands the refused operation and the number of
+unexpected lines back with its result, under `listing_notice`, and the entry
+point writes them to standard error in the line that a refused listing writes
+when it ends a command. The listing to capture by hand is then `pfctl -s nat`
+for `translation-hooks`, `pfctl -a com.apple -s Anchors` for `siblings`, and
+`-s nat` and `-s Anchors` of each sibling for `sibling`; the line does not name
+the sibling. The journal's reason for such a pass is `listing-notice` unless its
+reference readback found something more specific.
+
+Limits. The four hook lines and their order are the ones an existing site's own
+helper requires on its system and has run against; no published source gives
+them, and Apple does not publish its `pfctl`. The form of the children listing,
+one indented full path per line, is that of the public printer cited above. A
+hosted dry run shows how one system's parser prints the four hook lines back; it
+shows nothing about a live main ruleset. A different real listing costs the
+pair, never safety: the pair is not activated, or is loaded and not reported
+ready, and the reason says why. That includes a child of the parent anchor whose
+name is outside the form above, and a child that has a child of its own. Which
+children a stock system lists below `com.apple`, and whether those have
+children of their own at times, is not established by any source here; either
+would keep the pair from being activated or ready. Which hooks are evaluated
+first, and that a sibling's rule can take a packet before the owned rule,
+follow from first-match translation and were not observed on a host.
+
 Darwin `pf.conf(5)` translation grammar has **no filter-rule `label` option** for
 NAT/RDR. Profile IDs are comments in rendered input and protected journal data,
 not unsupported appended labels. Darwin's `pfctl(8)` documents address/network
@@ -504,7 +646,9 @@ notices `pfctl` writes on every call, so a failed read is not taken for an empty
 table. Listings of the owned anchor check the exit status only: that anchor does
 not exist before its first load, and the diagnostic `pfctl` writes for a missing
 anchor is not published. The script has no operation that releases a PF enable
-reference.
+reference. Its three operations for the
+[translation-order check](#translation-order-for-the-udp-return-pair) only print
+listings.
 
 ### A listing with an unexpected notice
 
@@ -518,15 +662,20 @@ of that read. The owner records the second case under the closed reason
 `listing-notice` wherever it records the first. It is the `reason` of the
 journal record that would say `kernel-state-unknown`, of the record that would
 say `enable-reference-unverified` because the reference readback was refused, of
-the final record of a pass that deferred a profile because of such a read (the
-profile keeps its deferral reason) and of the `failed` record of a pass that the
-refused read ended. A record has one reason, and a notice never takes the place
+the final record of a pass that deferred a profile, or withheld a loaded pair,
+because of such a read (the profile keeps its own reason) and of the `failed`
+record of a pass that the refused read ended. A record has one reason, and a
+notice never takes the place
 of a finding: where the reference readback of a pass completed without the
 token, or failed, the final record says `enable-reference-unverified`, also
 when another read of that pass was refused for a notice. A command that ends
 with the reason writes one line to standard error: the reason, the backend
 operation that was refused (`inspect` or `replace` for the main hooks, `states`,
-`enabled` for the status, `references`) and the number of unexpected lines. For
+`enabled` for the status, `references`) and the number of unexpected lines. A
+pass that absorbed a refused read of its
+[translation-order check](#translation-order-for-the-udp-return-pair) writes the
+same line although it completes, with `translation-hooks`, `siblings` or
+`sibling` as the operation. For
 a root job installed from a deployment manifest, standard error is the job's
 launchd stderr target, `<label>.err.log` in the job's `log_directory`; a job
 installed any other way writes the line wherever its installation directs

@@ -27,6 +27,14 @@ normalize() { /usr/bin/awk '{$1=$1; if (NF) print}'; }
 # of such lines, and nothing else, to standard error. The lines themselves are
 # the tool's text and do not leave this function. Every operation that reads
 # such a listing passes the status on.
+#
+# The inputs of the translation-order check are read under the same rule: the
+# children of the parent anchor, and the translations and children of a sibling.
+# Those anchors exist (the parent is the one both hooks name, a sibling was
+# listed a moment before), and there the empty answer is the one that counts as
+# proof, so a read that only warned must not pass for it. pfctl of this lineage
+# answers a listing of a missing anchor with a line on standard error and exit
+# status 0.
 unexpected() {
   /usr/bin/grep -Fxv -e 'No ALTQ support in kernel' -e 'ALTQ related functions disabled'
 }
@@ -122,5 +130,23 @@ case "$op" in
   references)
     if [[ $# != 0 ]]; then exit 64; fi
     listing -s References || exit $? ;;
+  # Read-only inputs of the owner's check of the translation order. Nothing is
+  # judged here: the order of the hooks, the number of siblings and what counts
+  # as empty are decided by the caller. A sibling is somebody else's anchor and
+  # its name comes from a listing: one component below the same parent, of
+  # letters, digits, `_`, `.` and `-`, is all that pfctl is ever given, and only
+  # for these two listings.
+  translation-hooks)
+    if [[ $# != 0 ]]; then exit 64; fi
+    listing -s nat || exit $? ;;
+  siblings)
+    if [[ $# != 0 ]]; then exit 64; fi
+    listing -a "${anchor%/*}" -s Anchors || exit $? ;;
+  sibling)
+    if [[ $# != 1 ]]; then exit 64; fi
+    [[ "$1" =~ ^com\.apple/[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$ ]] || exit 64
+    if [[ "$1" == "$anchor" ]]; then exit 64; fi
+    listing -a "$1" -s nat || exit $?
+    listing -a "$1" -s Anchors || exit $? ;;
   *) exit 64 ;;
 esac

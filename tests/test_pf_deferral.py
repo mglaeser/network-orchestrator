@@ -90,6 +90,7 @@ def test_deferral_reasons_are_one_closed_vocabulary() -> None:
         "ports-unverified",
         "states-retained",
         "target-changed",
+        "translation-order-unverified",
     ]
     assert isinstance(owner.DEFERRAL_REASONS, frozenset)
     assert list(owner._deferrals({"b": "inhibited", "a": "states-retained"}).items()) == [
