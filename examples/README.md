@@ -8,7 +8,7 @@
 | [instance-structural.json](instance-structural.json) | A second synthetic host with one native publication and one export, no bounded transport |
 | [contracts/](contracts) | The workload contract files those two instances reference by relative path and SHA-256 |
 
-These are the inputs of the six read-only `netorch-host` verbs described in
+These are the inputs of the seven read-only `netorch-host` verbs described in
 [instances](../docs/instances.md). Both validate. Their release pins are zero
 placeholders and they carry no acceptance record; `netorch-host check` exits 1
 for either. They are valid data, not accepted installations.

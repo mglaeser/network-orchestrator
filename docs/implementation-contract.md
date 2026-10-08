@@ -4,7 +4,7 @@ Netorch is a macOS-only policy and orchestration layer over existing owners. It 
 not confer privilege or replace an operating system packet implementation.
 
 Version 0.3 adds the canonical host model in `netorch.instance_model`, strict loading
-in `netorch.instance`, and the six-verb read-only `netorch.host_cli` entrypoint.
+in `netorch.instance`, and the seven-verb read-only `netorch.host_cli` entrypoint.
 The profile/platform/requirements registries are closed code libraries. The
 native-qualified support matrix is empty; public native mutation entrypoints
 refuse before reading state or calling tools. These new interfaces are documented

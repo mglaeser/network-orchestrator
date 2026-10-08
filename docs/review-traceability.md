@@ -39,7 +39,7 @@ contract and right-tier native acceptance must exist before that next stage.
 | Rule 4: bounded risk | Explicit T/K/residual; conservative withdrawal-bound report and model allocator | `test_safety_contract`, `test_pf_owner`; scheduler/read/apply bounds and native re-deal remain unverified |
 | Rule 5: negative intent | Independent durable operator pause and holder records, fail-closed reads, no TTL | Existing state/property/install tests; real crash/reboot/restore remains a host gate |
 | Rule 6: unknown | Three aged states and closed reasons, no unknown recovery, reserved status 42 | Reader/process/supervisor tests; no physical recovery qualification |
-| Rule 7: no new LAN tool | Six host verbs read local data only; collector fixed commands | `test_host_cli`, `test_macos_preflight`; new consent identity/adapter deferred |
+| Rule 7: no new LAN tool | Seven host verbs read local data only; collector fixed commands | `test_host_cli`, `test_macos_preflight`; new consent identity/adapter deferred |
 | Rule 8: genuine Bonjour | Retained publication/record/interface/callback/lease fencing | `test_discovery`, `test_bonjour_owner`, process fixtures; genuine cold shared-scanner acceptance unrun |
 | Rule 9: measured range | One named range referenced by workload/PF selection; no automatic widening | `test_instance`, `test_pf_owner`; occupancy, exhaustion, collision and first replies require native measurement |
 

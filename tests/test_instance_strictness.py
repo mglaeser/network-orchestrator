@@ -285,7 +285,15 @@ def test_every_verb_answers_for_a_bounded_decision_that_parses(
         for verb in host_cli.COMMANDS
     }
     capsys.readouterr()
-    assert codes == {"validate": 0, "preflight": 0, "status": 0, "plan": 0, "check": 1, "report": 0}
+    assert codes == {
+        "validate": 0,
+        "preflight": 0,
+        "status": 0,
+        "plan": 0,
+        "check": 1,
+        "report": 0,
+        "supervision-gaps": 0,
+    }
 
 
 @given(

@@ -2,7 +2,7 @@
 
 Version 0.3 is a macOS-only, read-only extraction stage. It supplies a closed
 instance model, static legacy import, byte conformance checks, a requirements
-registry and a six-verb host view. It preserves existing installed networking
+registry and a seven-verb host view. It preserves existing installed networking
 owners. It does not migrate a host, grant admission, upgrade the runtime or
 certify physical behavior. The native-qualified support matrix is empty.
 
@@ -27,7 +27,7 @@ flowchart LR
     P --> I[Private instance: canonical choices, contracts, decisions, ledger]
     L[Existing literal owner inputs] --> S[Static import; no execution]
     S --> I
-    I --> V[Unprivileged validate / preflight / status / plan / check / report]
+    I --> V[Unprivileged validate / preflight / status / plan / check / report / supervision-gaps]
     H[Local host state: observations, admissions, receipts, journals, gates] --> V
     OS[Fixed local macOS reads; explicit collect-local] --> V
     V --> R[Read-only view; no actions or owner calls]

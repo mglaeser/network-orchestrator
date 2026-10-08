@@ -10,9 +10,10 @@ static importers, conformance checks and truthful read-only reports.
 ## Current release boundary
 
 Version **0.3** implements the reviewed extraction stage. The recommended
-`netorch-host` workflow has exactly six read-only operations: `validate`,
-`preflight`, `status`, `plan`, `check` and `report`. It never opens a LAN socket,
-uses Bonjour, executes an owner, admits policy, restarts a workload or plays audio.
+`netorch-host` workflow has exactly seven read-only operations: `validate`,
+`preflight`, `status`, `plan`, `check`, `report` and `supervision-gaps`. It
+never opens a LAN socket, uses Bonjour, executes an owner, admits policy,
+restarts a workload or plays audio.
 Only an explicit `--collect-local` reads fixed local macOS facts.
 
 The candidate platform is macOS **27.0.1, build 26A434**, Apple silicon and
