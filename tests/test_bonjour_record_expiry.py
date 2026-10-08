@@ -423,6 +423,43 @@ def test_diagnostic_inside_a_cut_echo_is_read_at_every_byte(diagnostic: bytes, r
         assert (cut, isinstance(caught.value, native.RegistrationExpired)) == (cut, False)
 
 
+# ShowTXTRecord (806): strchr(" &;`'\"|*?~<>^()[]{}$", *ptr) puts a backslash
+# before each of these characters, and before NUL, which strchr finds as well.
+SHELL_CHARACTERS = b" &;`'\"|*?~<>^()[]{}$"
+
+
+def test_echo_line_escapes_every_character_the_client_escapes() -> None:
+    assert len(SHELL_CHARACTERS) + 1 == 21
+    record = media_record(txt=(SHELL_CHARACTERS + b"\0",))
+    escaped = b"".join(b"\\" + bytes([byte]) for byte in SHELL_CHARACTERS) + rb"\\\x00"
+    head = native._echo_line(media_record(txt=()))
+    assert native._echo_line(record) == head + b" TXT " + escaped
+
+
+def test_echo_cut_after_the_name_onto_a_line_of_its_own_is_searched() -> None:
+    # The start of the echo is not the echo: its words are searched like any line.
+    record = media_record(name="Error code display")
+    clean = echoed(record)
+    cut = clean.index(b"Registering Service Error code display") + len(
+        b"Registering Service Error code display"
+    )
+    output = clean[:cut] + b"\n" + clean[cut:]
+    running = running_registration(output)
+    running.record = record
+    with pytest.raises(native.DiscoveryFailure) as caught:
+        running.poll()
+    assert caught.value.reason == "malformed"
+    ended = ended_registration(0, 30.0, output)
+    ended.record = record
+    with pytest.raises(native.DiscoveryFailure) as caught:
+        ended.poll()
+    assert not isinstance(caught.value, native.RegistrationExpired)
+    # Uncut, the same output confirms the record.
+    whole = running_registration(clean)
+    whole.record = record
+    assert whole.poll() is True
+
+
 class Child:
     """Stands in for Registration; the test decides when and how its client ends."""
 
