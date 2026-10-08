@@ -28,6 +28,31 @@ loader. Operator data supplies:
 | Fleet start (optional) | launchd label and program of the vendor API job, label prefix of the per-guest runtime jobs; left out, the all-stopped guard applies |
 | Runtime start (optional, inside fleet start) | Application root and install root for which the supervisor may run the vendor's own start command, optional bound of that call; left out, nothing here starts the vendor runtime |
 
+`helper_domain` is the launchd domain in which the network helper is
+registered: `system`, `gui/<uid>` or `user/<uid>`, where `<uid>` is the enrolled
+account's UID. Another account's domain and every other spelling are refused.
+The reader prints the helper in exactly the domain the settings name.
+
+Which domain the helper is in follows from the vendor's source. This is read in
+the source at tags 1.2.0, 1.4.1 and 1.5.0, where the file is identical, and not
+observed on a host. The vendor's service manager asks `launchctl managername`
+for the session type of the process that calls it and registers a job in
+`system` for a `System` session, in `gui/<uid>` for an `Aqua` (login) session
+and in `user/<uid>` for a `Background` session, with the UID of that process;
+any other session type is an error
+([`getLaunchdSessionType` and `getDomainString`](https://github.com/apple/container/blob/1.5.0/Sources/ContainerPlugin/ServiceManager.swift#L101-L136),
+used by [`register`](https://github.com/apple/container/blob/1.5.0/Sources/ContainerPlugin/ServiceManager.swift#L37-L40)).
+The API service registers the network helper through it from its own process
+([`registerWithLaunchd`](https://github.com/apple/container/blob/1.5.0/Sources/ContainerPlugin/PluginLoader.swift#L253-L297)).
+
+With `fleet_start` declared, a stopped guest's runtime job is asked for in both
+`gui/<uid>` and `user/<uid>`, whichever of the two the helper is in
+(see [Starting a fully stopped fleet](#starting-a-fully-stopped-fleet)). What
+`launchctl` answers for `gui/<uid>` of an account that has no login session is
+not established. If it is not the answer the reader counts as "absent" (exit
+status 113 and no standard output), every stopped guest reads as unknown on
+such a host and nothing is started there.
+
 No receiver IP is enrolled. Media receivers come from genuine current LAN
 DNS-SD records; DHCP changes and additional eligible devices need no code edit.
 Every setting belongs to its private installation; examples are documentation
