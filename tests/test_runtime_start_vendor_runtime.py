@@ -1299,12 +1299,16 @@ DOMAINS = ["user", pytest.param("gui", marks=GUI)]
 
 
 def recorded(capsys: Any, title: str, seen: str) -> None:
-    """On the hosted runner, keep what the tool answered as a notice of the job."""
+    """On the hosted runner, keep what the tool answered as a warning of the job.
+
+    A warning, not a notice: the runner shows at most ten notices of one step,
+    and the hosted tests of earlier changes use all ten.
+    """
     if os.environ.get("GITHUB_ACTIONS") == "true":
         text = seen.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
         # Capture is lifted for one line of its own: the runner reads commands at line starts.
         with capsys.disabled():
-            print(f"\n::notice title={title}::{text}")
+            print(f"\n::warning title={title}::{text}")
 
 
 def tool(*argv: str) -> tuple[int, str, str]:
@@ -1413,7 +1417,7 @@ def test_hosted_running_job_prints_the_identity_the_start_reads(capsys: Any) -> 
             and not padded
         ):
             read.append(label)
-    # The notice comes before every assertion, so a failing run still shows the answer.
+    # The record comes before every assertion, so a failing run still shows the answer.
     recorded(
         capsys,
         "identity of running jobs",
@@ -1482,7 +1486,7 @@ def test_hosted_loaded_job_without_a_process_prints_the_idle_state(capsys: Any) 
             and runtime._JOB_RUNNING.search(report) is None
             and runtime._JOB_PROCESS.search(report) is None
         )
-    # The notice comes before every assertion, so a failing run still shows the answer.
+    # The record comes before every assertion, so a failing run still shows the answer.
     recorded(
         capsys,
         "state of jobs without a process",
