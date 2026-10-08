@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+import os
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from functools import lru_cache
@@ -327,10 +328,36 @@ def observation_view(observation: Observation | None, now: float, maximum: float
     }
 
 
+def _inside_data_directory(data_directory: Path, data_path: str) -> bool:
+    """Whether the directory that holds a contract file lies in the data directory.
+
+    Both are resolved, so a data directory that is itself reached through a
+    symbolic link reads as before, and so does a linked directory inside it that
+    stays inside. The last component is not resolved: read_data refuses a final
+    symbolic link, a second hard link and anything but a regular file, as before.
+    """
+    root = Path(os.path.realpath(data_directory, strict=True))
+    directory = Path(os.path.realpath((data_directory / data_path).parent, strict=True))
+    return directory.is_relative_to(root)
+
+
 def verify_contracts(instance: Instance, data_directory: Path) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     for item in instance.workloads:
         try:
+            if not _inside_data_directory(data_directory, item.contract.data_path):
+                # Not read. The hash would still pin the content, but a file
+                # elsewhere is not what a reviewer of the data directory reviewed.
+                # The row names no path, like every other row.
+                results.append(
+                    {
+                        "service": item.id,
+                        "state": "unknown",
+                        "reason": "contract-outside-data-directory",
+                        "sha256": item.contract.sha256,
+                    }
+                )
+                continue
             raw = read_data(data_directory / item.contract.data_path)
             data = strict_loads(raw)
             check_plain_data(data)
@@ -357,7 +384,11 @@ def verify_contracts(instance: Instance, data_directory: Path) -> list[dict[str,
                     "sha256": item.contract.sha256,
                 }
             )
-        except (OSError, ValueError):
+        except (OSError, ValueError, RecursionError):
+            # RecursionError: Python 3.12 resolves a symbolic link by recursion,
+            # so the resolution above ends with it on a chain of about a thousand
+            # links. Later versions resolve the chain and the kernel then refuses
+            # it on the read. The row is the same either way.
             results.append(
                 {
                     "service": item.id,
