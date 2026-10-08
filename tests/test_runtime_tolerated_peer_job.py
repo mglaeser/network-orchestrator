@@ -39,7 +39,14 @@ def test_tolerance_without_independent_job_evidence_cannot_verify_a_writer(enrol
     runner = FakeRunner(settings, items)
     retain(runner)
     config, settings = tolerating(config, settings, "camera", RETAINED)
-    result = runtime.observe_runtime(config, settings, runner)
+    from netorch.process import Result
+
+    def unavailable(argv: list[str], **kwargs: Any) -> Result:
+        if argv[:2] == ["/bin/launchctl", "print"] and argv[2].endswith("." + RETAINED):
+            return Result(1, b"", b"unavailable")
+        return runner(argv, **kwargs)
+
+    result = runtime.observe_runtime(config, settings, unavailable)
     assert result.services["camera"].state == "unknown"
     assert result.services["resolver"].state == "present"
 

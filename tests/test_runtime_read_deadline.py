@@ -166,6 +166,8 @@ def sized(enrolled: Any, count: int) -> tuple[Any, Any, dict[str, Any]]:
         directory.mkdir(mode=0o700)
         meta = directory.stat()
         configuration = {
+            "id": "example-" + name,
+            "runtimeHandler": "container-runtime-linux",
             "mounts": [{"source": str(directory), "options": ["rw"]}],
             "publishedPorts": [],
             "cpus": 2,
@@ -217,11 +219,11 @@ def sized(enrolled: Any, count: int) -> tuple[Any, Any, dict[str, Any]]:
         (1, (), 12),
         (4, (), 16),
         (8, (), 20),
-        # One workload is stopped beside running ones: the same calls, less the
+        # A stopped row needs two independent guest-job reads, less the
         # port-range read where it is the stopped one.
-        (4, ("example-camera",), 16),
-        (4, ("example-media-controller",), 15),
-        (8, ("example-relay",), 20),
+        (4, ("example-camera",), 18),
+        (4, ("example-media-controller",), 17),
+        (8, ("example-relay",), 22),
         # Every workload is stopped: the all-stopped guard ends the pass after
         # the inventory, whatever the size of the fleet.
         (1, ("example-camera",), 7),
@@ -232,7 +234,7 @@ def sized(enrolled: Any, count: int) -> tuple[Any, Any, dict[str, Any]]:
 def test_one_read_makes_this_many_calls(
     enrolled: Any, monkeypatch: pytest.MonkeyPatch, count: int, stopped: tuple[str, ...], calls: int
 ) -> None:
-    """A measurement, and the same on the tree this change is based on."""
+    """A measured pass, including mandatory independent stopped-job evidence."""
     config, settings, items = sized(enrolled, count)
     inner = FakeRunner(settings, items)
     stopped = tuple(inner.items) if stopped is ALL else stopped
@@ -255,7 +257,7 @@ def test_one_read_makes_this_many_calls(
     assert acl_paths(paced) == len(Path(settings.contracts[0].mounts[0].path).parents) + count
     vendor = [name for name, _ in paced.calls if name.startswith("vendor ")]
     # Version, the network twice, the inventory, then the per-workload reads.
-    assert len(vendor) == calls - 7
+    assert len(vendor) == calls - 7 - 2 * len(stopped)
 
 
 @pytest.mark.parametrize(
@@ -302,7 +304,7 @@ BASE_READ = [
 ]
 # The same for a whole recovery of one stopped workload, 0.125 seconds a call:
 # SHA-256 of the list of calls and bounds, taken on that tree.
-BASE_RECOVERY = "7c3973ddd48fed755ae1c436096373eeacc822c6db0a181a035f814daa45e4ec"
+BASE_RECOVERY = "2ec9ee90c68fd8d166080d8d75bb9b4c7830efee806642e7662488bd18354870"
 
 
 def test_without_the_member_a_read_is_the_read_it_was(
@@ -322,7 +324,7 @@ def test_without_the_member_a_read_is_the_read_it_was(
     assert slower.calls[-1] == ("ifconfig", 0.5) and slower.elapsed == 8.0
 
 
-def test_without_the_member_a_recovery_is_the_recovery_it_was(
+def test_default_recovery_includes_independent_stopped_job_reads(
     enrolled: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     config, settings, items = enrolled
@@ -331,7 +333,7 @@ def test_without_the_member_a_recovery_is_the_recovery_it_was(
     paced = Paced(monkeypatch, inner, step=0.125)
     result = runtime.recover_service(config, settings, "camera", paced)
     assert result.services["camera"].state == "present"
-    assert len(paced.calls) == 3 * 16 + 1
+    assert len(paced.calls) == 2 * 18 + 16 + 1
     assert hashlib.sha256(repr(paced.calls).encode()).hexdigest() == BASE_RECOVERY
 
 
@@ -775,9 +777,9 @@ def test_each_read_of_a_recovery_has_the_whole_bound(
     paced = Paced(monkeypatch, inner, step=0.75)
     result = runtime.recover_service(config, settings, "camera", paced)
     assert result.services["camera"].state == "present"
-    # Three reads of twelve seconds each and the start between them: one bound
-    # shared by all three would have run out in the second read.
-    assert paced.elapsed == 3 * 12 + 0.75
+    # Two stopped reads include job absence; the final running read does not.
+    # One bound shared by all three would run out in the second read.
+    assert paced.elapsed == (2 * 18 + 16 + 1) * 0.75
     assert paced.bounds("vendor --version") == [4, 4, 4]
     # The start call is one call and keeps its own bound.
     assert paced.bounds("vendor start") == [4]

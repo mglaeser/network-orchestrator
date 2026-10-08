@@ -127,7 +127,11 @@ def test_recovery_needs_both_observations_in_one_network_generation(enrolled: An
     runner = Scripted(
         inner,
         answer=lambda argv, number: (
-            RESTARTED_HELPER if argv[0] == "/bin/launchctl" and number >= 2 else None
+            RESTARTED_HELPER
+            if argv[0] == "/bin/launchctl"
+            and argv[2].endswith("/" + settings.networks[0].helper_label)
+            and number >= 2
+            else None
         ),
     )
     first = runtime.observe_runtime(config, settings, inner)

@@ -31,6 +31,7 @@ from .pf_owner import reject_acl as reject_privileged_acl
 from .process import OutputLimit, ProcessTimeout, Result, run
 from .runtime_settings import (
     READ_TIMEOUT_DEFAULT,
+    VENDOR_RUNTIME_PREFIX,
     FileIdentity,
     FleetStart,
     RestartBudget,
@@ -421,9 +422,8 @@ class Reader:
     ) -> None:
         """Confirm a stopped API row against the actual vendor runtime jobs."""
         fleet = self.settings.fleet_start
-        if fleet is None:
-            raise RuntimeReadError("identity-mismatch")
-        check_fleet_identity(fleet)
+        if fleet is not None:
+            check_fleet_identity(fleet)
         handler = current["configuration"].get("runtimeHandler")
         if (
             not isinstance(handler, str)
@@ -431,7 +431,7 @@ class Reader:
             or current["configuration"].get("id") != name
         ):
             raise RuntimeReadError("identity-mismatch")
-        label = f"{fleet.runtime_label_prefix}{handler}.{name}"
+        label = f"{VENDOR_RUNTIME_PREFIX}{handler}.{name}"
         uid = self.settings.account.uid
         domains = (
             ("system",) if network.helper_domain == "system" else (f"gui/{uid}", f"user/{uid}")
@@ -987,8 +987,7 @@ def _service(
     reader: Reader,
 ) -> Observation:
     if current["state"] == "stopped":
-        if reader.settings.fleet_start is not None:
-            reader.stopped_guest_job(current, contract.name, network)
+        reader.stopped_guest_job(current, contract.name, network)
         return Observation(
             "absent",
             "confirmed-absent",

@@ -708,6 +708,8 @@ def with_own_guest_memory(
     configuration["mounts"].append(guest_memory(source))
     if handler is not ...:
         configuration["runtimeHandler"] = handler
+    else:
+        configuration.pop("runtimeHandler", None)
     contract = settings.contract("camera")
     contract = replace(
         contract,

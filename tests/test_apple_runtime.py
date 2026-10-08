@@ -52,6 +52,8 @@ def enrolled(tmp_path, monkeypatch):
             if p.service == service.id and p.kind == "publication"
         ]
         configuration = {
+            "id": "example-" + service.id,
+            "runtimeHandler": "container-runtime-linux",
             "mounts": [{"source": str(directory), "options": ["rw"]}],
             "publishedPorts": published,
             "cpus": 2,
@@ -191,6 +193,10 @@ class FakeRunner:
         if argv[0] == "/sbin/ifconfig":
             return Result(0, b"en0: flags=0\n inet 192.0.2.10 netmask 0xffffff00\n", b"")
         if argv[0] == "/bin/launchctl":
+            # Explicit service-manager evidence in the ordinary mock scenario.
+            # Surviving jobs and unknown reads are separate regression fixtures.
+            if argv[2].rpartition("/")[2].startswith("com.apple.container."):
+                return Result(113, b"", b"Could not find service\n")
             self.helper_calls += 1
             pid = 111 if self.failure != "helper-race" or self.helper_calls == 1 else 112
             return Result(

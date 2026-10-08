@@ -57,7 +57,9 @@ used by [`register`](https://github.com/apple/container/blob/1.5.0/Sources/Conta
 The API service registers the network helper through it from its own process
 ([`registerWithLaunchd`](https://github.com/apple/container/blob/1.5.0/Sources/ContainerPlugin/PluginLoader.swift#L253-L297)).
 
-With `fleet_start` declared, a stopped guest's runtime job is asked for in both
+Every API row reported as stopped requires an independent absence check of its
+fixed vendor runtime job, including partially running fleets without `fleet_start`.
+A stopped guest's runtime job is asked for in both
 `gui/<uid>` and `user/<uid>`, whichever of the two the helper is in
 (see [Starting a fully stopped fleet](#starting-a-fully-stopped-fleet)). What
 `launchctl` answers for `gui/<uid>` of an account that has no login session is
@@ -173,10 +175,10 @@ path, so a workload that has a memory-backed mount itself still reads
 A site that keeps a second definition over the same writable path without ever
 running it, for example a retained test definition, can enroll that definition's
 name in the contract's `tolerated_stopped_peers`. The peer is accepted only while the inventory reports it exactly `stopped` and
-`fleet_start` supplies the additional service-manager proof: its configuration
+the service manager independently proves its runtime job absent: its configuration
 identity and runtime handler must be valid, and no guest job may be loaded in
-either enrolled account domain. Without that declaration, or while the peer's
-job survives an API restart, the exception gives no verified target. Running,
+either enrolled account domain. An unavailable service-manager read or a job
+that survives an API restart gives no verified target. Running,
 stopping or unknown peers and every name that is not listed remain refused.
 This additional check closes the API-reset case in the stopped-peer exception;
 it does not start or enroll the retained peer. The list is
@@ -299,8 +301,9 @@ envelope the accepted versions print: `id`, `configuration` and a nested
 and an attachment row that is not an object are unknown; unfamiliar output
 never falls back to a permissive interpretation.
 
-The all-stopped rule is the default. Settings that declare `fleet_start` replace
-it with evidence for each stopped guest; see
+The all-stopped rule is the default. Settings that declare `fleet_start` additionally
+bind the vendor API generation, allowing that fleet to be considered. Every stopped
+guest still requires service-manager absence, with or without the declaration; see
 [Starting a fully stopped fleet](#starting-a-fully-stopped-fleet).
 
 ## User endpoint and Monit
@@ -407,8 +410,9 @@ out of time is unknown (`timed-out`) for every workload: the probe returns 69,
 recovery starts nothing and the root forwarding owner retires its rules. A read
 is many short processes. For the example's four workloads, all running with one
 mount each, it is 16 calls of the vendor tool and of system tools, and 20 for
-eight workloads; `fleet_start` adds four, and two for each guest listed as
-stopped (one where the helper domain is `system`). On macOS there is also one
+eight workloads; `fleet_start` adds four. Each guest listed as stopped adds two
+service-manager reads (one where the helper domain is `system`), even without
+`fleet_start`. On macOS there is also one
 `ls` for each mount or receipt and for each directory above them. The setting
 is for a fleet whose read takes longer than eight seconds under load.
 

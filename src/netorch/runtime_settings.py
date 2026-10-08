@@ -32,7 +32,7 @@ READ_TIMEOUT_MAXIMUM = 120 - READ_TIMEOUT_MARGIN
 # The one job the vendor's own start command writes and loads (apple/container
 # `SystemStart.run`, the same constant at tags 1.2.0, 1.4.1 and 1.5.0).
 _VENDOR_API_LABEL = "com.apple.container.apiserver"
-_VENDOR_RUNTIME_PREFIX = "com.apple.container."
+VENDOR_RUNTIME_PREFIX = "com.apple.container."
 # Every character at which `str.splitlines` ends a line (Python's documented
 # table: line feed, carriage return, line tabulation, form feed, file, group
 # and record separator, next line, line separator, paragraph separator).
@@ -167,7 +167,7 @@ def check_fleet_identity(fleet: FleetStart) -> None:
     Plugin.getLaunchdLabel hardcodes the prefix at tags 1.2.0, 1.4.1 and 1.5.0.
     Querying any other prefix can prove only that unrelated jobs are absent.
     """
-    if fleet.api_label != _VENDOR_API_LABEL or fleet.runtime_label_prefix != _VENDOR_RUNTIME_PREFIX:
+    if fleet.api_label != _VENDOR_API_LABEL or fleet.runtime_label_prefix != VENDOR_RUNTIME_PREFIX:
         raise ValueError("fleet start requires the vendor's API label and runtime prefix")
 
 
@@ -468,7 +468,7 @@ def parse_settings(value: Any) -> RuntimeSettings:
         )
         if (
             item["api_label"] != _VENDOR_API_LABEL
-            or item["runtime_label_prefix"] != _VENDOR_RUNTIME_PREFIX
+            or item["runtime_label_prefix"] != VENDOR_RUNTIME_PREFIX
         ):
             raise ValueError("invalid fleet start declaration")
         # That one domain is where the API job and the runtime jobs are looked up.
