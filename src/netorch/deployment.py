@@ -384,9 +384,9 @@ def _probe_timeouts(deployment: Deployment, captures: dict[str, bytes], release:
     """Refuse a check timeout that ends the runtime probe inside the read its settings allow.
 
     Whatever waits for one read waits READ_TIMEOUT_MARGIN longer than the read
-    may take. A bundle shows that relation for one case only: a check that runs
-    the probe with settings that are a file of this release and state
-    `read_timeout_seconds`. Settings without the member, settings that are not a
+    may take. A bundle shows that relation for one kind of check only: one that
+    runs the workload or the runtime probe with settings that are a file of this
+    release and state `read_timeout_seconds`. Settings without the member, settings that are not a
     file of the release, settings their loader refuses and every other check
     are not compared, so a manifest that rendered before renders the same.
     """

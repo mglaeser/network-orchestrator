@@ -1773,17 +1773,19 @@ def _command_line(
 
 
 def probe_settings(arguments: Sequence[str]) -> str | None:
-    """The settings file that these arguments make this module read as the probe.
+    """The settings file that these arguments make this module read as a probe.
 
-    None for every other command and for arguments that `main` would refuse.
-    They are read with the parser `main` uses, so every spelling that `main`
-    accepts is the same command here. Nothing is opened and nothing is run.
+    The workload probe and the runtime probe both read through one reader with
+    the bound of those settings. None for every other command and for arguments
+    that `main` would refuse. They are read with the parser `main` uses, so
+    every spelling that `main` accepts is the same command here. Nothing is
+    opened and nothing is run.
     """
     try:
         args = _command_line(_Reading).parse_args(list(arguments))
     except ValueError:
         return None
-    return str(args.settings) if args.command == "probe" else None
+    return str(args.settings) if args.command in {"probe", "runtime-probe"} else None
 
 
 def main(argv: list[str] | None = None) -> int:

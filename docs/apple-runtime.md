@@ -394,10 +394,10 @@ is for a fleet whose read takes longer than eight seconds under load.
 The setting bounds a pass and nothing smaller. A vendor call is still cut off
 after four seconds, a system tool after three, an ACL read after two and the
 checks of one mount or receipt after five, so a call that hangs costs what it
-cost before. Every pass of the reader takes the bound: the probe, `observe`,
-enrollment, the passes of initial provisioning, and each of the three passes of
-recovery, which has the whole bound to itself as it has eight seconds without
-the setting. Recovery then holds the user operation lock for up to three times
+cost before. Every pass of the reader takes the bound: the probe, the runtime
+probe and the reads of the runtime start, `observe`, enrollment, the passes of
+initial provisioning, and each of the three passes of recovery, which has the
+whole bound to itself as it has eight seconds without the setting. Recovery then holds the user operation lock for up to three times
 the bound and the start call, 474 seconds with both settings at their largest
 values. With reads of twelve seconds that is about 37 seconds. Until it ends,
 another workload's recovery gives up after its five seconds (exit 75, nothing
@@ -429,9 +429,10 @@ margin is a convention, not a measured start-up time. A check timeout
 (`monitors[].timeout_seconds`) is at most 120 seconds, and the greatest bound
 that can be stated is that less the margin, 118.
 
-Where a bundle is rendered, the margin is enforced for the one case that a
-bundle shows. A monitor whose check runs `-m netorch.apple_runtime` with the
-command `probe` and with settings that are a file of that release
+Where a bundle is rendered, the margin is enforced for the one kind of check
+that a bundle shows. A monitor whose check runs `-m netorch.apple_runtime` with
+the command `probe` or `runtime-probe` and with settings that are a file of that
+release
 (`{release}/` and the destination of a user artifact) needs a timeout of at
 least the bound those settings state plus two seconds; otherwise the bundle is
 refused before anything is written. The command line is read as the probe reads

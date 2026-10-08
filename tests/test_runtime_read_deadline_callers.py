@@ -407,6 +407,29 @@ def test_the_other_owner_s_check_is_not_compared(site: Site) -> None:
     assert not site.refused()
 
 
+def runtime_monitor(timeout: int) -> dict[str, Any]:
+    """A monitor of the vendor runtime whose check is the runtime probe of these settings."""
+    return {
+        "id": "runtime",
+        "role": "runtime",
+        "check_argv": [PYTHON, "-m", MODULE, "--settings", FILE, "runtime-probe"],
+        "recovery_argv": [PYTHON, "-m", MODULE, "--settings", FILE, "runtime-start"],
+        "timeout_seconds": timeout,
+        "cycles": 2,
+        "recovery_code": 42,
+    }
+
+
+def test_the_runtime_probe_s_check_leaves_the_margin_as_the_probe_s_does(site: Site) -> None:
+    """The runtime probe reads through the same reader and takes the bound its settings state."""
+    site.state(20)
+    site.probe["timeout_seconds"] = 20 + MARGIN
+    site.manifest["monitors"].append(runtime_monitor(20 + MARGIN - 1))
+    assert site.refused("below")
+    site.manifest["monitors"][-1] = runtime_monitor(20 + MARGIN)
+    assert not site.refused("at")
+
+
 ELSEWHERE: dict[str, list[str]] = {
     "a file outside the release": ["--settings", "/operator/site/runtime-settings.json"],
     "a file of the state directory": ["--settings", "{state}/runtime-settings.json"],
@@ -564,6 +587,9 @@ def test_the_renderer_compares_with_the_margin_under_its_one_name(
         ),
         (["--settings", "/a//./b.json/", "probe", "--service", "camera"], "/a/b.json"),
         (["--settings", "relative.json", "probe", "--service", "camera"], "relative.json"),
+        # The runtime probe reads through the same reader with the same bound.
+        (["--settings", "/a/b.json", "runtime-probe"], "/a/b.json"),
+        (["--settings=/a//./b.json", "runtime-probe"], "/a/b.json"),
     ],
 )
 def test_probe_settings_names_the_file_that_the_probe_itself_loads(
@@ -595,6 +621,7 @@ def test_probe_settings_names_the_file_that_the_probe_itself_loads(
         ["--settings", "/a/b.json", "observe"],
         ["--settings", "/a/b.json", "request"],
         ["--settings", "/a/b.json", "start", "--service", "camera"],
+        ["--settings", "/a/b.json", "runtime-start"],
         ["--settings", "/a/b.json", "enroll", "--output", "/o.json"],
         ["--settings", "/a/b.json", "derive-policy", "--source", "/s", "--output", "/o"],
     ],
