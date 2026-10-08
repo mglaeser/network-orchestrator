@@ -1,7 +1,6 @@
-"""An owner flips with rendered literal inputs and with programs that were searched.
+"""Literal byte parity can promote; inventory diagnostics cannot prove consumers.
 
-A program is never compared, because nothing renders it: it stays pinned by its
-hash in the owner digest and needs an inventory check. Synthetic data only.
+Programs are pinned and searched, never executed by these tests. Synthetic data only.
 """
 
 from __future__ import annotations
@@ -76,7 +75,7 @@ def flipped(document: dict[str, Any], owner: str) -> list[tuple[str, Any]]:
     ]
 
 
-def test_owner_with_an_inventoried_program_can_be_promoted(tmp_path: Path) -> None:
+def test_owner_with_an_inventoried_program_is_not_promoted(tmp_path: Path) -> None:
     """The reviewer's reproducer: one literal data file and the program beside it."""
     (tmp_path / "owner.env").write_bytes(LITERAL)
     (tmp_path / "owner.sh").write_bytes(PROGRAM)
@@ -95,21 +94,16 @@ def test_owner_with_an_inventoried_program_can_be_promoted(tmp_path: Path) -> No
     before = owner_instance("forwarding", imported.owner_digest("forwarding"), "supervision")
     comparisons = rendered.comparisons("forwarding")
     assert [(item.id, item.identical) for item in comparisons] == [("owner-input", True)]
-    after = promote_owner(
-        before, "forwarding", imported, comparisons, rendered.checks("forwarding")
-    )
-    assert flipped(after, "forwarding") == [("authored", None)]
-    assert check_owner_flip(before, after, "forwarding")
-    parse_instance(canonical_bytes(after) + b"\n")
-    # A byte comparison of the program with itself is no evidence about it.
+    with pytest.raises(ConformanceError, match="unresolved static inputs"):
+        promote_owner(before, "forwarding", imported, comparisons, rendered.checks("forwarding"))
+    # Even a byte comparison of the program with itself proves no consumer behavior.
     copied = (*comparisons, compare_bytes("owner-program", PROGRAM, PROGRAM, owner="forwarding"))
-    with pytest.raises(ConformanceError, match="program still holds or may hold"):
-        promote_owner(before, "forwarding", imported, copied)
-    with pytest.raises(ConformanceError, match="byte parity"):
-        promote_owner(before, "forwarding", imported, copied, rendered.checks("forwarding"))
+    for checks in ((), rendered.checks("forwarding")):
+        with pytest.raises(ConformanceError, match="unresolved static inputs"):
+            promote_owner(before, "forwarding", imported, copied, checks)
 
 
-def test_owner_with_literal_inputs_and_a_clean_program_flips(tmp_path: Path) -> None:
+def test_owner_with_literal_inputs_and_a_clean_program_stays_generated(tmp_path: Path) -> None:
     path = with_program(tmp_path, CLEAN)
     imported = import_sources(path)
     rendered = render_sources(path, instance())
@@ -117,15 +111,15 @@ def test_owner_with_literal_inputs_and_a_clean_program_flips(tmp_path: Path) -> 
         ("program", True, 0)
     ]
     before = owner_instance("discovery", imported.owner_digest("discovery"))
-    after = promote_owner(
-        before,
-        "discovery",
-        imported,
-        rendered.comparisons("discovery"),
-        rendered.checks("discovery"),
-    )
-    assert flipped(after, "discovery") == [("authored", None)]
-    assert check_owner_flip(before, after, "discovery")
+    with pytest.raises(ConformanceError, match="unresolved static inputs"):
+        promote_owner(
+            before,
+            "discovery",
+            imported,
+            rendered.comparisons("discovery"),
+            rendered.checks("discovery"),
+        )
+    assert flipped(before, "discovery") == [("generated", imported.owner_digest("discovery"))]
 
 
 def test_program_that_still_holds_a_setting_blocks_its_owner(tmp_path: Path) -> None:
@@ -134,7 +128,7 @@ def test_program_that_still_holds_a_setting_blocks_its_owner(tmp_path: Path) -> 
     rendered = render_sources(path, instance())
     assert rendered.inventory[0].embedded_literals == 1
     before = owner_instance("discovery", imported.owner_digest("discovery"))
-    with pytest.raises(ConformanceError, match="program still holds or may hold"):
+    with pytest.raises(ConformanceError, match="unresolved static inputs"):
         promote_owner(
             before,
             "discovery",
@@ -149,14 +143,14 @@ def test_program_that_was_not_searched_blocks_its_owner(tmp_path: Path) -> None:
     imported = import_sources(path)
     rendered = render_sources(path, instance())
     before = owner_instance("discovery", imported.owner_digest("discovery"))
-    with pytest.raises(ConformanceError, match="program still holds or may hold"):
+    with pytest.raises(ConformanceError, match="unresolved static inputs"):
         promote_owner(before, "discovery", imported, rendered.comparisons("discovery"))
     binary = with_program(tmp_path, b"\xff\xfe\x00binary")
     imported = import_sources(binary)
     rendered = render_sources(binary, instance())
     assert rendered.inventory[0].scanned is False
     before = owner_instance("discovery", imported.owner_digest("discovery"))
-    with pytest.raises(ConformanceError, match="program still holds or may hold"):
+    with pytest.raises(ConformanceError, match="unresolved static inputs"):
         promote_owner(
             before,
             "discovery",
@@ -184,7 +178,7 @@ def test_changed_program_changes_the_owner_digest(tmp_path: Path) -> None:
             searched.checks("discovery"),
         )
     renewed = owner_instance("discovery", second.owner_digest("discovery"))
-    with pytest.raises(ConformanceError, match="program still holds or may hold"):
+    with pytest.raises(ConformanceError, match="unresolved static inputs"):
         promote_owner(
             renewed,
             "discovery",
@@ -195,7 +189,7 @@ def test_changed_program_changes_the_owner_digest(tmp_path: Path) -> None:
 
 
 def test_incomplete_or_differing_input_still_blocks_the_flip(tmp_path: Path) -> None:
-    path = with_program(tmp_path, CLEAN)
+    path = manifest(tmp_path, complete_sources(tmp_path))
     imported = import_sources(path)
     before = owner_instance("discovery", imported.owner_digest("discovery"))
     drifted = render_sources(
@@ -212,7 +206,6 @@ def test_incomplete_or_differing_input_still_blocks_the_flip(tmp_path: Path) -> 
         )
     sources = complete_sources(tmp_path)
     sources[1]["constants"] = []
-    sources.append(source("program", "discover.sh", "source-inventory"))
     incomplete = render_sources(manifest(tmp_path, sources), instance())
     assert all(item.identical for item in incomplete.sources)
     with pytest.raises(ConformanceError, match="byte parity"):
@@ -244,11 +237,21 @@ def test_unread_data_input_still_blocks_an_owner_with_a_program(tmp_path: Path) 
         )
 
 
-def test_only_a_program_receipt_is_no_unresolved_input(tmp_path: Path) -> None:
+def test_program_receipts_and_other_unresolved_inputs_block_promotion(tmp_path: Path) -> None:
     path = with_program(tmp_path, CLEAN)
     imported = import_sources(path)
     rendered = render_sources(path, instance())
     before = owner_instance("discovery", imported.owner_digest("discovery"))
+    # Omitting the importer's issue cannot hide the inventory format of the receipt.
+    omitted = ImportResult(imported.values, imported.receipts, ())
+    with pytest.raises(ConformanceError, match="unresolved static inputs"):
+        promote_owner(
+            before,
+            "discovery",
+            omitted,
+            rendered.comparisons("discovery"),
+            rendered.checks("discovery"),
+        )
     for issue in (Issue("job", INVENTORY_ONLY), Issue("program", "unsupported-static-syntax")):
         claimed = ImportResult(imported.values, imported.receipts, (*imported.underivable, issue))
         with pytest.raises(ConformanceError, match="unresolved static inputs"):
@@ -265,17 +268,17 @@ def test_only_a_program_receipt_is_no_unresolved_input(tmp_path: Path) -> None:
     "change,message",
     [
         ({"owner": "forwarding"}, "not bound to this owner"),
-        ({"id": "unknown"}, "program still holds or may hold"),
-        ({"id": "catalogue"}, "program still holds or may hold"),
-        ({"sha256": "0" * 64}, "program still holds or may hold"),
-        ({"scanned": False}, "program still holds or may hold"),
-        ({"scanned": 1}, "program still holds or may hold"),
-        ({"embedded_literals": 1}, "program still holds or may hold"),
-        ({"embedded_literals": False}, "program still holds or may hold"),
-        ({"embedded_literals": None}, "program still holds or may hold"),
+        ({"id": "unknown"}, "unresolved static inputs"),
+        ({"id": "catalogue"}, "unresolved static inputs"),
+        ({"sha256": "0" * 64}, "unresolved static inputs"),
+        ({"scanned": False}, "unresolved static inputs"),
+        ({"scanned": 1}, "unresolved static inputs"),
+        ({"embedded_literals": 1}, "unresolved static inputs"),
+        ({"embedded_literals": False}, "unresolved static inputs"),
+        ({"embedded_literals": None}, "unresolved static inputs"),
     ],
 )
-def test_inventory_check_is_bound_to_its_owner_program_and_hash(
+def test_no_forged_inventory_diagnostic_can_waive_program_conformance(
     tmp_path: Path, change: dict[str, Any], message: str
 ) -> None:
     path = with_program(tmp_path, CLEAN)
@@ -289,7 +292,7 @@ def test_inventory_check_is_bound_to_its_owner_program_and_hash(
     forged = InventoryCheck(**(genuine.to_dict() | change))
     with pytest.raises(ConformanceError, match=message):
         promote_owner(before, "discovery", imported, rendered.comparisons("discovery"), (forged,))
-    with pytest.raises(ConformanceError, match="program still holds or may hold"):
+    with pytest.raises(ConformanceError, match="unresolved static inputs"):
         promote_owner(
             before, "discovery", imported, rendered.comparisons("discovery"), (genuine, genuine)
         )
@@ -328,16 +331,17 @@ def test_evidence_made_for_another_owner_promotes_no_one(tmp_path: Path) -> None
             rendered.comparisons("forwarding"),
             rendered.checks("discovery"),
         )
-    assert promote_owner(
-        before,
-        "discovery",
-        imported,
-        rendered.comparisons("discovery"),
-        rendered.checks("discovery"),
-    )
+    with pytest.raises(ConformanceError, match="unresolved static inputs"):
+        promote_owner(
+            before,
+            "discovery",
+            imported,
+            rendered.comparisons("discovery"),
+            rendered.checks("discovery"),
+        )
 
 
-def test_data_file_that_cannot_be_rendered_is_searched_when_it_supplies_nothing(
+def test_unrendered_toml_search_is_diagnostic_and_cannot_replace_byte_parity(
     tmp_path: Path,
 ) -> None:
     vendor = b'[section]\nkey = "value"\n'
@@ -352,13 +356,13 @@ def test_data_file_that_cannot_be_rendered_is_searched_when_it_supplies_nothing(
     imported = import_sources(path)
     before = owner_instance("discovery", imported.owner_digest("discovery"))
     comparisons = rendered.comparisons("discovery")
-    after = promote_owner(before, "discovery", imported, comparisons, rendered.checks("discovery"))
-    assert check_owner_flip(before, after, "discovery")
+    with pytest.raises(ConformanceError, match="Inventory checks do not establish"):
+        promote_owner(before, "discovery", imported, comparisons, rendered.checks("discovery"))
     # A site's own generator may still supply the rendered file, as before.
     own = compare_bytes("vendor", vendor, vendor, owner="discovery")
     assert promote_owner(before, "discovery", imported, (*comparisons, own))
-    # One kind of evidence for one source: not both and not neither.
-    with pytest.raises(ConformanceError, match="byte parity"):
+    # Diagnostics are not accepted as promotion evidence even alongside comparisons.
+    with pytest.raises(ConformanceError, match="Inventory checks do not establish"):
         promote_owner(
             before, "discovery", imported, (*comparisons, own), rendered.checks("discovery")
         )
@@ -378,7 +382,7 @@ def test_owner_with_nothing_rendered_is_not_promoted(tmp_path: Path) -> None:
     rendered = render_sources(path, instance())
     assert [(i.scanned, i.embedded_literals) for i in rendered.inventory] == [(True, 0)]
     before = owner_instance("discovery", imported.owner_digest("discovery"))
-    with pytest.raises(ConformanceError, match="byte parity"):
+    with pytest.raises(ConformanceError, match="unresolved static inputs"):
         promote_owner(before, "discovery", imported, (), rendered.checks("discovery"))
 
 
@@ -402,3 +406,44 @@ def test_import_and_render_address_the_same_member(tmp_path: Path) -> None:
     before = owner_instance("discovery", imported.owner_digest("discovery"))
     after = promote_owner(before, "discovery", imported, rendered.comparisons("discovery"))
     assert flipped(after, "discovery") == [("authored", None)]
+    assert check_owner_flip(before, after, "discovery")
+
+
+def test_clean_scan_cannot_prove_hardcoded_interval_consumes_rendered_data(tmp_path: Path) -> None:
+    """No process executes: the program ignores the data file even as its value changes."""
+    hardcoded = b'#!/bin/sh\nINTERVAL=10\nexec sleep "$INTERVAL"\n'
+    (tmp_path / "owner.env").write_bytes(LITERAL)
+    (tmp_path / "owner.sh").write_bytes(hardcoded)
+    path = manifest(
+        tmp_path,
+        [
+            source(
+                "owner-input",
+                "owner.env",
+                "literal-env",
+                {"/EXAMPLE_INTERVAL": "/supervision/reconcile_seconds"},
+            )
+            | {"owner": "forwarding"},
+            source("owner-program", "owner.sh", "source-inventory") | {"owner": "forwarding"},
+        ],
+    )
+    imported = import_sources(path)
+    rendered = render_sources(path, instance())
+    assert [(item.scanned, item.embedded_literals) for item in rendered.inventory] == [(True, 0)]
+    collected: dict[str, bytes] = {}
+    render_sources(
+        path,
+        changed(lambda data: data["supervision"].update(reconcile_seconds=20)),
+        collect=collected,
+    )
+    assert collected["owner-input"] == b"EXAMPLE_INTERVAL=20\n"
+    assert (tmp_path / "owner.sh").read_bytes() == hardcoded
+    before = owner_instance("forwarding", imported.owner_digest("forwarding"), "supervision")
+    with pytest.raises(ConformanceError, match="unresolved static inputs"):
+        promote_owner(
+            before,
+            "forwarding",
+            imported,
+            rendered.comparisons("forwarding"),
+            rendered.checks("forwarding"),
+        )

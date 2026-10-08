@@ -297,10 +297,14 @@ Bytes that are not UTF-8 text, or that contain a NUL, are not searched, and
 supplies nothing and is pinned and searched in the same way.
 
 The search is a tripwire, not a proof. A program that computes a name from
-parts, or holds a single-word name or a port number, passes it. What is
-guaranteed is narrower and firm: the literal inputs are reproduced from the
-instance byte for byte, and the program that reads them is exactly the reviewed
-one, because its hash is part of the owner digest.
+parts, or holds a single-word name, port number or interval, can pass it. For
+example, a program can keep using interval `10` while the literal input is
+rendered with interval `20`, without ever reading that input. A pinned hash
+identifies captured bytes; it establishes neither their review nor their
+consumption of the rendered data. These diagnostics and `project_instance`'s
+static filled view remain available, but neither can establish consumer
+conformance or authorize an owner flip. Programs must be separately reviewed
+and parameterized; this API supplies no approval record that waives that gap.
 
 ### What the renderer does not do
 
@@ -339,23 +343,26 @@ requires:
 
 1. One generated authoring record for that owner, including closed sections and
    stable subjects, with the freshly captured aggregate source digest.
-2. No unread data source for that owner. The receipt of an inventoried program
-   is not one; unsupported syntax or an unavailable mapped value is.
-3. For every program of that owner one inventory check made for that owner,
-   with the hash of the fresh receipt, `scanned` true and no embedded literal.
-   A program is not compared, because nothing renders it. A program that was
-   not searched, or that still holds a setting, blocks its owner. A TOML source
-   may have such a check instead of a comparison, never both.
-4. Every other source ID compared exactly once by a comparison made for that
+2. No unresolved static input for that owner, including an inventoried program,
+   unsupported syntax or an unavailable mapped value. Every `source-inventory`
+   receipt blocks automatic promotion even if its inventory-only issue were
+   omitted from a supplied import result.
+3. No inventory checks supplied as promotion evidence. A clean lexical search
+   cannot substitute for a rendered input or prove program behavior. Unrendered
+   TOML therefore needs an explicit byte comparison from a site's own generator;
+   its search result cannot satisfy this requirement.
+4. Every source ID compared exactly once by a comparison made for that
    owner, its capture digest equal to the fresh source receipt, and identical
    captured/rendered bytes. At least one source must be compared: an owner
-   whose inputs are only programs has nothing rendered from the instance and is
-   not promoted. A comparison or a check made for another owner, or for none,
+   with no rendered inputs is not promoted. A comparison or a check made for another owner, or for none,
    promotes no one.
 5. A provenance-only change to `mode: authored` and `source_sha256: null`.
 
-`RenderResult.comparisons(owner)` and `RenderResult.checks(owner)` supply the
-third and fourth item for the inputs the renderer handles.
+`RenderResult.comparisons(owner)` supplies byte comparisons for the literal
+inputs the renderer handles. `RenderResult.checks(owner)` remains a diagnostic
+report and must not be passed as evidence of consumer conformance. Keeping an
+inventoried program in the manifest keeps the automatic owner flip blocked;
+silently dropping it from the inventory is not a migration or conformance proof.
 
 `check_owner_flip(before, after, owner)` rejects any accompanying desired change,
 rename, state movement, unrelated owner flip or subject change. Full instance

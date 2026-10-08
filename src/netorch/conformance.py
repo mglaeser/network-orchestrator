@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from .codec import canonical_bytes, strict_loads
-from .legacy_import import INVENTORY_ONLY, ImportResult, capture_static, read_static
+from .legacy_import import ImportResult, capture_static, read_static
 
 _ID = re.compile(r"[a-z][a-z0-9-]{0,63}")
 _SECTIONS = {
@@ -67,6 +67,7 @@ class InventoryCheck:
     ``netorch.render`` makes one for every program of a manifest. ``scanned`` is
     false when the bytes could not be searched as text; ``embedded_literals``
     counts the places that hold one of the instance's specific string settings.
+    Neither a zero count nor a pinned hash proves how a program consumes data.
     """
 
     id: str
@@ -195,9 +196,10 @@ def promote_owner(
 
     The caller must validate the full instance with the closed instance parser;
     this operation changes only that owner's provenance, never desired values.
-    A program of the owner is never compared, because nothing renders it. It
-    stays pinned by its hash in the owner digest and needs an inventory check
-    that searched its text and found none of the instance's settings.
+    Inventory/search results remain diagnostics, never consumer-conformance
+    evidence. A source-inventory program blocks this automatic operation even
+    if its hash is pinned and no instance strings were found: that cannot prove
+    the program reads the rendered inputs or has no independent numeric values.
     """
     record = _authoring(instance, owner)
     if record["mode"] != "generated" or record["source_sha256"] != sources.owner_digest(owner):
@@ -206,34 +208,19 @@ def promote_owner(
     owner_sources = set(receipt_hashes)
     formats = {r.id: r.format for r in sources.receipts if r.owner == owner}
     programs = {key for key in owner_sources if formats[key] == "source-inventory"}
-    if any(
-        issue.source in owner_sources
-        and not (issue.source in programs and issue.reason == INVENTORY_ONLY)
-        for issue in sources.underivable
-    ):
-        raise ConformanceError("Owner has unresolved static inputs")
     if any(check.owner != owner for check in inventory):
         raise ConformanceError("Inventory checks are not bound to this owner")
-    checked = {check.id for check in inventory}
-    # A data file in a format that is not rendered may be searched instead of compared.
-    searched = programs | {key for key in checked & owner_sources if formats[key] == "toml"}
-    if (
-        checked != searched
-        or len(checked) != len(inventory)
-        or any(
-            check.sha256 != receipt_hashes.get(check.id)
-            or check.scanned is not True
-            or type(check.embedded_literals) is not int
-            or check.embedded_literals != 0
-            for check in inventory
-        )
-    ):
-        raise ConformanceError("Owner program still holds or may hold instance settings")
     if any(c.owner != owner for c in comparisons):
         raise ConformanceError("Byte comparisons are not bound to this owner")
+    if programs or any(issue.source in owner_sources for issue in sources.underivable):
+        raise ConformanceError(
+            "Owner has unresolved static inputs; consumer conformance is unproven"
+        )
+    if inventory:
+        raise ConformanceError("Inventory checks do not establish consumer conformance")
     if (
         not comparisons
-        or {c.id for c in comparisons} != owner_sources - searched
+        or {c.id for c in comparisons} != owner_sources
         or len({c.id for c in comparisons}) != len(comparisons)
         or any(
             not c.identical
