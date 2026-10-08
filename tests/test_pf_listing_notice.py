@@ -498,7 +498,7 @@ def test_a_deferral_for_evidence_keeps_its_reason_and_the_record_names_the_notic
 
 
 @pytest.mark.parametrize("kind", PAIR)
-def test_a_drain_readback_refused_for_a_notice_stays_retained_and_is_named(
+def test_a_drain_readback_refused_for_a_notice_fails_the_pass_and_is_named(
     scripted: Scripted, kind: str
 ) -> None:
     scripted.loaded("dns-udp")
