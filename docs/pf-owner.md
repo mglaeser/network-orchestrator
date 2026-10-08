@@ -272,8 +272,9 @@ A row of the state table is a retained state of an owned record when
   a protocol without a name),
 - one of its endpoints is the record's target with a port inside the profile's
   target ports (for a UDP return profile: inside its ports), and
-- another of its endpoints is an address inside the scope's LAN prefix that is
-  neither the target nor the host's own LAN address.
+- another of its endpoints is a peer: an IPv4 address inside the scope's LAN
+  prefix that is not the target. The host's own LAN address is a peer only in
+  a row in which every IPv4 address is the target or lies inside the prefix.
 
 These are the properties of the rendered rules. A redirect matches one protocol
 from the LAN prefix to the host and translates to the target and its port; the
@@ -287,6 +288,13 @@ endpoint is which. A guest's own connections, to hosts outside the LAN or from
 other ports, are not retained states: they do not delay a retirement and a
 retirement does not reset them.
 
+The host's own LAN address lies inside the prefix that a redirect matches, so a
+packet that arrives with it as its source creates a state that names only the
+target and that address. The runtime's own translation of a flow that the guest
+opens to an address outside the LAN names the target and the host's address as
+well, and that outside address. This is why the host's address is a peer only
+in a row that names no address outside the prefix.
+
 When the installed policy no longer describes the record (the profile was
 removed, its digest or kind changed, or the policy cannot be read during an
 administrator withdrawal), the rule that was loaded is not known any more and
@@ -299,6 +307,9 @@ the one validated reader. A drain reads the table first. If no retained state
 exists it invalidates nothing. Otherwise it invalidates states from and to the
 target and reads the table again; the backend only issues the two scoped
 invalidations, and a state that is still listed is not drained.
+An invalidation that fails and a table that cannot be read, before or after
+it, are errors and not an open drain: they end the pass `failed` and make
+`withdraw` fail.
 
 Two limits are known. The rule looks at the target, its port and the peer; the
 host endpoint's port is not consulted. It therefore cannot tell two profiles
@@ -306,7 +317,9 @@ apart that publish different host ports onto one target port of one guest. Nor
 can it tell a state of the rule from a flow that the guest itself opens to a
 LAN peer from a port of the rule: for a UDP return profile that is every flow
 from the published range to the LAN, also one that the runtime's own
-translation carries after the rule is withdrawn. In both cases the retirement
+translation carries after the rule is withdrawn. The same holds for a flow
+between a port of the rule on the guest and the host's own LAN address, in a
+row that names no address outside the prefix. In these cases the retirement
 stays `states-retained`, with an invalidation on each pass, for as long as such
 a state is listed again when the table is read back. And that a macOS state
 table shows the client and the target with its port as endpoints of such a
@@ -336,7 +349,8 @@ Within one pass the owner applies every planned withdrawal before it invalidates
 any state, as the administrator withdrawal does. A retained state that stays
 then defers its profile with all planned rules already retired; it cannot leave
 the rule of a later profile loaded. Drains and activations keep their planned
-order.
+order. An invalidation that fails, or a state table that cannot be read during
+a drain, fails the pass, also with all planned rules already retired.
 
 ### Deferral and writes in doubt
 
@@ -345,7 +359,9 @@ other than what the owner's records say. That is a write in doubt: a rule load
 that fails or whose readback differs from the journalled candidate, a candidate
 or a record that cannot be written, an enable reference that cannot be taken
 or identified, protected installation or policy content that changes during the
-pass, admissions that cannot be read when they are checked again, a final
+pass, admissions that cannot be read when they are checked again, an
+invalidation of the states of a withdrawn rule that fails, a state table that
+cannot be read before or after that invalidation, a final
 readback that differs from the records, a final state table that cannot be
 read, or a report that cannot be written. Each ends the pass `failed`, as does
 a state table that cannot be read when the pass starts.
@@ -363,7 +379,7 @@ retried inside a pass. The reasons are a closed vocabulary:
 | `target-changed` | Fresh evidence no longer supports the planned target |
 | `endpoint-unverified` | The interface, route or neighbour check did not pass or could not run |
 | `ports-unverified` | The host socket check did not pass or could not run |
-| `states-retained` | A retained state of the already withdrawn rule remains, or its invalidation or readback failed |
+| `states-retained` | The invalidation for the already withdrawn rule was issued without error, the table was read again, and a retained state of that rule is still listed |
 
 A deferred profile has no rule loaded and is never `root_ready`. Its reason is
 recorded as `deferred` in the journal's final record (`{profile: reason}`), in
