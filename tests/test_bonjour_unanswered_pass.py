@@ -201,3 +201,19 @@ def test_scan_at_its_fifth_unanswered_instance_beside_one_that_read_keeps_failin
     failed = link.run()[IMPORT]
     assert (failed["records"], failed["reason"]) == ([], "incomplete")
     assert "tolerated_failure" not in failed and link.counts() is None
+
+
+def test_pass_that_read_an_instance_is_carried_beside_one_that_answered_and_an_unfinished_browse(
+    config: Config, settings: owner.BonjourSettings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    link = Link(monkeypatch, leased(config), counting(settings))
+    link.lan.devices = (KITCHEN, STUDY)
+    seen = link.run()[IMPORT]
+    # One type reads an instance and leaves out one that answered with what
+    # cannot be used, which a pass that read something may; another type's
+    # browse is stopped at its own limit, a read that did not complete.
+    link.lan.devices = (KITCHEN, ODD)
+    link.lan.fail("-B", RAOP, stopped)
+    failed = link.run()[IMPORT]
+    assert failed["records"] == seen["records"] and "reason" not in failed
+    assert failed["tolerated_failure"] == "malformed"
