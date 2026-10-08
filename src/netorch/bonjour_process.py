@@ -18,7 +18,7 @@ import time
 from collections.abc import Callable
 
 from .discovery import Record
-from .process import Result, run
+from .process import ProcessTimeout, Result, run
 
 DNS_SD = "/usr/bin/dns-sd"
 IFCONFIG = "/sbin/ifconfig"
@@ -39,9 +39,16 @@ _STARTING = rf"{_STAMP}  \.\.\.STARTING\.\.\."
 
 
 class DiscoveryFailure(RuntimeError):
-    def __init__(self, reason: str = "malformed") -> None:
+    def __init__(self, reason: str = "malformed", *, unfinished: bool = False) -> None:
         super().__init__(reason)
         self.reason = reason
+        # True only where a scan's read did not complete (unfinished_read):
+        # what one client left is exactly a form the vendor's client gives for
+        # a daemon that is not running, or it was stopped at its own time limit
+        # before it had shown a reply. What a reader refuses in an answer that
+        # it read is never marked, and neither is a denial, any other error
+        # code or a scan whose own time is used up.
+        self.unfinished = unfinished
 
 
 class RegistrationExpired(DiscoveryFailure):
@@ -133,6 +140,73 @@ def confirmed_output(result: Result, index: int) -> bytes:
     ):
         raise DiscoveryFailure("malformed")
     return result.stdout
+
+
+# How main() names the call of each operation a scan runs, and how many
+# arguments scan() gives that operation: Clients/dns-sd.c lines 2158 (-B), 2183
+# (-L), 2314 (-G) and 2225 (-Q) at the tag the owner guide cites
+# (mDNSResponder-2881.120.11), as every line number below.
+_CALLS = {
+    "-B": (b"DNSServiceBrowse", 2),
+    "-L": (b"DNSServiceResolve", 3),
+    "-G": (b"DNSServiceGetAddrInfo", 2),
+    "-Q": (b"DNSServiceQueryRecord", 3),
+}
+# Seconds of a scan's own time that must be left beyond a command's time limit
+# for that limit to be the command's own (scan). The scan's time and the
+# scanner's wait for the scan end within moments of each other, and a scan
+# whose time is used up is no miss whichever of them notices it: with this
+# room no failure that is marked is raised that late.
+_BUDGET_ROOM = 1.0
+# printtimestamp_F (515): the date line that comes with the first timestamp.
+_DATE = (
+    rb"DATE: ---(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun) (?:0[1-9]|[12][0-9]|3[01]) "
+    rb"(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) [0-9]{4}---"
+)
+
+
+def unfinished_read(
+    args: list[str], index: int, status: int | None, stdout: bytes, stderr: bytes
+) -> bool:
+    """Whether what one client left is a read that did not complete, and nothing else.
+
+    A closed list of forms, each compared exactly with what the vendor's client
+    prints. ``args`` is the operation and its arguments as scan() passes them,
+    ``status`` the client's exit status, or None for a client that the runner
+    stopped at its time limit, with what it had written by then. Any other
+    status, error code, text on the error stream or text on standard output is
+    not on the list, and neither is an interface that was not verified.
+    """
+    call, arguments = _CALLS.get(args[0] if args else "", (b"", 0))
+    if not call or len(args) != 1 + arguments or type(index) is not int or index <= 0:
+        return False
+    # main() prints the interface line (2135), then the line of the operation
+    # (2157 for -B, 2181 for -L, none for -G and -Q), then makes its call.
+    head = f"Using interface {index}\n".encode()
+    if args[0] == "-B":
+        head += os.fsencode(f"Browsing for {args[1]}.{args[2]}\n")
+    elif args[0] == "-L":
+        head += os.fsencode(f"Lookup {args[1]}.{args[2]}.{args[3]}\n")
+    # Once the call has succeeded it prints the start line with the first
+    # timestamp (515, 518, 2396-2397) and waits for replies.
+    waiting = (
+        re.fullmatch(re.escape(head) + _DATE + b"\n" + _STARTING.encode() + b"\n", stdout)
+        is not None
+    )
+    if status is None:
+        # Stopped at its time limit without a reply. The client flushes its
+        # standard output only in a reply callback (772, 843, 1211 and 1289
+        # for these operations) and at exit, so until then it has shown
+        # nothing; where its output was flushed, it is these banners.
+        return not stderr and (not stdout or stdout == head or waiting)
+    if status == 255:
+        # The daemon is not running: the call fails, and main() reports it on
+        # the error stream and returns -1 (2390-2394).
+        return stdout == head and stderr == call + b" failed -65563 (Service Not Running)\n"
+    # The daemon stopped while the client waited: the reply callback ends the
+    # client before it prints anything for that reply (245-246, called at 761,
+    # 824, 1111 and 1249).
+    return status == 0 and waiting and stderr == b"Error code -65563\n"
 
 
 def browse_names(raw: bytes, service_type: str, index: int, limit: int) -> tuple[str, ...]:
@@ -406,11 +480,35 @@ def scan(
         if remaining <= 0:
             raise DiscoveryFailure("timed-out")
         options = [] if args[0] == "-B" else ["-m"]
-        result = runner(
-            [DNS_SD, "-t", str(seconds), "-i", interface, *options, *args],
-            min(seconds + 1.0, remaining),
-        )
-        return confirmed_output(result, index)
+        # The time limit is the command's own only while the scan's time has
+        # room for it and _BUDGET_ROOM more. With less the scan's time is used
+        # up, and that is never a read that did not complete: not in a command
+        # that ends then, not above where no time is left, and not where the
+        # scanner stops waiting for the scan.
+        own = remaining >= seconds + 1.0 + _BUDGET_ROOM
+        try:
+            result = runner(
+                [DNS_SD, "-t", str(seconds), "-i", interface, *options, *args],
+                min(seconds + 1.0, remaining),
+            )
+        except ProcessTimeout as exc:
+            # The bounded runner stopped the client at its time limit. The
+            # reason is the one a scanner pass has always written for it; the
+            # mark needs what the client had written by then.
+            raise DiscoveryFailure(
+                "malformed",
+                unfinished=own
+                and exc.stdout is not None
+                and exc.stderr is not None
+                and unfinished_read(args, index, None, exc.stdout, exc.stderr),
+            ) from exc
+        try:
+            return confirmed_output(result, index)
+        except DiscoveryFailure as failure:
+            failure.unfinished = own and unfinished_read(
+                args, index, result.returncode, result.stdout, result.stderr
+            )
+            raise
 
     names = browse_names(query(["-B", service_type, "local."]), service_type, index, limit)
     result = []

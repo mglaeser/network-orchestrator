@@ -374,7 +374,9 @@ COMMAND_FAILURES: dict[str, tuple[Failure, str | None]] = {
     "line-that-is-no-reply": (with_line("unexpected line"), "malformed"),
     # The scope asked for with -i was not honoured, whichever command shows it.
     "reply-for-another-interface": (for_another_interface, "malformed"),
-    "time-limit": (timed_out, None),
+    # The reader raises the runner's time limit as its own failure, with the
+    # reason a scanner pass has always written for it.
+    "time-limit": (timed_out, "malformed"),
     "output-bound": (flooded, None),
 }
 # The diagnostics each command prints for one request.

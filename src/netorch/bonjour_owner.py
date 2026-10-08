@@ -90,6 +90,7 @@ class BonjourSettings:
     pass_seconds: int | None = None
     miss_tolerance: int = 1
     renewal_overlap_seconds: int | None = None
+    failed_pass: str | None = None
 
     @property
     def pass_interval(self) -> int:
@@ -138,6 +139,7 @@ def load_settings(path: Path) -> BonjourSettings:
         "pass_seconds",
         "miss_tolerance",
         "renewal_overlap_seconds",
+        "failed_pass",
     }
     if (
         not isinstance(raw, dict)
@@ -239,6 +241,9 @@ def load_settings(path: Path) -> BonjourSettings:
             if item.owner == owner.id
         ):
             raise ValueError("Bonjour renewal overlap needs a lease that is longer")
+    failed_pass = raw.get("failed_pass")
+    if "failed_pass" in raw and failed_pass != "miss":
+        raise ValueError("Bonjour failed pass has one value: miss")
     settings = BonjourSettings(
         owner.id,
         **paths,
@@ -246,6 +251,7 @@ def load_settings(path: Path) -> BonjourSettings:
         scan_seconds=raw.get("scan_seconds", 2),
         poll_seconds=raw.get("poll_seconds", 5),
         miss_tolerance=tolerance,
+        failed_pass=failed_pass,
         eligible_model_prefixes=tuple(prefixes),
         pass_seconds=pass_seconds,
         renewal_overlap_seconds=overlap,
@@ -270,6 +276,9 @@ def load_settings(path: Path) -> BonjourSettings:
         and not any(item.max_age_seconds > least for item in following)
     ):
         raise ValueError("Bonjour miss tolerance needs a lease that outlasts two passes")
+    # A failed pass can count as a miss only for a policy that tolerates one.
+    if failed_pass is not None and not any(tolerated_misses(item, tolerance) > 1 for item in owned):
+        raise ValueError("Bonjour failed pass needs an owned policy that tolerates a miss")
     return settings
 
 
@@ -586,6 +595,7 @@ def _observation(
     interface: bool,
     count: int = 0,
     skipped: int = 0,
+    tolerated: str | None = None,
 ) -> Observation:
     endpoint = snapshot.services.get(policy.service) if snapshot else None
     return Observation(
@@ -601,6 +611,8 @@ def _observation(
             "states": [],
             "record_count": count,
             "skipped_count": skipped,
+            # Left out while none: an observation without it is the one of before.
+            **({} if tolerated is None else {"tolerated_failure": tolerated}),
         },
     )
 
@@ -649,7 +661,8 @@ def tolerated_misses(policy: Discovery, owner_tolerance: int) -> int:
     """Consecutive completed passes that may miss a record of this policy.
 
     The policy's own ``misses`` where its entry states one; otherwise the
-    owner's ``miss_tolerance``.
+    owner's ``miss_tolerance``. A pass whose read did not complete counts as
+    such a miss where the owner's ``failed_pass`` says so.
     """
     return owner_tolerance if policy.misses is None else policy.misses
 
@@ -664,7 +677,9 @@ class MissMemory:
     project now is not kept. The time of sight is never refreshed: the lease,
     the client's own lifetime and the publisher's deadline end a carried record
     as they end any other. The memory belongs to this scanner process. A restart
-    forgets it, and so does a failed or skipped pass of the policy.
+    forgets it, and so does a skipped pass of the policy. A failed pass forgets
+    it too, unless the owner counts a read that did not complete as a miss
+    (carried_through).
     """
 
     def __init__(self, tolerance: int) -> None:
@@ -727,6 +742,74 @@ class MissedSources:
         )
 
 
+# The reasons a scan carries whose read did not complete; see counts_as_miss.
+# The reader marks no failure with another reason: a scan whose own time is
+# used up (timed-out) is never a read that did not complete.
+_COUNTED_AS_MISS = frozenset({"malformed"})
+
+
+def counts_as_miss(failure: BaseException) -> bool:
+    """Whether a failed scan says no more than that its read did not complete.
+
+    The reader marks such a failure where it raises it, from a closed list of
+    what one client left (bonjour_process.unfinished_read): the forms of a
+    daemon that is not running, or a client that the bounded runner stopped at
+    its own time limit before it had shown a reply. Its reason is on the closed
+    list besides. A denial, every other error code, a command that did not
+    show the verified interface, whatever a reader refuses in an answer it
+    read, what the pass itself refuses afterwards, a scan whose time is used
+    up and every exception that is not a DiscoveryFailure never count.
+    """
+    return (
+        isinstance(failure, DiscoveryFailure)
+        and failure.unfinished
+        and failure.reason in _COUNTED_AS_MISS
+    )
+
+
+def carried_through(
+    config: Config,
+    settings: BonjourSettings,
+    policy: Discovery,
+    snapshot: Snapshot,
+    ready: frozenset[str],
+    now: float,
+    missed: MissedSources,
+) -> tuple[Record, ...]:
+    """What a pass lists whose read did not complete: what it remembers, missed once more.
+
+    The remembered sources are carried exactly as a completed pass carries a
+    source it did not read, and this pass's reports judge them. Where nothing
+    is listed, nothing is remembered either, and the failure stands.
+    """
+    sources = missed(())
+    try:
+        records = project_records(config, policy, sources, snapshot, ready, settings, now)
+    except Exception:
+        return ()
+    if records:
+        missed.completed(records)
+    return records
+
+
+def _only_unfinished(futures: list[Future[tuple[Record, ...]]], deadline: float) -> bool:
+    """Whether each scan of a pass completed or failed by a read that did not complete.
+
+    A scan that has not ended when the scanner's wait for a scan is over has
+    used up its time. That is never a miss: not here, not where scan_policy
+    waits for the scan's result, and not where the scan itself finds no time
+    left (bonjour_process.scan).
+    """
+    for item in futures:
+        try:
+            error = item.exception(timeout=max(0.01, deadline - time.monotonic()))
+        except TimeoutError:
+            return False
+        if error is not None and not counts_as_miss(error):
+            return False
+    return True
+
+
 def scan_policy(
     config: Config,
     settings: BonjourSettings,
@@ -770,7 +853,14 @@ def scan_policy(
         collected: list[Record] = []
         deadline = time.monotonic() + min(45, policy.max_age_seconds / 2)
         for future in futures:
-            collected.extend(future.result(timeout=max(0.01, deadline - time.monotonic())))
+            try:
+                collected.extend(future.result(timeout=max(0.01, deadline - time.monotonic())))
+            except DiscoveryFailure as failure:
+                # One read that did not complete says nothing about a scan of
+                # this pass that failed otherwise, a denial for example, or
+                # whose time is used up: every scan of the pass is looked at.
+                failure.unfinished = _only_unfinished(futures, deadline)
+                raise
             if len(collected) > policy.max_records:
                 raise DiscoveryFailure("incomplete")
     # Nothing is left out unless something was read, of any type and whatever
@@ -798,6 +888,7 @@ def scan_pass(
         records: tuple[Record, ...] = ()
         skipped = 0
         error = None
+        tolerated = None
         missed = None
         if memory is not None:
             missed = memory.begin(
@@ -818,6 +909,12 @@ def scan_pass(
                     missed.completed(records)
         except Exception as exc:
             error = exc.reason if isinstance(exc, DiscoveryFailure) else "malformed"
+            if settings.failed_pass == "miss" and missed is not None and counts_as_miss(exc):
+                records = carried_through(config, settings, policy, snapshot, ready, now, missed)
+                if records:
+                    # Written as a completed pass that carried them, and the
+                    # failure stays visible beside them.
+                    tolerated, error = error, None
         candidates[policy.id] = {
             "policy_digest": discovery_digest(config, policy),
             "service_generation": snapshot.services[policy.service].generation,
@@ -830,6 +927,10 @@ def scan_pass(
         # candidate as before.
         if skipped:
             candidates[policy.id]["skipped"] = skipped
+        # Left out unless this pass failed and counted as a miss: every other
+        # pass writes the same candidate as before.
+        if tolerated is not None:
+            candidates[policy.id]["tolerated_failure"] = tolerated
         if error is not None:
             candidates[policy.id]["reason"] = error
     document = {
@@ -848,6 +949,7 @@ def scan_pass(
         largest = max(bulky, key=lambda key: (len(json.dumps(candidates[key]["records"])), key))
         candidates[largest]["records"] = []
         candidates[largest]["reason"] = "incomplete"
+        candidates[largest].pop("tolerated_failure", None)
         if memory is not None:
             # Its pass counts as failed: nothing of it is carried into the next one.
             memory.listed.pop(largest, None)
@@ -903,7 +1005,7 @@ def lease_records(
         return None
     if not request["active"]:
         return ()
-    if not isinstance(candidate, dict) or set(candidate) - {"skipped"} != {
+    if not isinstance(candidate, dict) or set(candidate) - {"skipped", "tolerated_failure"} != {
         "policy_digest",
         "service_generation",
         "network_generation",
@@ -917,6 +1019,14 @@ def lease_records(
     bound = min(MAX_LEFT_OUT, policy.max_records) * len(policy.types)
     if "skipped" in candidate and (
         type(candidate["skipped"]) is not int or not 1 <= candidate["skipped"] <= bound
+    ):
+        return None
+    # The reason of a failed pass that the scanner counted as a miss: absent
+    # unless that pass carried records, and one of the reasons that can count.
+    if "tolerated_failure" in candidate and (
+        type(candidate["tolerated_failure"]) is not str
+        or candidate["tolerated_failure"] not in _COUNTED_AS_MISS
+        or not candidate["records"]
     ):
         return None
     endpoint = snapshot.services.get(policy.service)
@@ -1159,6 +1269,7 @@ def publisher_tick(
             )
             records: tuple[Record, ...] | None = None
             left_out = 0
+            tolerated = None
             maximum = min(
                 [
                     policy.max_age_seconds,
@@ -1183,6 +1294,7 @@ def publisher_tick(
                     if records is not None:
                         # lease_records has accepted this candidate and its count.
                         left_out = candidates["policies"][policy.id].get("skipped", 0)
+                        tolerated = candidates["policies"][policy.id].get("tolerated_failure")
             if records is None:
                 publisher.reconcile(policy, (), 1, now)
                 uncertainty = (
@@ -1229,6 +1341,7 @@ def publisher_tick(
                     now,
                     proof[0],
                     skipped=left_out,
+                    tolerated=tolerated,
                     interface=True,
                     count=len(records) - publisher.renewals(policy),
                 )

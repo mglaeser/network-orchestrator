@@ -231,7 +231,9 @@ The candidate carries the number of instances left out as `skipped` (absent
 while there is none; at most four for each type, fewer where `max_records` is
 lower), and the observation shows it as `skipped_count` beside `record_count`.
 That count is the only trace of a device that is being left out. Everything that
-concerns the scan as a whole still fails it and withdraws the policy:
+concerns the scan as a whole still fails it, and a failed scan withdraws the
+policy unless the settings count it as a miss
+([below](#supervision-leases-and-recovery)):
 
 | Failure | Detected by | Outcome |
 | --- | --- | --- |
@@ -248,7 +250,7 @@ concerns the scan as a whole still fails it and withdraws the policy:
 | The answers form no valid record: a host name longer than 255 bytes | `scan` | the instance is left out |
 | Instances to leave out and no instance of the policy read in the same pass | `scan_policy` | the policy is withdrawn |
 | More usable records than the policy's `max_records`, a duplicate or an unverified dependency in the projection | `scan_policy`, `project_records` | the policy is withdrawn |
-| A candidate whose `skipped` is not an integer from 1 to its bound, stale or foreign evidence | `lease_records` | the policy is withdrawn |
+| A candidate whose `skipped` is not an integer from 1 to its bound, or whose `tolerated_failure` is not `malformed` beside at least one record, stale or foreign evidence | `lease_records` | the policy is withdrawn |
 
 An instance is left out only by a command that has proved itself, that is
 seen to have entered its event loop (its `...STARTING...` line) and whose every
@@ -328,7 +330,8 @@ A policy whose discovery entry states `misses` (1 to 8,
 instead of the owner's setting, so one policy can withdraw on the first miss
 while another keeps its records through several; a policy without the member
 follows the setting.
-Only a completed pass counts as a miss. A failed pass, a pass skipped because
+Only a completed pass counts as a miss, unless the settings say otherwise for
+a failed one (`failed_pass`, below). A failed pass, a pass skipped because
 its dependencies were not ready, a scanner restart and a change of the policy
 digest or of the guest or network generation forget what was read; the next
 miss then withdraws as without a tolerance. A kept record stays among the
@@ -360,6 +363,97 @@ more rest, the least age of a missed record. The owner's `miss_tolerance` above
 a policy that states `misses` above 1 needs it itself. Where every owned policy
 states its own number, the setting governs none of them and is compared with
 no lease. The example's 120-second leases do not have it.
+
+A pass that fails is weaker evidence that a record is gone than a completed
+pass that did not find it. The settings can therefore give `failed_pass` with
+its one value `"miss"`. Without the key a failed pass withdraws its policy at
+once, as above; settings with the key are refused where no owned policy
+tolerates a miss, because it could never have an effect. With it, and for a
+policy that tolerates misses, a pass whose read did not complete counts as one
+miss for every record the scanner remembers for that policy. Each is kept
+exactly as a completed pass keeps a record it did not find: with the time it
+was last seen, its count one higher, under the same lease condition and record
+bound, and judged by the reports of that pass. Nothing is refreshed, not even
+a record that another scan of the same pass has just read. A record whose
+count reaches its tolerance is dropped, so failed and missed passes count
+together and as many of them in a row as the tolerance withdraw a record. When
+nothing is left to keep, the failure stands as without the setting: the
+candidate carries its reason, nothing of the policy is published and what was
+remembered is forgotten.
+
+A read did not complete where what one client left is exactly one of three
+forms, and in no other case. The forms are read from the client's source
+(`Clients/dns-sd.c` at the revision above), not captured from a host, and
+each is compared sign for sign, for the command that was run:
+
+- The daemon is not running. `main` has printed the interface line and the
+  line of its operation (lines 2135, 2157 and 2181; the address and TXT
+  commands print no such line). The operation's call fails, and `main` writes
+  `<call> failed -65563 (Service Not Running)` to the error stream and returns
+  -1, which is status 255 (lines 2390-2394). The call is the one of that
+  operation: `DNSServiceBrowse`, `DNSServiceResolve`, `DNSServiceGetAddrInfo`
+  or `DNSServiceQueryRecord`.
+- The daemon stopped while the client waited. After those lines the client
+  has printed its date and start lines, and the reply callback ends it with
+  `Error code -65563` on the error stream and status 0 before it prints
+  anything for that reply (lines 245-246).
+- The bounded runner stopped the client at the command's own time limit,
+  `scan_seconds` and one second, before the client had shown a reply. The
+  runner hands on what the client had written by then: nothing on the error
+  stream, and on standard output either nothing or exactly those lines. The
+  client flushes its output only in a reply callback and when it ends (lines
+  772, 843, 1211 and 1289), so one that has had no reply has shown nothing.
+  A client that had printed a denial, another interface or anything else
+  before it was stopped is not on the list.
+
+All three carry the reason `malformed`, which is what a pass has always
+written for them. Every other failure withdraws at once, with or without the
+setting:
+
+- a denial, and a call that fails with any other code, the code of a missing
+  authorization (-65555) among them;
+- any other status, any other text on the error stream and any line on
+  standard output that is not one of those lines, in its place;
+- a command that does not show the verified interface first and once, that
+  names another one or reports an unknown one;
+- output at or over its bound, and a client that did not end cleanly after it
+  had printed a reply, because replies are not read then;
+- every line a reader refuses in an answer, a reply for another interface
+  among them;
+- more names or records than `max_records`, a duplicate, an unverified
+  dependency and whatever else the pass refuses after it has read;
+- a client that cannot be started and every other error that is not the
+  reader's own;
+- a scan whose time is used up, as the next paragraph says;
+- a pass in which one scan failed in one of these ways, whatever another scan
+  of it did.
+
+A scan has 45 seconds for one service type, and the scanner waits as long
+for it, or half the lease where that is less. A scan whose time is used up is
+never a miss, and it does not matter which of the three places notices it:
+the scan has no time left for its next command (the reason `timed-out`); a
+command fails, whatever it left, that started with less of the scan's time
+left than its own limit and one second more; or the scanner stops waiting for
+the scan, also where another scan of the pass has already failed by a read
+that did not complete. A command can therefore be a read that did not
+complete only if it started with its own limit and one second more left in
+the scan. That second is there because the scan's time and the scanner's wait
+end within moments of each other: no failure that would count is raised that
+late.
+
+A pass skipped for its dependencies, a pass that fails as a whole (an owner
+report or an interface check), a scanner restart and a changed digest or
+generation forget as before.
+
+A failed pass that counted as a miss stays visible. Its candidate has
+`tolerated_failure` with the reason, which is `malformed`, in the place of
+`reason`, and the observation of a policy that reads `present` from that
+candidate shows the same member beside `record_count`. A pass that completes
+writes neither. The policy keeps reading `present` while its records are
+kept, so whoever wants to know that passes are failing reads that member. The
+publisher refuses a candidate whose `tolerated_failure` is anything else or
+comes without a record. `failed_pass` is the owner's own and an input of no
+digest.
 
 Every native registration also carries `dns-sd -t` with at most 120 seconds,
 bounded by its remaining record lease rounded up to whole seconds. Apple's

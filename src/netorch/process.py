@@ -40,7 +40,19 @@ class ProcessError(RuntimeError):
 
 
 class ProcessTimeout(ProcessError):
-    pass
+    """A command was stopped at its time limit.
+
+    ``stdout`` and ``stderr`` are what it had written by then, at most the
+    output bound, where the runner that raised this says so; None otherwise.
+    The message never holds them.
+    """
+
+    def __init__(
+        self, *args: object, stdout: bytes | None = None, stderr: bytes | None = None
+    ) -> None:
+        super().__init__(*args)
+        self.stdout = stdout
+        self.stderr = stderr
 
 
 class OutputLimit(ProcessError):
@@ -71,6 +83,8 @@ def run(
     open. Exceptions kill the entire owned group and reap the immediate child.
     Error messages deliberately omit arguments, environment and captured output.
     `environment` names variables that one call adds to the closed environment.
+    The time limit raises ProcessTimeout, which carries what the command had
+    written by then as attributes, never in its message.
     """
     if (
         not isinstance(argv, list)
@@ -170,10 +184,22 @@ def run(
             except subprocess.TimeoutExpired as exc:
                 raise ProcessTimeout("command did not complete within its deadline") from exc
         return Result(status, bytes(out), bytes(err))
-    except BaseException:
+    except BaseException as exc:
         with suppress(ProcessLookupError):
             os.killpg(proc.pid, signal.SIGKILL)
         proc.wait()
+        if isinstance(exc, ProcessTimeout):
+            # What the command had written when it was stopped. Its group is
+            # gone, so what is left in its pipes is read without waiting.
+            for stream, seen in ((proc.stdout, out), (proc.stderr, err)):
+                with suppress(OSError):
+                    os.set_blocking(stream.fileno(), False)
+                    while len(out) + len(err) < max_output:
+                        chunk = os.read(stream.fileno(), max_output - len(out) - len(err))
+                        if not chunk:
+                            break
+                        seen.extend(chunk)
+            exc.stdout, exc.stderr = bytes(out), bytes(err)
         raise
     finally:
         for stream in (proc.stdin, proc.stdout, proc.stderr):
