@@ -507,23 +507,26 @@ def test_a_drain_readback_refused_for_a_notice_stays_retained_and_is_named(
     # The read when the pass starts answers; the read of the drain does not.
     scripted.sandbox.faults(states={**variant(kind), "calls": [2]})
 
-    result = scripted.one_pass()
+    # A state table that cannot be read during a drain ends the pass `failed`.
+    with pytest.raises(PFError) as caught:
+        scripted.one_pass()
 
-    deferred = {"dns-udp": "states-retained"}
-    assert result["phase"] == "inhibited" and result["deferred"] == deferred
-    assert result["changed"] == ["dns-udp:withdraw"]
+    if kind == "notice":
+        assert isinstance(caught.value, owner.PFListingNotice)
+    else:
+        assert type(caught.value) is PFError and str(caught.value) == FAILED
     # The rule is retired and its record waits, as after a readback that failed.
     assert scripted.sandbox.live == ""
     records = root.read("live.json")["records"]
     assert set(records) == {"dns-udp"} and records["dns-udp"]["active"] is False
     assert not any(call.startswith("-k") for call in scripted.sandbox.calls)
     journal = scripted.journal()
-    assert journal["phase"] == "inhibited" and journal["deferred"] == deferred
+    assert journal["phase"] == "failed" and "deferred" not in journal
     if kind.startswith("notice"):
         assert journal["reason"] == "listing-notice"
     else:
         assert "reason" not in journal
-    scripted.no_tool_text(result)
+    scripted.no_tool_text(caught.value)
 
 
 @pytest.mark.parametrize("kind", PAIR)
