@@ -217,7 +217,7 @@
             },
             {
               "type": "integer",
-              "minimum": 5,
+              "minimum": 10,
               "maximum": 86400
             }
           ]

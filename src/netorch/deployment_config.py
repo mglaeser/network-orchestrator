@@ -18,6 +18,7 @@ from .deployment_model import (
     Job,
     Monitor,
 )
+from .safety_contract import LAUNCHD_INTERVAL_FLOOR_SECONDS
 
 
 class DeploymentError(ValueError):
@@ -164,6 +165,14 @@ def validate_deployment(deployment: Deployment) -> None:
         _path(job.working_directory.replace("{release}", "/release").replace("{state}", "/state"))
         if job.keep_alive and job.interval_seconds is not None:
             raise DeploymentError("job must be a daemon or periodic task, not both")
+        # Every job is rendered with this throttle, and launchd does not start a
+        # job more often than its throttle. The schema states the same minimum;
+        # this comparison keeps the two from ever being changed apart.
+        if (
+            job.interval_seconds is not None
+            and job.interval_seconds < LAUNCHD_INTERVAL_FLOOR_SECONDS
+        ):
+            raise DeploymentError("job interval is shorter than the throttle of its launchd job")
         if job.scope == "root" and job.role != "forwarding":
             raise DeploymentError("only the independent forwarding owner is a root job")
         if job.scope == "user" and job.role == "forwarding":

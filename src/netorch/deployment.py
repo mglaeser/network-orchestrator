@@ -33,6 +33,7 @@ from .model import Config
 from .pf_owner import Installation as ForwardingSettings
 from .pf_owner import reject_acl
 from .process import ProcessError, Result, run
+from .safety_contract import LAUNCHD_INTERVAL_FLOOR_SECONDS
 from .state import Intent, intent_from_dict, intent_to_dict
 from .storage import Store
 
@@ -296,7 +297,8 @@ def _launchd(job: Job, release: Path, state: str) -> bytes:
         "RunAtLoad": True,
         "ProcessType": _PROCESS_TYPES[job.process_type],
         "Umask": 0o077,
-        "ThrottleInterval": 10,
+        # The one launchd floor: no periodic job may declare a shorter interval.
+        "ThrottleInterval": LAUNCHD_INTERVAL_FLOOR_SECONDS,
         "StandardOutPath": f"{job.log_directory}/{job.label}.out.log",
         "StandardErrorPath": f"{job.log_directory}/{job.label}.err.log",
         "EnvironmentVariables": {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "LANG": "en_US.UTF-8"},
@@ -1412,14 +1414,24 @@ def recover_install(
                 != expected_failed_digest
             ):
                 raise DeploymentError("failed release manifest changed; no speculative recovery")
-        failed_deployment = parse_deployment(canonical_bytes(failed_manifest["deployment"]))
-        if failed_deployment.installation(scope) != installation:
-            raise DeploymentError("recovery cannot change installation boundaries")
+        # Nothing of the failed release is restored, so its record is not held to
+        # the manifest rules of this version: an earlier version may have
+        # admitted what this one refuses. Only the two boundaries are read from
+        # it, and each must be exactly that of the release being restored.
+        restored_record = deployment_to_dict(deployment)
+        failed_record: Any = failed_manifest["deployment"]
         if (
-            scope == "root"
-            and failed_deployment.forwarding.directory != deployment.forwarding.directory
+            not isinstance(failed_record, dict)
+            or failed_record.get(scope) != restored_record[scope]
         ):
-            raise DeploymentError("recovery cannot change forwarding ownership boundaries")
+            raise DeploymentError("recovery cannot change installation boundaries")
+        if scope == "root":
+            failed_forwarding = failed_record.get("forwarding")
+            if (
+                not isinstance(failed_forwarding, dict)
+                or failed_forwarding.get("directory") != restored_record["forwarding"]["directory"]
+            ):
+                raise DeploymentError("recovery cannot change forwarding ownership boundaries")
         old_labels = {item["label"] for item in previous["jobs"]}
         old_hashes = {item["label"]: item["sha256"] for item in previous["jobs"]}
         failed_hashes = {

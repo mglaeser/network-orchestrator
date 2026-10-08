@@ -171,6 +171,34 @@ different release, which earlier versions refuse as a violation of the closed
 schema. Which class a job needs on a given host is the site's decision; the
 manifest only selects what is rendered.
 
+A periodic job's `interval_seconds` is a whole number from 10 to 86400. Every
+job is rendered with the launchd key `ThrottleInterval` 10, and by
+`launchd.plist(5)` launchd does not start a job more often than its throttle. A
+shorter interval would describe a schedule the job does not get, and the root
+forwarding owner, whose settings must name the same interval as its job, would
+be told a pass interval it does not have. Earlier versions accepted 5 to 9. The
+manifest's `schema_version` stays 1: the rendered job always carried the
+ten-second throttle, so a shorter interval never did what it said, and the
+stricter rule enforces the contract that existed. The refusal is the general
+one for a manifest that violates its closed schema and does not name the
+interval. Change the interval to 10 or more and install that release.
+
+This version refuses such a manifest wherever it reads one as a release to
+install, to keep or to restore: in `deploy validate` and `deploy build`, in a
+rendered bundle, and in the receipt and the predecessor record of an installed
+release. An installation whose current release declares such an interval can
+therefore not be upgraded, rolled back or recovered by this version, a release
+that declares one cannot be restored by a rollback or a recovery, and a failed
+first installation of one cannot be recovered; each of these is refused before
+anything is changed. An upgrade to such a release that failed over a valid
+release is recovered: recovery restores the valid release and reads from the
+failed release's record only the installation boundaries it compares. Where
+such a release is installed, install a release whose periodic jobs declare 10
+seconds or more with the version that still accepts the old one, and only then
+install this version; the replaced release stays recorded as predecessor and
+cannot be rolled back to afterwards. A manifest that is still valid keeps its
+canonical form, its digests and its generated job bytes.
+
 Review plans, exact hashes and existing ownership before installation. Artifact
 hashes in examples are deliberately all zero; they cannot approve actual files.
 The source package and executable paths require their own reviewed installation.
