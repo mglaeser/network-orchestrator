@@ -469,7 +469,9 @@ def _spelled(value: Scalar, span: _Span) -> list[bytes | None]:
         if held is None:
             return [None, None]
         partly = held.replace("&", "&amp;").replace("<", "&lt;")
-        return [partly.replace(">", "&gt;").encode("utf-8"), partly.encode("utf-8")]
+        # XML character data cannot hold "]]>": only the spelling that escapes ">" writes it.
+        bare = None if "]]>" in held else partly.encode("utf-8")
+        return [partly.replace(">", "&gt;").encode("utf-8"), bare]
     if span.style == "bare":
         return [held.encode("utf-8") if held is not None and _BARE.fullmatch(held) else None]
     if span.style in ("double", "single"):
@@ -509,11 +511,12 @@ def _encode(new: Scalar, captured: Any, literal: bytes, span: _Span) -> tuple[by
     if not candidates:
         raise _Refused("literal-style-unsupported")
     result = candidates[0]
-    if result is None or None in candidates:
-        raise _Refused("value-not-representable")
     if any(item != result for item in candidates):
-        # Two spellings reproduce the capture and would write the new value differently.
+        # Two spellings reproduce the capture and would write the new value differently,
+        # or only one of them could write it at all.
         raise _Refused("literal-style-unsupported")
+    if result is None:
+        raise _Refused("value-not-representable")
     return result, written
 
 

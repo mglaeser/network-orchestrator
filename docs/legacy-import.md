@@ -175,7 +175,7 @@ address is state, never an input.
 |---|---|---|
 | JSON string | JSON string in the capture's escaping: non-ASCII characters either as they are or as `\u` escapes | any other escaping of the captured literal, such as `\/` |
 | JSON integer, `true`, `false` | canonical decimal; the other word | a fractional number, `null`, a container |
-| `<string>` text | text with `&` and `<` escaped, and `>` too if the capture escapes it | CDATA, a character reference, a comment inside the text, `<string/>` |
+| `<string>` text | text with `&` and `<` escaped, and `>` too if the capture escapes it | CDATA, a character reference, a comment inside the text, `<string/>`; a value holding `]]>` where `>` stays bare, which no XML text can hold |
 | `<integer>`, `<true/>`, `<false/>` | canonical decimal; the other element | `<real>`, a hexadecimal or padded integer, `<true></true>` |
 | bare, single-quoted or double-quoted assignment value | the same quoting | a value the quoting cannot hold: a space in a bare value, the quote itself, `$`, a backquote, a backslash |
 | list item | the item | anything outside `[A-Za-z0-9_.:-]{1,128}` |

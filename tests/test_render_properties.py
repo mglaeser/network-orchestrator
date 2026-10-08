@@ -13,10 +13,12 @@ import json
 import plistlib
 from pathlib import Path
 from typing import Any
+from xml.etree.ElementTree import ParseError
 
 import pytest
 from hypothesis import HealthCheck, assume, given, settings
 from hypothesis import strategies as st
+from hypothesis.errors import Unsatisfiable
 
 from netorch import render
 from netorch.codec import strict_loads
@@ -222,6 +224,11 @@ def undetermined(style: str, old: Any, new: Any) -> bool:
     return False
 
 
+def bare_cdata_end(style: str, value: Any) -> bool:
+    """A text holding "]]>" written with ">" bare, which XML character data cannot hold."""
+    return style == "plist-open" and isinstance(value, str) and "]]>" in value
+
+
 POINTERS = {
     "text": [f"/host/baseline/network_extensions/{index}" for index in range(3)],
     "number": ["/host/account/uid", "/supervision/health_seconds"],
@@ -285,6 +292,8 @@ def check(
     distinct: bool = False,
 ) -> None:
     """Unchanged values reproduce the file; one changed value moves exactly its literal."""
+    # XML text cannot hold "]]>" with ">" bare: such a capture is never generated.
+    assume(not any(bare_cdata_end(pieces.styles[s], values[p]) for s, p in pointers.items()))
     raw = pieces.raw()
     (directory / "input").write_bytes(raw)
     composed = {
@@ -310,6 +319,8 @@ def check(
     new = other_value(data, text, pointer, values[pointer])
     if distinct:
         assume(str(new) not in {str(value) for value in values.values()})
+    # Nor such a new value where the expected file would write it bare (refusals stay checked).
+    assume(undetermined(style, values[pointer], new) or not bare_cdata_end(style, new))
     collected.clear()
     result = render_sources(path, with_values(values | {pointer: new}), collect=collected)
     if undetermined(style, values[pointer], new):
@@ -403,6 +414,29 @@ def test_property_list_is_reproduced_and_only_a_changed_value_moves(
         pieces.add((data.draw(layout) + "</array>") if nested else "")
     pieces.add(data.draw(layout) + "</dict></plist>" + data.draw(st.sampled_from(["", "\n"])))
     check(data, tmp_path_factory.mktemp("plist"), "plist", pieces, pointers, values, text)
+
+
+def test_text_with_the_cdata_end_is_never_written_with_a_bare_gt(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> None:
+    # The minimal falsifying example of the property above: this capture is no XML.
+    pointer = POINTERS["text"][0]
+    pieces = Pieces()
+    pieces.add(PLIST_HEAD + b"<dict><key>k0</key><string>")
+    pieces.slot("/k0", "plist-open", spell("plist-open", "]]>"))
+    pieces.add("</string></dict></plist>")
+    with pytest.raises(ParseError):
+        _decode(pieces.raw(), "plist")
+
+    @settings(RENDERED, database=None)
+    @given(data=st.data())
+    def generated(data: st.DataObject) -> None:
+        directory = tmp_path_factory.mktemp("plist")
+        check(data, directory, "plist", pieces, {"/k0": pointer}, {pointer: "]]>"}, st.just("x"))
+
+    # The generator discards it before anything is drawn or rendered.
+    with pytest.raises(Unsatisfiable):
+        generated()
 
 
 @RENDERED
