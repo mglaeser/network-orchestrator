@@ -501,9 +501,9 @@ def _settings_of_stored_size(size: int) -> RuntimeSettings:
 
 def test_an_unset_member_costs_no_byte_at_the_size_limit() -> None:
     """The largest settings that could be stored before can still be stored."""
-    # The stored form is serialised once with `"fleet_start":null,` in it, which
-    # is 19 bytes, and that form may have 1,048,576 bytes.
-    largest = 1_048_576 - 19
+    # Nothing unset is serialised before the bytes are taken, so the stored form
+    # itself may have 1,048,576 bytes.
+    largest = 1_048_576
     settings = _settings_of_stored_size(largest)
     assert len(canonical_bytes(settings_to_dict(settings))) == largest
     with pytest.raises(ValueError, match="byte limit"):
