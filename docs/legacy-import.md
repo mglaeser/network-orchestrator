@@ -46,11 +46,33 @@ code could mistake a test/default/conditional value for production settings.
 `source-inventory` records the full executable's digest and an explicit
 `executable-source-not-evaluated` issue; it cannot map settings.
 
-Credential/environment selectors and nested credential/environment objects are
-rejected, including common camelCase, acronym, separator and API-key spellings,
-`passphrase`, and compound names that end in a password word, such as
-`PGPASSWORD` or `DBPASSWD`. `pass` alone is not a listed word, so `compass` and
-`bypass_cache` remain ordinary keys.
+A selector part, a destination part or a key anywhere inside a mapped value is
+rejected when it contains a credential or environment word between two possible
+word boundaries. The words are a closed list: `env`, `environment`, `token`,
+`secret`, `credential`, `credentials`, `authorization`; `private key`, `api key`
+and `pass phrase` written as one word or with one `_` or `-` between their
+parts; and the password words `password`, `passwd` and `passphrase`. A word is
+compared without regard to case. A possible word boundary is the start of the
+key, its end (one final line feed is not counted), either side of a `_` or `-`,
+the place before a capital that follows a lower-case letter or a digit, and the
+place before the last capital of a run of two or more capitals that a lower-case
+letter follows; only ASCII letters and digits make such a boundary. A boundary
+inside the word does not hide it: `password`, `dbPassword`, `passWord`, `APIkey`
+and `api_key` are rejected. A password word may also start after letters and
+digits that follow a possible boundary, so compound names such as `PGPASSWORD`
+and `DBPASSWD` are rejected as well.
+
+Every word must end at a possible boundary, and every word other than a password
+word must start at one. So `tokenizer`, `MAXTOKEN`, `accesstoken`, `tokens`,
+`token2`, `passwords`, `db.password` and `my token` remain data. The capitals of
+a key decide where its boundaries are: `DBToken` is rejected and `DBTOken` is
+imported, `tokenID` is rejected and `tokeNID` is imported, `APIkey` is rejected
+and `APItoken` is imported. `pass` alone is not a listed word, so `compass` and
+`bypass_cache` remain ordinary keys. Two neighbouring words that together spell
+a listed word between such boundaries, such as `pass` followed by `Word`, are
+rejected: the key guard cannot tell them from one word with a capital inside.
+That includes a password word whose first letters end a longer word: `bypassWord`
+is rejected, because `passWord` follows the letters `by`.
 Unmapped source fields are not copied. Diagnostics contain a closed
 reason, source ID and optional selector, never the source body or parser error
 text. Operators must still select sanitized owner inputs: this is a static

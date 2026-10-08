@@ -25,13 +25,38 @@ from .derive import DeriveError, literal_assignments, literal_lines
 
 _ID = re.compile(r"[a-z][a-z0-9-]{0,63}")
 _SHA = re.compile(r"[0-9a-f]{64}")
-# A password word also ends a compound name such as PGPASSWORD; "pass" alone is
-# no listed word, so "compass" and "bypass_cache" stay ordinary data.
-_SECRET_KEY = re.compile(
-    r"(?:^|[_-])(env|environment|token|secret|credential|credentials|authorization"
-    r"|private_?key|api_?key|pass_phrase|[a-z0-9]*(?:password|passwd|passphrase))(?:$|[_-])",
-    re.I,
+# The closed credential words. Each is tried on its own: one may begin another
+# (``env`` and ``environment``), and either may be the one that ends at a boundary.
+# At one place a word matches in one way only, so its one end decides.
+_SECRET_WORDS = tuple(
+    re.compile(word, re.I)
+    for word in (
+        "env",
+        "environment",
+        "token",
+        "secret",
+        "credential",
+        "credentials",
+        "authorization",
+        "private[_-]?key",
+        "api[_-]?key",
+        "pass[_-]?phrase",
+    )
 )
+# A password word also ends a compound name such as PGPASSWORD: letters and
+# digits may stand before it. "pass" alone is no listed word, so "compass" and
+# "bypass_cache" stay ordinary data; "bypassWord" spells a password word after
+# "by" and is refused.
+_PASSWORD_WORDS = tuple(re.compile(word, re.I) for word in ("password", "passwd", "passphrase"))
+_LETTERS_AND_DIGITS = re.compile(r"[a-z0-9]*", re.I)
+_SEPARATOR = re.compile(r"[_-]")
+# A word may begin at the second group of either expression: at a capital that
+# stands between a capital and a lower-case letter (the last capital of an
+# acronym), and at a capital that follows a lower-case letter or a digit.
+# Neither expression repeats anything: a scan reads at most three characters at
+# a place, however long a run of capitals is. The first finds the places that
+# ``([A-Z]+)([A-Z][a-z])`` finds.
+_WORD_STARTS = (re.compile(r"([A-Z])([A-Z][a-z])"), re.compile(r"([a-z0-9])([A-Z])"))
 _FORMATS = {"json", "plist", "toml", "literal-env", "text-list", "source-inventory"}
 # Decisions, acceptance records, deviations, provenance and the release pin are
 # written by a person; a static import never fills them.
@@ -45,12 +70,35 @@ class ImportError(ValueError):
 def _secret_key(key: str) -> bool:
     """Recognize closed credential words across common data-key spellings.
 
-    This filters known key names, not arbitrary secret values. Preserve word
-    boundaries so harmless substrings such as ``monkey`` stay ordinary data.
+    This filters known key names, not arbitrary secret values. A word counts
+    only where it both starts and ends at a possible word boundary, so the
+    letters of a word inside a longer one, as in ``tokenizer`` or ``MAXTOKEN``,
+    stay ordinary data. A possible boundary inside the word, as in ``passWord``
+    or ``APIkey``, does not hide it. A password word may also start after
+    letters and digits that follow a possible boundary, as in ``PGPASSWORD``.
     """
-    words = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", key)
-    words = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", words).replace("-", "_")
-    return _SECRET_KEY.search(words) is not None
+    # The start and the end of the key. The end is taken before one final line
+    # feed, where a word could always end.
+    bounds = {0, len(key.removesuffix("\n"))}
+    for separator in _SEPARATOR.finditer(key):
+        bounds.update(separator.span())
+    for expression in _WORD_STARTS:
+        bounds.update(found.start(2) for found in expression.finditer(key))
+    # A password word may also start after letters and digits that follow a
+    # boundary. A run of them is read once, from its first boundary.
+    compound: set[int] = set()
+    for start in sorted(bounds):
+        if start not in compound:
+            run = _LETTERS_AND_DIGITS.match(key, start)
+            assert run is not None
+            compound.update(range(start, run.end() + 1))
+    return any(
+        found.end() in bounds
+        for starts, words in ((bounds, _SECRET_WORDS), (compound, _PASSWORD_WORDS))
+        for start in starts
+        for word in words
+        if (found := word.match(key, start))
+    )
 
 
 @dataclass(frozen=True)
