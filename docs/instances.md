@@ -56,8 +56,11 @@ passes that miss a record it withdraws that record. A selection whose
 tolerance differs says so with `misses`, 1 to 8. The instance-wide value is
 said by leaving the member out; repeating it on a selection is refused.
 `misses` is part of the selection and therefore of its resolved digest. These
-values describe the site's own discovery owner. No retained owner reads them:
-the bundled discovery owner takes its timing from its own settings.
+values describe the site's own discovery owner. No retained owner reads the
+instance: the bundled discovery owner takes its timing from its own settings
+and a policy's own tolerance from the `misses` member of that policy's
+discovery entry ([configuration](configuration.md#discovery-strategies)),
+which is where a renderer writes a selection's `misses`.
 
 `supervision` describes the supervisor of the site, which need not be the retained one. `failure_exit_code` is required: the probe status, 1 to 125, on which that supervisor starts a workload whose `recovery` is `proven-stopped`. Zero is success, and a shell uses 126 and above for a program it could not run and for one that a signal ended. The other members of this vocabulary are optional. Each is left out when the site does not state it, `null` is refused, and a document without them keeps its bytes and every digest. `component_exit_code` (1 to 125, different from `failure_exit_code`) is a second status on which the supervisor asks a running guest to start one component without restarting the guest; it is stated exactly when at least one component has `recovery: supervisor-ensure`. `restart_budget` (`starts` 1 to 10 and `window_seconds` 60 to 86400, both required) says that after that many start actions for one workload within the period the supervisor stops acting on that workload until an operator intervenes; it is stated in seconds because the instance does not carry the supervisor's cycle length. `action_timeout_seconds` (1 to 300) is the site's deadline for one whole start action. A workload's `deadlines` object states `probe_seconds`, `action_seconds` or both (1 to 300) where that workload differs from the site defaults `read_timeout_seconds` and `action_timeout_seconds`. A lifecycle tool of kind `supervisor` declares the supervisor itself as a container-API writer. Resolved profile digests bind what is stated: the supervision block as a whole, and a workload's `deadlines` in every profile that targets it.
 

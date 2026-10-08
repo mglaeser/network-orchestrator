@@ -23,7 +23,7 @@ public checkout. This release models IPv4; it does not silently derive IPv6 rule
 | `owners` | `id`, `privilege`, `capabilities` | Runtime/transport/discovery responsibilities; `user` or `external-root` |
 | `services` | `id`, `owner`, `contract_sha256`, optional `automatic_ports` | Service observation owner and independently verified runtime contract |
 | `profiles` | `id`, `service`, `scope`, `kind`, `protocol`, `ports`, optional `target_ports`, `safety`, optional `owner`, optional `source_scope` | An independently admitted transport behavior |
-| `discovery` | `id`, `owner`, `service`, `scope`, `direction`, `types`, `dependencies`, `max_age_seconds`, `max_records`, optional `return_path` | Bounded genuine-record import/export tied to verified transport |
+| `discovery` | `id`, `owner`, `service`, `scope`, `direction`, `types`, `dependencies`, `max_age_seconds`, `max_records`, optional `return_path`, optional `misses` | Bounded genuine-record import/export tied to verified transport |
 
 Top-level fields are `schema_version` (currently `1`), `site` (an operator label)
 and these five collections. IDs are stable lowercase names of at most 64
@@ -125,6 +125,23 @@ for its consuming service, and for pause and suspension. The default is left
 out of the canonical policy and of the entry's digest, so an existing policy
 keeps its digests. An independent entry has a digest of its own; an approval
 given for the same entry without the setting does not apply to it.
+
+`misses` is the entry's own miss tolerance, an integer from 1 to 8: the number
+of consecutive completed passes that may fail to find a record of this entry
+before its discovery owner withdraws that record. With 1 a record is withdrawn
+in the first pass that does not find it. An entry that states the member
+replaces its owner's own setting for that entry alone, and an entry without it
+follows that setting; for the bundled owner that is `miss_tolerance` of its
+settings file ([Bonjour owner](bonjour-owner.md#supervision-leases-and-recovery)).
+A site whose exports tolerate missed passes and whose imports do not states
+the number where the two differ. The member has no default and no `null`
+spelling. An entry that leaves it out keeps its canonical form and both
+digests; an entry that states it, `1` included, is another policy with a
+digest of its own, as for every member of an entry. The coordinator does not
+act on the number. It never lengthens a lease: `max_age_seconds` still ends
+every record, and the bundled owner refuses to load settings under which a
+stated tolerance above 1 could never keep a record because the entry's lease
+leaves no room for it.
 
 The shipped Bonjour owner implements native scanning, registration and independent
 expiration. Netorch coordinates its fixed operation; it does not fabricate records, pair

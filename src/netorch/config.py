@@ -108,6 +108,7 @@ def _construct(data: dict[str, Any]) -> Config:
                 item["max_age_seconds"],
                 item["max_records"],
                 item.get("return_path", "required"),
+                item.get("misses"),
             )
             for item in data["discovery"]
         ),
@@ -342,6 +343,10 @@ def _check_discovery(config: Config) -> None:
             raise ConfigError(
                 f"Discovery {item.id}: media import requires its UDP return dependency"
             )
+        # The schema's "integer" also accepts a number written as 2.0, and a
+        # constructed entry was never parsed.
+        if item.misses is not None and (type(item.misses) is not int or not 1 <= item.misses <= 8):
+            raise ConfigError(f"Discovery {item.id}: a miss tolerance is an integer from 1 to 8")
 
 
 # One DNS label holds 63 bytes. The bundled discovery owner forms the first
@@ -421,6 +426,9 @@ def to_dict(config: Config) -> dict[str, Any]:
         # before the member existed keeps its form and its digests.
         if item["return_path"] == "required":
             del item["return_path"]
+        # An entry that states no tolerance of its own has no such member.
+        if item["misses"] is None:
+            del item["misses"]
     return result
 
 

@@ -233,11 +233,24 @@ def load_settings(path: Path) -> BonjourSettings:
         eligible_model_prefixes=tuple(prefixes),
         pass_seconds=pass_seconds,
     )
-    # A missed record is carried only inside its lease (MissMemory). Where no
-    # owned lease leaves room for that, a tolerance could never have an effect.
-    if tolerance > 1 and not any(
-        item.max_age_seconds > settings.pass_interval + carry_horizon(config, settings)
-        for item in _owned(config, settings)
+    # A missed record is carried only inside its lease (MissMemory). Where a
+    # lease leaves no room for that, a tolerance could never have an effect. A
+    # policy that states its own needs that room itself. The owner's setting
+    # governs the policies that state none and needs that room in at least one
+    # of them; where every owned policy states its own, it governs nothing and
+    # is compared with no lease.
+    owned = _owned(config, settings)
+    least = settings.pass_interval + carry_horizon(config, settings)
+    if any(
+        item.misses is not None and item.misses > 1 and item.max_age_seconds <= least
+        for item in owned
+    ):
+        raise ValueError("a policy's miss tolerance needs a lease that outlasts two passes")
+    following = tuple(item for item in owned if item.misses is None)
+    if (
+        tolerance > 1
+        and (following or not owned)
+        and not any(item.max_age_seconds > least for item in following)
     ):
         raise ValueError("Bonjour miss tolerance needs a lease that outlasts two passes")
     return settings
@@ -615,12 +628,21 @@ Fence = tuple[str, str | None, str | None]
 Remembered = dict[tuple[str, str], tuple[Record, int]]
 
 
+def tolerated_misses(policy: Discovery, owner_tolerance: int) -> int:
+    """Consecutive completed passes that may miss a record of this policy.
+
+    The policy's own ``misses`` where its entry states one; otherwise the
+    owner's ``miss_tolerance``.
+    """
+    return owner_tolerance if policy.misses is None else policy.misses
+
+
 class MissMemory:
     """Source records the scanner has read, so that a later pass may miss them.
 
     A record that a completed pass of its policy does not read again stays among
     that pass's sources, with the time it was last seen, until as many
-    consecutive completed passes as the settings tolerate have missed it. The
+    consecutive completed passes as its policy tolerates have missed it. The
     pass decides about it as about any source it read, so what it would not
     project now is not kept. The time of sight is never refreshed: the lease,
     the client's own lifetime and the publisher's deadline end a carried record
@@ -629,14 +651,24 @@ class MissMemory:
     """
 
     def __init__(self, tolerance: int) -> None:
+        # The owner's setting, for every policy that states no tolerance of its own.
         self.tolerance = tolerance
         self.listed: dict[str, tuple[Fence, Remembered]] = {}
 
-    def begin(self, policy: Discovery, fence: Fence, needed_until: float) -> MissedSources:
-        """Start one policy's pass; unless it completes, nothing is carried over."""
+    def begin(self, policy: Discovery, fence: Fence, needed_until: float) -> MissedSources | None:
+        """Start one policy's pass; unless it completes, nothing is carried over.
+
+        None for a policy that tolerates no miss: its pass reads and lists as it
+        does without a memory, and nothing of it is remembered.
+        """
+        tolerance = tolerated_misses(policy, self.tolerance)
+        if tolerance == 1:
+            return None
         kept, known = self.listed.pop(policy.id, (fence, {}))
         # Nothing read under another policy digest, guest or network generation is kept.
-        return MissedSources(self, policy, fence, known if kept == fence else {}, needed_until)
+        return MissedSources(
+            self, policy, fence, known if kept == fence else {}, needed_until, tolerance
+        )
 
 
 @dataclass(slots=True)
@@ -648,6 +680,7 @@ class MissedSources:
     fence: Fence
     known: Remembered
     needed_until: float
+    tolerance: int
     read: Remembered | None = None
 
     def __call__(self, sources: tuple[Record, ...]) -> tuple[Record, ...]:
@@ -658,7 +691,7 @@ class MissedSources:
             for key, (record, misses) in self.known.items()
             # A record read now under the same name and type takes its place.
             if key not in read
-            and misses + 1 < self.memory.tolerance
+            and misses + 1 < self.tolerance
             and record.seen_at + self.policy.max_age_seconds > self.needed_until
         )
         # Carried sources never push a pass over the policy's record bound.
@@ -1190,7 +1223,12 @@ def serve(config: Config, settings: BonjourSettings, settings_path: Path) -> Non
 
     _signal_stop(close)
     # Kept in this process only: a scanner restart withdraws on the first miss again.
-    memory = MissMemory(settings.miss_tolerance) if settings.miss_tolerance > 1 else None
+    # There is a memory when any owned policy tolerates a miss, by its own entry
+    # or by the owner's setting.
+    tolerant = any(
+        tolerated_misses(item, settings.miss_tolerance) > 1 for item in _owned(config, settings)
+    )
+    memory = MissMemory(settings.miss_tolerance) if tolerant else None
     try:
         while child.poll() is None:
             try:

@@ -25,7 +25,8 @@ The retained owner policy model is in `netorch.model`. These frozen dataclasses 
   `publication`, `host-redirect`, `guest-direct` or `udp-return`; protocol `tcp`
   or `udp`; source scope `lan` or `any`.
 - `Discovery(id, owner, service, scope, direction, types: tuple[str, ...],
-  dependencies: tuple[str, ...], max_age_seconds, max_records)`.
+  dependencies: tuple[str, ...], max_age_seconds, max_records,
+  misses: int | None = None)`; `misses` is 1 to 8.
 - `Config(schema_version, site, scopes, owners, services, profiles, discovery)`;
   collection fields are tuples, with `scope(id)`, `owner(id)`, `service(id)`,
   `profile(id)` and `profile_owner(profile_or_id)` lookup methods.
@@ -37,6 +38,9 @@ an exact same-service native publication; see [configuration](configuration.md).
 `source_scope` may be omitted and `to_dict` leaves the default `lan` out; `any`
 is allowed only for a structural host redirect, uses profile digest version 3
 and binds `netorch.config.backing_publication(config, profile)`.
+A discovery entry's `misses` may be omitted and `to_dict` leaves it out while it
+is `None`; stated, it is that entry's own miss tolerance and a member of its
+discovery digest; see [configuration](configuration.md).
 `netorch.config.load_config(path)` and `parse_config(text)` return a `Config`.
 `netorch.config.to_dict(config)` returns JSON data.
 `netorch.config.profile_digest(config, profile)` binds the resolved profile, scope,

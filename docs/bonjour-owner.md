@@ -283,6 +283,11 @@ A record that one completed pass does not find is withdrawn in that pass. The
 settings can give `miss_tolerance` (1 to 8; 1 unless given), because a guest's
 advertisement is not answered within every browse window: the record is then
 kept until that many consecutive completed passes of its policy have missed it.
+A policy whose discovery entry states `misses` (1 to 8,
+[configuration](configuration.md#discovery-strategies)) takes that number
+instead of the owner's setting, so one policy can withdraw on the first miss
+while another keeps its records through several; a policy without the member
+follows the setting.
 Only a completed pass counts as a miss. A failed pass, a pass skipped because
 its dependencies were not ready, a scanner restart and a change of the policy
 digest or of the guest or network generation forget what was read; the next
@@ -292,8 +297,11 @@ under its name and type takes its place, what the pass would not project now
 is dropped, and kept records never push a policy over `max_records`. Because
 the time is not refreshed, the lease, the client's own lifetime and the
 publisher's deadline end a kept record at `max_age_seconds` whatever the
-tolerance says. The setting is the owner's own; the lease that the discovery
-digest binds still bounds every record.
+tolerance says. `miss_tolerance` is the owner's own and an input of no digest.
+A policy's `misses` is a member of that policy and of its discovery digest, so
+a request, candidate or readback made for the entry without it, or with
+another number, is refused. Either way the lease that the digest binds still
+bounds every record.
 
 The publisher refuses a whole candidate for one expired record. The scanner
 therefore keeps a missed record only while its lease lasts longer than a rest
@@ -302,11 +310,16 @@ so that it cannot end between two candidates. The budget of a pass is the sum
 of the limits its reads carry: ten seconds for each other owner's report, four
 for the interface checks of each scope, 45 for each batch of up to eight
 service types of each owned policy, and five of slack. For the example's two
-policies that is 119 seconds, and a rest and two passes are 243. A policy whose
-`max_age_seconds` leaves no such room keeps withdrawing on the first miss, and
-settings with a tolerance above 1 are refused unless at least one owned
-policy's lease exceeds that time by one more rest, the least age of a missed
-record. The example's 120-second leases do not.
+policies that is 119 seconds, and a rest and two passes are 243. The
+condition is each policy's own: its tolerance, its lease. A policy that follows
+the owner's setting and whose `max_age_seconds` leaves no such room keeps
+withdrawing on the first miss. Settings are refused where a tolerance above 1
+could never keep anything. A lease has room when it exceeds that time by one
+more rest, the least age of a missed record. The owner's `miss_tolerance` above
+1 needs such a lease in at least one of the owned policies that follow it, and
+a policy that states `misses` above 1 needs it itself. Where every owned policy
+states its own number, the setting governs none of them and is compared with
+no lease. The example's 120-second leases do not have it.
 
 Every native registration also carries `dns-sd -t` with at most 120 seconds,
 bounded by its remaining record lease rounded up to whole seconds. Apple's
