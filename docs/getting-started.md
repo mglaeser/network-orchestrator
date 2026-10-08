@@ -11,6 +11,9 @@ state in separate locations. Pin release version, artifact SHA-256, source
 revision, dependency-lock hash and schema version in the private instance.
 [The release pin](instances.md#the-release-pin) says where each of these values
 comes from and how to rebuild the wheel from the tagged commit.
+The synthetic examples retain the 0.3.2 version and exact bytes as compatibility
+fixtures. They are not release pins to copy into an installation; replace the
+whole framework pin with the reviewed release values described above.
 The synthetic example deliberately has placeholder release hashes and no native
 acceptance; it is not a deployment default.
 

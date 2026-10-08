@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 
-from netorch import host_cli
+from netorch import __version__, host_cli
 from netorch.codec import canonical_bytes
 from netorch.host_report import (
     Fact,
@@ -715,6 +715,7 @@ def test_cli_release_pin_requires_artifact_lock_and_version(
     artifact.write_bytes(b"example immutable wheel")
     lock = tmp_path / "lock.json"
     lock.write_bytes(b"example dependency lock")
+    data["framework"]["version"] = __version__
     data["framework"]["artifact_sha256"] = hashlib.sha256(artifact.read_bytes()).hexdigest()
     data["framework"]["dependency_lock_sha256"] = hashlib.sha256(lock.read_bytes()).hexdigest()
     instance = tmp_path / "instance.json"
@@ -732,6 +733,11 @@ def test_cli_release_pin_requires_artifact_lock_and_version(
     assert host_cli.main(args, now=NOW) == 0
     assert json.loads(capsys.readouterr().out)["release_verified"]
     lock.write_bytes(b"changed")
+    assert host_cli.main(args, now=NOW) == 0
+    assert not json.loads(capsys.readouterr().out)["release_verified"]
+    lock.write_bytes(b"example dependency lock")
+    data["framework"]["version"] = "0.0.0"
+    instance.write_bytes(canonical_bytes(data) + b"\n")
     assert host_cli.main(args, now=NOW) == 0
     assert not json.loads(capsys.readouterr().out)["release_verified"]
 

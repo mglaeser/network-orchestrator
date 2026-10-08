@@ -5,8 +5,9 @@ session and in `user/<uid>` from a background session, so an API service that
 was started from a background session has its network helper there. The
 settings loader accepts that domain under the rule it has for `gui/<uid>`: the
 uid is the enrolled account's. Every reader takes the domain as it is written;
-a stopped guest's runtime job is still asked for in both of the account's
-domains. Everything native is faked here.
+a stopped guest's runtime job is asked for in system and both account domains.
+The current helper domain does not constrain a previous runtime registration.
+Everything native is faked here.
 """
 
 from __future__ import annotations
@@ -217,7 +218,7 @@ def stopped_fleet(enrolled: Any) -> tuple[Any, Any, FleetRunner]:
     return config, settings, runner
 
 
-def test_a_stopped_guest_is_asked_for_in_both_domains_of_the_account(
+def test_a_stopped_guest_requires_absence_in_system_and_both_account_domains(
     enrolled: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     config, settings, runner = stopped_fleet(enrolled)
@@ -227,7 +228,7 @@ def test_a_stopped_guest_is_asked_for_in_both_domains_of_the_account(
     assert sorted(job_reads(runner)) == sorted(
         f"{domain}/{JOB_PREFIX}{HANDLER}.{contract.name}"
         for contract in settings.contracts
-        for domain in (f"gui/{uid}", f"user/{uid}")
+        for domain in ("system", f"gui/{uid}", f"user/{uid}")
     )
     # The API job is looked up in the one helper domain, like the helper itself.
     api_reads = [argv[2] for argv, _ in runner.calls if argv[2:] and argv[2].endswith(API_LABEL)]

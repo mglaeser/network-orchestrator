@@ -122,9 +122,13 @@ results did not prevent the independent counterexamples above. Baseline failures
 also include missing new APIs and deliberately changed vocabulary; they are not
 counted as that many independent bugs.
 
-The first combined CI also exposed a stale release-version example and two test
-fault selectors that matched the vendor API job before the intended guest. The
-examples now name this release; the selectors target the exact guest job and
+Combined CI also exposed a release-verification test that implicitly relied on
+the frozen examples naming the current package, and two test fault selectors
+that matched the vendor API job before the intended guest. The verification
+fixture now names the running version explicitly and tests a wrong version too.
+The examples retain their historical bytes for compatibility proofs; their
+placeholder pins are documented as unusable installation pins. The selectors
+target the exact guest job and
 assert that every unaffected service remains present. Production PF behavior
 for the API-wide timeout was correct and was not relaxed.
 
