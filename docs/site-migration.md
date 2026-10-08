@@ -103,10 +103,17 @@ owned. Ordinary guest egress remains vendor NAT. Existing application start-afte
 login and management tools remain explicit lifecycle writers; Monit is not a
 second fleet-bootstrap loop unless the runtime settings declare
 [`fleet_start`](apple-runtime.md#starting-a-fully-stopped-fleet), and even then
-it starts proven-stopped workloads only, never the vendor runtime. A site whose
-present supervisor is the only starter of its workloads after a boot cannot flip
-that owner before this declaration is accepted there; if nothing else starts the
-vendor runtime there either, it cannot flip that owner in this release.
+it starts proven-stopped workloads only. It starts the vendor runtime only where
+the same declaration carries
+[`runtime_start`](apple-runtime.md#starting-the-vendor-runtime), and then under
+three conditions: the launch file an operator's own start left behind is
+exactly the one the vendor's command writes for the declared roots, both roots
+are given to that command, and the service manager itself says the API job is
+not loaded. A site whose present supervisor is the only starter of its
+workloads after a boot cannot flip that owner before the first declaration is
+accepted there; if nothing else starts the vendor runtime there either, it also
+needs the second, whose native acceptance is still open, and the start command
+itself stays refused in this release.
 Component failure does not default to restarting its parent workload. See
 [safety contract](safety-contract.md), [legacy import](legacy-import.md) and
 [testing](testing.md).

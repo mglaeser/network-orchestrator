@@ -184,7 +184,9 @@ def validate_deployment(deployment: Deployment) -> None:
         if monitor.recovery_argv is not None:
             _path(monitor.recovery_argv[0])
             _unprivileged(monitor.recovery_argv)
-        if monitor.role != "workload" and monitor.recovery_argv is not None:
+        # A workload is recovered by its own guarded start, the vendor runtime by
+        # its own; a discovery or forwarding failure starts neither.
+        if monitor.role not in {"workload", "runtime"} and monitor.recovery_argv is not None:
             raise DeploymentError("networking failure must not initiate workload recovery")
         if monitor.recovery_repeat_cycles is not None and (
             type(monitor.recovery_repeat_cycles) is not int or monitor.recovery_argv is None
@@ -192,6 +194,8 @@ def validate_deployment(deployment: Deployment) -> None:
             raise DeploymentError(
                 "recovery repeat needs a whole number of cycles and a recovery command"
             )
+    if sum(monitor.role == "runtime" for monitor in deployment.monitors) > 1:
+        raise DeploymentError("one supervisor has at most one monitor of the vendor runtime")
     _path(deployment.launchctl)
     _path(deployment.monit)
     _path(deployment.forwarding.directory)

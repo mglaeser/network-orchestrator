@@ -26,6 +26,7 @@ loader. Operator data supplies:
 | Service contracts | Service/name/scope, full native configuration fingerprint, persistent mount identities, hashed file receipts, optional tolerated stopped peer names, optional `start_timeout_seconds` of that workload |
 | Paths | Private generated policy, user admissions, durable intent and state directory |
 | Fleet start (optional) | launchd label and program of the vendor API job, label prefix of the per-guest runtime jobs; left out, the all-stopped guard applies |
+| Runtime start (optional, inside fleet start) | Application root and install root for which the supervisor may run the vendor's own start command, optional bound of that call; left out, nothing here starts the vendor runtime |
 
 No receiver IP is enrolled. Media receivers come from genuine current LAN
 DNS-SD records; DHCP changes and additional eligible devices need no code edit.
@@ -199,6 +200,8 @@ python -m netorch.apple_runtime --settings /operator/site/runtime-settings.json 
   probe --service media-controller
 python -m netorch.apple_runtime --settings /operator/site/runtime-settings.json \
   start --service media-controller
+python -m netorch.apple_runtime --settings /operator/site/runtime-settings.json runtime-probe
+python -m netorch.apple_runtime --settings /operator/site/runtime-settings.json runtime-start
 ```
 
 The endpoint accepts only the fixed owner protocol. A caller's policy must match
@@ -266,8 +269,10 @@ starts nothing and reads the member only as part of the contract it compares.
 Networking jobs and Monit do not replace the site's initial application startup
 chain after login. Preserve that existing maintained owner during migration;
 without `fleet_start` the routine all-stopped guard deliberately cannot
-bootstrap the fleet, and with it Monit starts workloads only, never the vendor
-runtime. See the [site migration responsibility map](site-migration.md) before
+bootstrap the fleet, and with it Monit starts workloads only. It starts the
+vendor runtime only where the settings also declare `runtime_start`, under the
+three conditions of [Starting the vendor runtime](#starting-the-vendor-runtime).
+See the [site migration responsibility map](site-migration.md) before
 claiming unattended reboot availability.
 
 Operator pause inhibits custom networking and recovery. A hold on one service
@@ -507,7 +512,9 @@ evidence is found:
 | `api_executable` | that job's program, an absolute canonical path |
 | `runtime_label_prefix` | prefix of the per-guest runtime jobs: a letter or digit, then letters, digits, dots or hyphens, ending in a dot, at most 97 characters; one guest's job is `<prefix><runtimeHandler>.<name>` |
 
-The object is closed and all three members are required. Leave the key out to
+The object is closed and these three members are required; the one optional
+member is `runtime_start`, described in
+[Starting the vendor runtime](#starting-the-vendor-runtime). Leave the key out to
 keep the all-stopped guard: an explicit `null` is refused, and settings without
 the key keep their bytes and digests. With it, every network must state the same
 `helper_domain`; the jobs are looked up there.
@@ -538,12 +545,13 @@ fully stopped fleet stopped, and a stop of everything without a pause is undone
 like the stop of one workload. Workloads start one after another, in whatever
 order the supervisor fires its rules.
 
-Nothing here starts the vendor runtime. A site that wants unattended recovery
-after a boot names another tool that starts the runtime after login. Without
-one the API job is never the declared running job, every workload stays unknown
-and nothing is started. A runtime job that stays loaded without a process, for
-example after the API service was away while its guest ended, also keeps that
-guest unknown until an operator removes the job or starts the guest.
+This evidence starts no vendor runtime. A site that wants unattended recovery
+after a boot either names another tool that starts the runtime after login or
+adds `runtime_start` to the declaration, as the next section describes. Without
+either the API job is never the declared running job, every workload stays
+unknown and nothing is started. A runtime job that stays loaded without a
+process, for example after the API service was away while its guest ended, also
+keeps that guest unknown until an operator removes the job or starts the guest.
 
 The declaration belongs in every settings object from which a network generation
 is computed: the user's runtime settings and the `observer` of the root
@@ -571,6 +579,213 @@ job, and the lines of a loaded one, are checked against the real service manager
 on the hosted CI runner only, which is evidence for that runner image. The
 launchd behaviour of a production build, a runtime job that survives an API
 restart and the time a start takes remain native acceptance items.
+
+## Starting the vendor runtime
+
+The vendor's API service runs only after its own start command has run: that
+command writes a launch file below the application root and loads it, and the
+file is in no directory the service manager searches by itself. After a boot
+the service is therefore not loaded until somebody runs the command again. A
+site whose supervisor is its only starter can let the supervisor do that, with
+one more member inside `fleet_start`:
+
+```json
+"fleet_start": {
+  "api_label": "com.apple.container.apiserver",
+  "api_executable": "/opt/vendor/bin/container-apiserver",
+  "runtime_label_prefix": "com.apple.container.",
+  "runtime_start": {
+    "app_root": "/operator/Library/Application Support/com.apple.container",
+    "install_root": "/opt/vendor"
+  }
+}
+```
+
+| Member | Value |
+|---|---|
+| `app_root` | the vendor's application data root, an absolute canonical path |
+| `install_root` | the vendor's install root, an absolute canonical path |
+| `timeout_seconds` | optional bound of the one vendor call, a whole number from 5 to 120; left out it is 20 |
+
+The object is closed, both roots are required, and an explicit `null` is
+refused for the object and for the bound. Left out, nothing changes: the key is
+not part of the canonical form, so settings without it keep their bytes and
+digests, with or without `fleet_start`. Each path, and `api_executable` with it,
+has exactly one spelling: no empty component, no final slash, no control
+character, no other character at which a line ends (next line U+0085, line
+separator U+2028, paragraph separator U+2029) and no surrounding space, so
+that the vendor's own normalisation leaves it as it is and one printed line
+carries it whole. With the member,
+`api_label` must be the vendor's `com.apple.container.apiserver`, the only job
+its start command loads, and the helper domain must be `gui/<uid>` of the
+enrolled account, the domain into which a supervisor in that account's login
+session loads.
+
+Two commands exist with the declaration, and both refuse without it:
+
+- `runtime-probe` returns 0 while the API job is the declared one and has its
+  process, **42 only where a start is permitted** by everything below, and 69
+  otherwise and whenever the durable intent blocks. It takes no lock and starts
+  nothing.
+- `runtime-start` runs as the enrolled account only. It takes the user operation
+  lock like `start`, reads the state twice with the intent read after each,
+  makes one vendor call and reads the result back. It starts no workload, never
+  repeats the call, and never unloads, stops or repairs anything. In this
+  release it is refused with status 78 like every other mutation.
+
+Three conditions hold before the call, and each is read on both passes:
+
+1. **The reviewed launch file is already the expected one.**
+   `<app_root>/apiserver/apiserver.plist` exists as a regular file of the
+   enrolled account with one link, mode 0600 or 0644, no ACL grant and no
+   final symbolic link, and every directory above it is closed to group and
+   other writers. It is decoded in the reader's own process, in its XML or
+   binary form and at most 64 KiB long, and must equal member for member and
+   type for type what the vendor's command writes for the declaration: the
+   label, the two program arguments
+   (`api_executable`, `start`), exactly the two root variables, the three
+   session types in the vendor's order, the one Mach service and run-at-load.
+   The command also takes the program from its own directory, so
+   `container-apiserver` beside the enrolled `executable` must resolve to
+   `api_executable`. A missing or different file refuses: the runtime was
+   never started by an operator with these roots, and that first start is not
+   the supervisor's to make. The supervisor only repeats a start whose launch
+   file it would write again unchanged.
+
+   The same judgement covers the vendor's configuration, which the start must
+   not change. Before anything else the vendor's command copies the account's
+   own file `<home>/.config/container/config.toml` over the copy
+   `<app_root>/config/config.toml`; where the account has no such file it
+   leaves the copy alone. That file is therefore either absent or a regular
+   file whose bytes equal the copy. A file that differs, a copy that is
+   missing (the command would create it), a symbolic link at either final
+   name, a directory or another kind of object, and a file larger than 1 MiB
+   refuse like a launch file that differs, and nothing of either file is
+   printed or recorded. An edit of the configuration takes effect at an
+   operator's own start, never at the supervisor's. `<home>` is the home the
+   vendor's command finds: the account's entry in the user database, and the
+   `HOME` variable only where there is none. The runner passes the enrolled
+   `home` as `HOME`, so both places are read where they differ, and a file in
+   either must equal the copy. The closed environment carries no
+   `XDG_CONFIG_HOME`: an operator who keeps the configuration elsewhere
+   through that variable of their own shell is not followed. The supervisor's
+   command looks below the home only, and the copy such an operator's start
+   made stays as it is while no file is there.
+2. **Both roots are pinned for the call.** The call is
+   `system start --app-root <app_root> --install-root <install_root>
+   --disable-kernel-install`, and both roots are also given as
+   `CONTAINER_APP_ROOT` and `CONTAINER_INSTALL_ROOT`, the only additions to the
+   runner's closed environment. The options are what pins them: the vendor's
+   command takes its roots from the options, whose defaults do not read those
+   variables, and writes the option values into the launch file. The API
+   service takes its roots from the environment that file gives it, and at
+   start it deletes every stored definition it cannot load, for example because
+   the runtime plugin is not below its install root.
+3. **Only a proven absence starts anything.** The service manager itself must
+   say that the job is not loaded: `launchctl print gui/<uid>/<api_label>` ends
+   with status 113 and no standard output, while `launchctl print gui/<uid>`
+   answers and the same label is not loaded in `user/<uid>` either. The
+   session of the caller must be the one whose domain is declared
+   (`launchctl managername` answers `Aqua`), because the vendor's command loads
+   into the domain of the session that runs it. The label must not be disabled
+   (`launchctl print-disabled gui/<uid>`): a label that list does not hold is
+   not disabled, a list in another form is unknown. The enrolled CLI must be
+   the accepted version.
+
+A job that is loaded with exactly the declared launch file, program, arguments
+and roots but has no process (`state = not running`, no process ID) is not
+absent. It gets only the vendor's `system status`, whose first request makes the
+service manager run the loaded job and which writes nothing; the same
+conditions apply except the listing of the domain. Any other state, including a
+job loaded with another program, another root or from another file, is unknown
+and gets no call. The print is compared exactly. Only the printer's indentation
+is removed: there is one `path =` line and one `program =` line, each argument
+and each root is the whole rest of its line, and a value that differs by white
+space at its end is another value.
+
+After the call the launch file must still be the expected one, the loaded job
+must print the declared launch file, program, arguments and both roots and have
+a process of the enrolled account running that program, and one inventory read
+must succeed. Otherwise the result is unknown; the vendor service may still
+come up, which a later probe then reports. The exit status of the call must be
+0; its output is not read, because the vendor's command logs to standard error
+when it succeeds.
+
+An operator pause, a suspension and a damaged intent keep a stopped runtime
+stopped: the probe returns 69 and the start refuses at both reads. A hold on
+one enrolled service does not, since the runtime serves every workload. A
+runtime that is stopped without a pause, for example with the vendor's own stop
+command, is started again like a stopped workload. Pause before any maintenance
+of the vendor runtime, an upgrade included: the launch file does not say which
+version wrote it, so after an upgrade in place the first start should be the
+operator's.
+
+Three things follow from running the vendor's own command and not loading the
+file directly. It copies the account's configuration file, if there is one,
+into the application root on every start; condition 1 permits the start only
+where that copy changes nothing, so a configuration edited since the last
+start waits for an operator's own start. On a host without
+the vendor's base file-system image it tries to download that image, whatever
+the options, inside the same bound. And it waits up to 60 seconds of its own
+for the service to answer, so a bound below that can end the call while the
+service is still starting; the result is then unknown. `runtime-start` holds
+the user operation lock for two reads, the call and the readback: about 44
+seconds at most with the default bound and about 144 with the largest.
+
+Two properties of the application root make the supervisor refuse for good,
+because the identity check of the launch file can never pass. A symbolic link
+anywhere in the path of `app_root`, or at the launch file itself, is not
+followed: an operator cures it by starting the runtime once with the resolved
+path as `--app-root` and declaring that path. On macOS a character outside
+ASCII anywhere in that path is refused by the reader of access-control lists;
+no declaration cures that, and such a site keeps its own starter of the
+runtime or moves the application root.
+
+A deployment gives its supervisor at most one monitor with the role `runtime`,
+which may carry a recovery command like a workload monitor; see
+[deployment](deployment.md). The declaration is read by the user's reader only.
+It does not enter the network generation, so the `observer` of the root
+forwarding owner need not carry it, and observation passes are unchanged by it.
+
+All of this follows from the vendor's source, read at tags 1.2.0, 1.4.1 and
+1.5.0, where the start command, the launch-file encoder and the configuration
+loader are the same files byte for byte. The command takes its roots from options
+([`SystemStart`](https://github.com/apple/container/blob/1.5.0/Sources/ContainerCommands/System/SystemStart.swift#L35-L45))
+whose defaults are not the environment's
+([`ApplicationRoot`](https://github.com/apple/container/blob/1.5.0/Sources/ContainerPlugin/ApplicationRoot.swift#L24-L44),
+[`InstallRoot`](https://github.com/apple/container/blob/1.5.0/Sources/ContainerPlugin/InstallRoot.swift#L26-L45)),
+copies the configuration
+([`copyConfigurationToReadOnly`](https://github.com/apple/container/blob/1.5.0/Sources/ContainerPersistence/ConfigurationLoader.swift#L192-L224),
+from the place
+[`PathUtils`](https://github.com/apple/container/blob/1.5.0/Sources/ContainerPersistence/PathUtils.swift#L29-L36)
+names), resolves the program beside itself, keeps the
+`CONTAINER_` and proxy variables of its environment
+([`filterEnvironment`](https://github.com/apple/container/blob/1.5.0/Sources/ContainerPlugin/PluginLoader.swift#L311-L318)),
+sets both roots from the options, writes the six members and loads the file
+([`run`](https://github.com/apple/container/blob/1.5.0/Sources/ContainerCommands/System/SystemStart.swift#L75-L164),
+[`LaunchPlist`](https://github.com/apple/container/blob/1.5.0/Sources/ContainerPlugin/LaunchPlist.swift#L47-L64))
+into the domain of its session
+([`register`](https://github.com/apple/container/blob/1.5.0/Sources/ContainerPlugin/ServiceManager.swift#L37-L40),
+[`getDomainString`](https://github.com/apple/container/blob/1.5.0/Sources/ContainerPlugin/ServiceManager.swift#L101-L136)).
+The API service reads its roots from its environment
+([`APIServer.Start`](https://github.com/apple/container/blob/1.5.0/Sources/APIServer/APIServer%2BStart.swift#L45-L49))
+and removes what it cannot load
+([`loadAtBoot`](https://github.com/apple/container/blob/1.5.0/Sources/Services/ContainerAPIService/Server/Containers/ContainersService.swift#L140-L158)).
+The status command asks the service manager and then the service, and writes
+nothing
+([`SystemStatus`](https://github.com/apple/container/blob/1.5.0/Sources/ContainerCommands/System/SystemStatus.swift#L44-L66)).
+Which home the vendor's command finds is the answer of the system's own
+library and not in the vendor's source; the last CoreFoundation that Apple
+published asks the user database before `HOME`
+([`CFPlatform.c`](https://github.com/apple-oss-distributions/CF/blob/CF-1153.18/CFPlatform.c#L213-L227)),
+and both places are read for that reason.
+Source reading is not a capture. The forms of `launchctl print-disabled`, of
+`launchctl managername`, of the `path`, `arguments` and `environment` parts of a
+job print and of a loaded job without a process are assumed; a text in another
+form is unknown, and five `darwin` contract tests show the real forms on the
+hosted CI runner only. That a job loaded from the supervisor's own session
+runs, the time the call takes and the absence of a download on a given host
+remain native acceptance items.
 
 ## Runtime and login gates
 

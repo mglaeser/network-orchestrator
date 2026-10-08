@@ -4,13 +4,35 @@ from __future__ import annotations
 
 import math
 import os
+import re
 import selectors
 import signal
 import subprocess
 import time
+from collections.abc import Mapping
 from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any
+
+# Every child gets these four and nothing of the caller's own environment.
+_CLOSED_ENVIRONMENT = ("PATH", "LANG", "LC_ALL", "HOME")
+_VARIABLE = re.compile(r"[A-Z][A-Z0-9_]{0,63}\Z")
+
+
+def _added_variables(value: Any) -> bool:
+    """Named additions only: a caller can add a variable, never replace one of the four."""
+    return (
+        isinstance(value, Mapping)
+        and len(value) <= 8
+        and all(
+            isinstance(name, str)
+            and _VARIABLE.fullmatch(name) is not None
+            and name not in _CLOSED_ENVIRONMENT
+            and isinstance(text, str)
+            and "\0" not in text
+            for name, text in value.items()
+        )
+    )
 
 
 class ProcessError(RuntimeError):
@@ -41,12 +63,14 @@ def run(
     run_uid: int | None = None,
     run_gid: int | None = None,
     account_home: str | None = None,
+    environment: Mapping[str, str] | None = None,
 ) -> Result:
     """Capture a process group within explicit time/input/output bounds.
 
     A child's exit does not complete the operation while inherited pipes remain
     open. Exceptions kill the entire owned group and reap the immediate child.
     Error messages deliberately omit arguments, environment and captured output.
+    `environment` names variables that one call adds to the closed environment.
     """
     if (
         not isinstance(argv, list)
@@ -72,6 +96,7 @@ def run(
                 or "\0" in account_home
             )
         )
+        or (environment is not None and not _added_variables(environment))
     ):
         raise ValueError("invalid bounded command")
     credentials: dict[str, Any] = {}
@@ -88,6 +113,7 @@ def run(
         start_new_session=True,
         close_fds=True,
         env={
+            **(environment or {}),
             "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
             "LANG": "C.UTF-8",
             "LC_ALL": "C",

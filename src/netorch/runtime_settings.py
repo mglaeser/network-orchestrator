@@ -31,6 +31,13 @@ READ_TIMEOUT_MARGIN = 2
 # can be given (120 seconds in the deployment schema) less that margin. The
 # bundle renderer applies the same margin to a probe whose settings state a bound.
 READ_TIMEOUT_MAXIMUM = 120 - READ_TIMEOUT_MARGIN
+# The one job the vendor's own start command writes and loads (apple/container
+# `SystemStart.run`, the same constant at tags 1.2.0, 1.4.1 and 1.5.0).
+_VENDOR_API_LABEL = "com.apple.container.apiserver"
+# Every character at which `str.splitlines` ends a line (Python's documented
+# table: line feed, carriage return, line tabulation, form feed, file, group
+# and record separator, next line, line separator, paragraph separator).
+_LINE_BOUNDARIES = "\n\r\x0b\x0c\x1c\x1d\x1e\x85\u2028\u2029"
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,6 +87,22 @@ class RuntimeNetwork:
 
 
 @dataclass(frozen=True, slots=True)
+class RuntimeStart:
+    """The two roots against which the supervisor may start the vendor runtime.
+
+    Without this declaration nothing starts the vendor API service. With it, the
+    vendor's own start command is run only for these roots, only while its launch
+    file below `app_root` is already exactly the one that command writes for
+    them, and only after the service manager itself said the job is not loaded.
+    """
+
+    app_root: str
+    install_root: str
+    # Bound of the one vendor call; unset means 20 seconds.
+    timeout_seconds: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class FleetStart:
     """Service-manager evidence that lets a fully stopped fleet be read as stopped.
 
@@ -91,6 +114,7 @@ class FleetStart:
     api_label: str
     api_executable: str
     runtime_label_prefix: str
+    runtime_start: RuntimeStart | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -195,6 +219,25 @@ def _start_timeout(data: dict[str, Any]) -> int | None:
     if type(seconds) is not int or not 1 <= seconds <= 120:
         raise ValueError("start timeout must be a whole number of seconds from 1 to 120")
     return seconds
+
+
+def _exact_path(value: Any) -> str:
+    """A canonical path with one spelling: no empty component, no control character.
+
+    The vendor's start command normalises a root lexically before it writes it,
+    and the service manager prints a path on one line. A path in this form is
+    left as it is by the first and is read back whole from the second: it holds
+    no control character and no other character that ends a line.
+    """
+    path = _path(value)
+    if (
+        any(not part for part in path.split("/")[1:])
+        or any(ord(character) < 32 or ord(character) == 127 for character in path)
+        or any(character in _LINE_BOUNDARIES for character in path)
+        or path != path.strip()
+    ):
+        raise ValueError("runtime start path must have exactly one spelling")
+    return path
 
 
 def _identity(value: Any) -> FileIdentity:
@@ -403,7 +446,11 @@ def parse_settings(value: Any) -> RuntimeSettings:
     fleet = None
     if "fleet_start" in data:
         # Present means declared. An explicit null is not a second way to leave it out.
-        item = _object(data["fleet_start"], {"api_label", "api_executable", "runtime_label_prefix"})
+        item = _object(
+            data["fleet_start"],
+            {"api_label", "api_executable", "runtime_label_prefix"},
+            {"runtime_start"},
+        )
         if (
             not isinstance(item["api_label"], str)
             or not _JOB_LABEL.fullmatch(item["api_label"])
@@ -414,8 +461,30 @@ def parse_settings(value: Any) -> RuntimeSettings:
         # That one domain is where the API job and the runtime jobs are looked up.
         if len({network.helper_domain for network in networks}) != 1:
             raise ValueError("fleet start needs one helper domain")
+        start = None
+        if "runtime_start" in item:
+            # Present means declared, as above: never null.
+            raw = _object(item["runtime_start"], {"app_root", "install_root"}, {"timeout_seconds"})
+            timeout = raw.get("timeout_seconds")
+            if "timeout_seconds" in raw and (type(timeout) is not int or not 5 <= timeout <= 120):
+                raise ValueError(
+                    "runtime start timeout must be a whole number of seconds from 5 to 120"
+                )
+            # The vendor's start command loads this one job, into the domain of the
+            # session that runs it; the enrolled account can load into its own only.
+            if (
+                item["api_label"] != _VENDOR_API_LABEL
+                or networks[0].helper_domain != f"gui/{account['uid']}"
+            ):
+                raise ValueError(
+                    "runtime start needs the vendor's API label and the account's own domain"
+                )
+            _exact_path(item["api_executable"])
+            start = RuntimeStart(
+                _exact_path(raw["app_root"]), _exact_path(raw["install_root"]), timeout
+            )
         fleet = FleetStart(
-            item["api_label"], _path(item["api_executable"]), item["runtime_label_prefix"]
+            item["api_label"], _path(item["api_executable"]), item["runtime_label_prefix"], start
         )
     budget = None
     if "restart_budget" in data:
@@ -473,4 +542,8 @@ def settings_to_dict(settings: RuntimeSettings) -> dict[str, Any]:
     # Left out while undeclared: settings without it keep their bytes and digests.
     if result["fleet_start"] is None:
         del result["fleet_start"]
+    elif result["fleet_start"]["runtime_start"] is None:
+        del result["fleet_start"]["runtime_start"]
+    elif result["fleet_start"]["runtime_start"]["timeout_seconds"] is None:
+        del result["fleet_start"]["runtime_start"]["timeout_seconds"]
     return result
