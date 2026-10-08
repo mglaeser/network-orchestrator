@@ -31,6 +31,37 @@ it at 1.2.0, 1.4.1 and 1.5.0. The vendor CLI has no sysctl option, so `--sysctl`
 is refused; a guest sysctl that must hold from boot can be written as the Linux
 boot parameter `sysctl.<name>=<value>` in a kernel argument.
 
+An environment file is held to the same rule as `--env`. The vendor's `create`
+reads a line without `=` as a bare name and gives it the value that name has in
+the environment of the calling process
+([`Parser.envFile`](https://github.com/apple/container/blob/1.5.0/Sources/Services/ContainerAPIService/Client/Parser.swift#L145-L225),
+the same text at tags 1.2.0 and 1.4.1). This package runs the vendor's tool with
+`PATH`, `LANG`, `LC_ALL` and `HOME` only. Such a name therefore takes one of
+those four values or, unless the tool's own process has set that name, nothing;
+no other variable of the operator is inherited. In neither case does the guest
+receive what the file seems to state. `plan` therefore reads every environment
+file a recipe names, at most 1 MiB and only when its bytes are the ones its
+receipt hashes, and refuses the plan unless each line is blank, a comment or
+`NAME=value`:
+
+- The file is UTF-8 without a byte order mark or a null character. A line ends
+  at a line feed, a carriage return, a line tabulation, a form feed, U+0085,
+  U+2028 or U+2029, where the vendor's parser cuts it.
+- Leading spaces and tabs are ignored. A line that then begins with `#` is a
+  comment.
+- A name is one or more printable ASCII characters without a space or `=`. The
+  value is everything after the first `=`, unchanged: quotes stay and nothing
+  in it is a comment.
+- What the vendor would read differently or refuse only at creation is refused
+  here: other white space before a name, a name outside ASCII, and a `#` or `=`
+  directly followed by a combining mark, a joiner, a modifier or any other
+  character outside ASCII that is not a plain letter, digit, punctuation mark,
+  symbol or space. The vendor's parser reads a combining character together
+  with the sign before it as one other character, so that `=` is none for it.
+
+The refusal is the command's redacted error. No line, name or position is
+shown, since the file may hold secrets.
+
 A recipe cannot publish a host socket: `--publish-socket` is refused. While the
 vendor's `create` builds its configuration it removes an existing file or
 directory at the host path, unless that is a socket, and creates missing parent
@@ -47,6 +78,35 @@ no application secrets.
 All referenced images must already be in the native cache. Image retrieval is
 an explicit preparatory vendor step, using the site's approved digest/registry
 policy. Initial creation does not silently upgrade the runtime or images.
+`plan` looks up the image of every recipe and each custom init image with the
+vendor's `image inspect` and refuses unless the answer is exactly one image; the
+vendor's `create` fetches both in the same way
+([`Utility`](https://github.com/apple/container/blob/1.5.0/Sources/Services/ContainerAPIService/Client/Utility.swift#L94-L131),
+the same lines at tags 1.2.0 and 1.4.1). That command leaves the init image named
+by the runtime's own configuration out of its listing
+([`ImageInspect`](https://github.com/apple/container/blob/1.5.0/Sources/ContainerCommands/Image/ImageInspect.swift#L53-L67)),
+so a recipe that names that image is refused; leave the option out. The init
+image and the kernel that `create` takes when a recipe names none are not
+looked up.
+
+A listed image shows that its name is in the local store, and no more than
+that. It does not show that the content for the platform is complete: the
+vendor's `fetch` finds an image by name, then asks for the configuration of the
+platform `create` wants, and pulls when that content is missing
+([`ClientImage.fetch`](https://github.com/apple/container/blob/1.5.0/Sources/Services/ContainerAPIService/Client/ClientImage.swift#L354-L378)),
+while `image inspect` lists such an image all the same and leaves out the
+variants it cannot read
+([`toImageResource`](https://github.com/apple/container/blob/1.5.0/Sources/Services/ContainerAPIService/Client/ClientImage+ImageResource.swift#L26-L43));
+a pull can be limited to one platform
+([`ImagePull`](https://github.com/apple/container/blob/1.5.0/Sources/ContainerCommands/Image/ImagePull.swift#L41-L55)).
+Nor does it show that the stored image has the digest its name carries: the
+vendor's `image tag` gives an existing image any reference that parses, one in
+digest form included
+([`ImageTag`](https://github.com/apple/container/blob/1.5.0/Sources/ContainerCommands/Image/ImageTag.swift#L38-L44),
+[`ImageStore.tag`](https://github.com/apple/containerization/blob/0.47.0/Sources/Containerization/Image/ImageStore/ImageStore.swift#L205-L215)).
+A download during the bounded `create` is therefore not excluded. What the
+lookup does refuse is a recipe whose image, or custom init image, is not in the
+store under the name the recipe gives.
 Every native invocation remains bounded, including failures during creation.
 
 ## Plan and deliberate activation
