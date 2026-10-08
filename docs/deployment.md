@@ -34,6 +34,7 @@ site/
 user-state/
   admissions.json          user profile approvals
   intent.json              durable operator pause, holder suspensions and service holds
+  recovery-starts.json     starts issued by recovery; only with a restart budget
   journal.json             reconciliation phases
   installation-journal.json installation phases
   installation-receipt.json retained reviewed release identity
@@ -230,11 +231,17 @@ starts nothing, Monit does not run it again while the probe keeps returning 42.
 A workload monitor may therefore set the optional integer
 `recovery_repeat_cycles` (1 to 360). Its rule is then rendered with
 `repeat every N cycles`, and Monit runs the command again every N cycles for as
-long as the probe returns 42. There is no attempt budget and no Monit restart
+long as the probe returns 42. The rule has no attempt budget and no Monit restart
 action: every attempt is the same guarded start of a workload that two fresh
 observations prove stopped. A monitor without a recovery command cannot set it.
 Without the setting the generated file is byte-identical to what earlier
 versions rendered, and a manifest that does not use it keeps its digests.
+
+A budget of starts, where one is wanted, is a setting of that guarded start and
+not of the rule ([`restart_budget`](apple-runtime.md#restart-budget) of the
+runtime settings): once it is spent the start holds the service instead, the
+probe no longer returns 42 and the rule stops matching until an operator
+releases the hold.
 
 Local Network consent must be accepted in the actual LaunchAgent identity and
 launch context. Terminal/SSH success does not prove this context. Record consent

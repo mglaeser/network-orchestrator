@@ -50,6 +50,9 @@ class RuntimeContract:
     # Other definitions over the same writable path that are accepted while the
     # inventory reports them exactly stopped. Empty unless a site enrolls one.
     tolerated_stopped_peers: tuple[str, ...] = ()
+    # Bound of the vendor `start` call in recovery of this workload; unset
+    # leaves the installation's bound, and without that one the reader's own.
+    start_timeout_seconds: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,6 +81,19 @@ class FleetStart:
 
 
 @dataclass(frozen=True, slots=True)
+class RestartBudget:
+    """How many starts recovery issues for one workload within a period.
+
+    Without this setting recovery starts a proven-stopped workload every time it
+    is asked. With it, a start that would exceed the budget is replaced by a
+    hold on that service, which an operator releases.
+    """
+
+    starts: int
+    window_seconds: int
+
+
+@dataclass(frozen=True, slots=True)
 class RuntimeSettings:
     schema_version: int
     owner: str
@@ -94,6 +110,7 @@ class RuntimeSettings:
     # Bound of the vendor `start` call in recovery; unset keeps the reader's own.
     start_timeout_seconds: int | None = None
     fleet_start: FleetStart | None = None
+    restart_budget: RestartBudget | None = None
 
     @classmethod
     def from_dict(cls, value: Any) -> RuntimeSettings:
@@ -107,11 +124,13 @@ class RuntimeSettings:
 
 
 def _contract_dict(contract: RuntimeContract) -> dict[str, Any]:
-    """Canonical form; an empty tolerance list and an identity without a volume
-    binding are left out, so earlier digests hold."""
+    """Canonical form; an empty tolerance list, an unset start bound and an
+    identity without a volume binding are left out, so earlier digests hold."""
     value = asdict(contract)
     if not value["tolerated_stopped_peers"]:
         del value["tolerated_stopped_peers"]
+    if value["start_timeout_seconds"] is None:
+        del value["start_timeout_seconds"]
     for identity in (*value["mounts"], *value["receipts"]):
         if identity["volume_uuid"] is None:
             del identity["volume_uuid"]
@@ -122,6 +141,8 @@ def contract_digest(contract: RuntimeContract) -> str:
     """No raw application configuration or credentials enter the network policy."""
     # A device-bound contract hashes exactly as before. One that binds a volume
     # is a second form of the enrollment and can never share a digest with it.
+    # A stated start bound is one more member of either form: nothing is
+    # verified differently for it, and the member alone changes the digest.
     volume_bound = any(
         identity.volume_uuid is not None for identity in (*contract.mounts, *contract.receipts)
     )
@@ -148,6 +169,17 @@ def _path(value: Any) -> str:
     ):
         raise ValueError("runtime path must be absolute and canonical")
     return value
+
+
+def _start_timeout(data: dict[str, Any]) -> int | None:
+    """The optional start bound of the installation or of one contract."""
+    # One spelling per meaning: the key is left out when unused, never null.
+    if "start_timeout_seconds" not in data:
+        return None
+    seconds = data["start_timeout_seconds"]
+    if type(seconds) is not int or not 1 <= seconds <= 120:
+        raise ValueError("start timeout must be a whole number of seconds from 1 to 120")
+    return seconds
 
 
 def _identity(value: Any) -> FileIdentity:
@@ -216,6 +248,7 @@ def parse_settings(value: Any) -> RuntimeSettings:
             "legacy_risk_acknowledged",
             "start_timeout_seconds",
             "fleet_start",
+            "restart_budget",
         },
     )
     if (
@@ -230,12 +263,7 @@ def parse_settings(value: Any) -> RuntimeSettings:
     legacy = data.get("legacy_risk_acknowledged", False)
     if type(legacy) is not bool or (data["accepted_version"] == "1.2.0" and not legacy):
         raise ValueError("legacy runtime requires explicit risk acknowledgment")
-    # One spelling per meaning: the key is left out when unused, never null.
-    start_timeout = data.get("start_timeout_seconds")
-    if "start_timeout_seconds" in data and (
-        type(start_timeout) is not int or not 1 <= start_timeout <= 120
-    ):
-        raise ValueError("start timeout must be a whole number of seconds from 1 to 120")
+    start_timeout = _start_timeout(data)
     account = _object(data["account"], {"uid", "gid", "home"})
     if (
         type(account["uid"]) is not int
@@ -292,7 +320,7 @@ def parse_settings(value: Any) -> RuntimeSettings:
         item = _object(
             raw,
             {"service", "name", "scope", "configuration_sha256", "mounts"},
-            {"receipts", "tolerated_stopped_peers"},
+            {"receipts", "tolerated_stopped_peers", "start_timeout_seconds"},
         )
         if (
             any(
@@ -325,6 +353,7 @@ def parse_settings(value: Any) -> RuntimeSettings:
                 tuple(_identity(entry) for entry in item["mounts"]),
                 tuple(_identity(entry) for entry in item.get("receipts", [])),
                 tuple(peers),
+                _start_timeout(item),
             )
         )
     for values in (
@@ -363,6 +392,25 @@ def parse_settings(value: Any) -> RuntimeSettings:
         fleet = FleetStart(
             item["api_label"], _path(item["api_executable"]), item["runtime_label_prefix"]
         )
+    budget = None
+    if "restart_budget" in data:
+        # Present means stated. An explicit null is not a second way to leave it out.
+        item = _object(data["restart_budget"], {"starts", "window_seconds"})
+        if (
+            type(item["starts"]) is not int
+            or not 1 <= item["starts"] <= 10
+            or type(item["window_seconds"]) is not int
+            or not 60 <= item["window_seconds"] <= 86400
+        ):
+            raise ValueError("invalid restart budget")
+        # A spent budget becomes a hold in the durable intent, written under the
+        # lock of the state directory. Recovery can do that only for the intent
+        # file of that directory, which is also the one every reader is given.
+        if paths["state_dir"] is None or paths["intent"] != str(
+            Path(paths["state_dir"]) / "intent.json"
+        ):
+            raise ValueError("a restart budget needs the durable intent in the state directory")
+        budget = RestartBudget(item["starts"], item["window_seconds"])
     return RuntimeSettings(
         1,
         data["owner"],
@@ -375,6 +423,7 @@ def parse_settings(value: Any) -> RuntimeSettings:
         legacy_risk_acknowledged=legacy,
         start_timeout_seconds=start_timeout,
         fleet_start=fleet,
+        restart_budget=budget,
     )
 
 
@@ -388,6 +437,9 @@ def settings_to_dict(settings: RuntimeSettings) -> dict[str, Any]:
     if value["start_timeout_seconds"] is None:
         # Left out while unset: settings stored before the key existed keep their bytes.
         del value["start_timeout_seconds"]
+    if value["restart_budget"] is None:
+        # Left out while there is no budget, for the same reason.
+        del value["restart_budget"]
     result: dict[str, Any] = strict_loads(canonical_bytes(value))
     # Left out while undeclared: settings without it keep their bytes and digests.
     if result["fleet_start"] is None:

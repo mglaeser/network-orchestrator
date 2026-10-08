@@ -132,7 +132,13 @@ generation before starting; it reads no admission. It never recreates
 running/unknown definitions. Only the workload probe
 can return reserved status 42, and only for a proven stopped enrolled workload
 with gates permitting start. Unknown, timeout, denial, signal and networking
-health failures cannot initiate a start.
+health failures cannot initiate a start. With a restart budget in the settings,
+tests with an injected calendar clock cover the count of each workload within
+the period, a start that is cut off or not confirmed, the hold that replaces
+the start beyond the budget and its release, and a record or a clock that
+cannot be relied on, which both engage the hold. They also cover a record that
+cannot be read and a hold that cannot be stored, neither of which lets a start
+through, and the default clock.
 
 Initial workload tests exercise digest-bound planning and exact fixed CLI create
 arguments for missing declared workloads, image pins, range equality, persistent

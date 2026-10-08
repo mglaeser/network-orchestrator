@@ -21,9 +21,9 @@ loader. Operator data supplies:
 | Table | Fields and purpose |
 |---|---|
 | Account | UID, GID, HOME of the genuine vendor runtime user |
-| Runtime | Absolute CLI path, exact accepted version, legacy-risk acknowledgement, optional `start_timeout_seconds` |
+| Runtime | Absolute CLI path, exact accepted version, legacy-risk acknowledgement, optional `start_timeout_seconds`, optional `restart_budget` |
 | Networks | Scope, native network name/gateway, launchd helper domain/label, expected program and UID |
-| Service contracts | Service/name/scope, full native configuration fingerprint, persistent mount identities, hashed file receipts, optional tolerated stopped peer names |
+| Service contracts | Service/name/scope, full native configuration fingerprint, persistent mount identities, hashed file receipts, optional tolerated stopped peer names, optional `start_timeout_seconds` of that workload |
 | Paths | Private generated policy, user admissions, durable intent and state directory |
 | Fleet start (optional) | launchd label and program of the vendor API job, label prefix of the per-guest runtime jobs; left out, the all-stopped guard applies |
 
@@ -225,7 +225,11 @@ stopped guest is judged on the evidence described below.
 The vendor `start` call of that sequence is cut off after four seconds, like
 every other vendor call, unless the runtime settings carry
 `start_timeout_seconds`: a whole number from 1 to 120, left out by default and
-never written as `null`. The setting bounds that one call. The observations
+never written as `null`. The member has two places: at the top of the settings
+it is the bound for every workload of the installation, and in one service
+contract it is the bound for that workload alone. Recovery of a workload uses
+its contract's value, else the installation's, else the four seconds. The
+setting bounds that one call. The observations
 before and after it keep the eight-second pass and its smaller limits, and the
 running readback stays the only statement that the workload started. A call
 that is cut off ends recovery as unknown; the vendor service may still complete
@@ -233,9 +237,28 @@ the start, which a later probe then reports. Recovery holds the user operation
 lock for the whole sequence, three passes and the start call: about 28 seconds
 at most without the setting and about 144 with its largest value. Until it ends, the
 coordinator's pass, `pause` and every other command that takes that lock report
-busy and have to be repeated. The probe takes no lock, and the supervisor's
+busy and have to be repeated. The lock is held for as long as the start really
+takes, not only when a start hangs. A recovery of another workload that fires
+in that time waits its five seconds for the lock and, if the start still runs
+then, ends busy, having started nothing; whether it is tried again depends on
+that monitor's `recovery_repeat_cycles` ([deployment.md](deployment.md)).
+A contract's value changes that time for the
+recovery of its own workload only. A workload that needs a long start therefore
+states it in its contract: with the installation's value every workload whose
+start hangs keeps the lock that long. The probe takes no lock, and the supervisor's
 check timeout (`monitors[].timeout_seconds`) is written on the probe's check,
-not on the recovery command. Initial provisioning does not read the setting.
+not on the recovery command. Initial provisioning does not read the setting in
+either place.
+
+A contract's `start_timeout_seconds` is part of that contract. It is left out
+of the stored form and of the contract digest while it is not stated, so an
+enrollment without it keeps its digests and admissions, and `enroll` keeps a
+stated value as authored. Stating, changing or removing it is a change of that
+one contract: its digest changes, `derive-policy` changes that service's
+contract hash, and the profiles of that service are admitted again. The root
+owner's `observer` has to carry the same contract; as after any change of the
+trusted observer, every root profile is then admitted again. The root owner
+starts nothing and reads the member only as part of the contract it compares.
 
 Networking jobs and Monit do not replace the site's initial application startup
 chain after login. Preserve that existing maintained owner during migration;
@@ -253,6 +276,114 @@ inhibits every workload. Vendor publications are part of existing application
 definitions; an operator pause or a hold is not permission to stop those
 applications. Missing native publication or a changed definition
 therefore reports a maintenance requirement rather than hidden recreation.
+
+## Restart budget
+
+Recovery starts a proven-stopped workload every time the supervisor's rule
+fires. A workload that starts and stops again is then started without end. The
+runtime settings can limit that:
+
+```json
+"restart_budget": {"starts": 3, "window_seconds": 600}
+```
+
+| Member | Value |
+|---|---|
+| `starts` | whole number from 1 to 10: the starts recovery issues for one workload within the period |
+| `window_seconds` | whole number from 60 to 86400: the period in seconds |
+
+The object is closed and both members are required. Leave the key out for no
+budget: an explicit `null` is refused, and settings without the key keep their
+bytes and digests. The bounds are those of `supervision.restart_budget` of an
+[instance](instances.md). The setting is one for the installation; the starts
+are counted for each workload on its own. Only starts that recovery issues are
+counted, not those of initial provisioning or of another tool.
+
+The budget is not a supervisor rule. The guarded start counts its own starts,
+under the operation lock it holds anyway and after its two stopped
+observations:
+
+1. It reads `recovery-starts.json` in the state directory: for each service the
+   times of the starts recovery issued, in whole seconds of the calendar clock,
+   each rounded up. A start counts while the clock is less than
+   `window_seconds` past its recorded second. A window therefore never ends
+   early; it can end up to one second late.
+2. With fewer than `starts` of them it writes the new start into that record
+   and then makes the `start` call. The entry is written before the call and
+   stays whatever becomes of the call: a start that is cut off, that fails or
+   that the readback does not confirm is an attempt. A start that is read back
+   as running does not clear the record either. The budget is about starts
+   within a period.
+3. Otherwise it starts nothing. It places a hold on that service in the
+   durable intent, with the operation `restart-budget` and the holder
+   `supervisor`, clears the record of that service and ends as a recovery that
+   a hold refused does: exit status 69.
+
+From then on the workload is held like any other held service
+([state contract](state-machine.md)). Its probe returns 69 and no longer 42, so
+the supervisor's start rule stops firing and its alert on a status other than 0
+stays raised; the owners that read this intent withdraw forwarding and
+discovery of that service; the stored intent shows the hold. Nothing expires.
+An operator who has looked at the workload releases the hold, which is gated
+like every release:
+
+```sh
+netorch unhold --state-dir <state> --service <service> \
+  --operation restart-budget --holder supervisor
+```
+
+The record of that service was cleared with the hold, so the release gives a
+whole budget again and not at once another hold. Placing and releasing this
+hold change neither the pause nor a suspension nor any other hold.
+
+Where something is unclear the brake engages:
+
+- A record whose content is not what recovery writes says nothing about any
+  workload. The workload being recovered is held, and the record is replaced
+  by one in which every other workload counts as spent for one period (longer
+  after the clock was set back, as below). A file that the state store
+  refuses, for example one that is not private to the account, counts the same
+  but stays as it is; until it is repaired every recovery ends with the hold.
+- A record that could not be read at all is not content. On such a read error
+  the firing starts nothing, holds nothing and rewrites nothing, and the next
+  firing reads the record again. A symbolic link in the record's place is such
+  an error on every firing.
+- A start recorded in the future counts. After the clock was set back, earlier
+  starts therefore stay in the window for longer, at most until the hold is
+  placed. After the clock jumped ahead by more than the period, earlier starts
+  have left the window early; that can allow up to one more budget of starts.
+- A clock that gives no usable time counts as a spent budget.
+- If the hold cannot be stored, nothing is started, and the record of that
+  workload is stored as spent in a form that does not age: no start follows,
+  at any later time or under a larger budget, until the hold could be stored,
+  which clears that record. This covers an intent file the state store
+  refuses, 64 services held already and a write that fails.
+- If the record cannot be written, nothing is started on that firing.
+
+Starts after a boot count like any other. Several boots, or several planned
+stops that end with a start by recovery, within one period can therefore spend
+the budget of a healthy workload; choose the two numbers with that in mind.
+
+A start that is cut off counts as well, although the vendor service may still
+complete it. A start bound shorter than a workload's real start can therefore
+spend the budget while the workload is in fact coming up: where the supervisor
+repeats the recovery (`recovery_repeat_cycles`), every firing that still finds
+the workload stopped issues and counts another start, and the firing after the
+last of them holds the service. The workload is then held although it runs: its
+probe returns 69 and its forwarding and discovery stay withdrawn until the hold
+is released.
+
+The hold outlives the enrollment of its workload. A held workload that is
+removed from the enrollment without releasing its hold leaves a hold on a
+service that is not enrolled here; the intent then reads as damaged and every
+workload is blocked until that hold is released.
+
+The hold has to reach the file that every reader of the installation reads,
+and it is written under the lock that guards that file. Settings with a budget
+are therefore refused unless `intent` is the file `intent.json` in `state_dir`,
+which is the layout of the examples and the one initial provisioning requires.
+The budget belongs in the user's runtime settings; the root owner's `observer`
+starts nothing and has no use for it.
 
 ## Starting a fully stopped fleet
 

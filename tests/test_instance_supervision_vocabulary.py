@@ -455,11 +455,11 @@ def test_profile_evidence_does_not_survive_a_changed_workload_deadline(
             "ensure",
             ("/supervision/component_exit_code", "/workloads/1/components/0/recovery"),
         ),
-        ("budget", ("/supervision/restart_budget",)),
+        ("budget", ()),
         ("action", ("/supervision/action_timeout_seconds",)),
         ("action-within", ()),
         ("workload-action", ("/workloads/0/deadlines/action_seconds",)),
-        ("workload-action-of-the-site", ()),
+        ("workload-action-within", ()),
         ("workload-probe", ("/workloads/1/deadlines/probe_seconds",)),
         ("workload-probe-within", ()),
         ("supervisor-tool", ()),
@@ -480,11 +480,11 @@ def test_retained_supervision_gaps_names_every_describe_only_member(
     elif change == "action-within":
         data["supervision"]["action_timeout_seconds"] = 120
     elif change == "workload-action":
-        # One start bound for the installation: a value of its own is not honoured.
-        data["workloads"][0]["deadlines"] = {"action_seconds": 1}
-    elif change == "workload-action-of-the-site":
+        data["workloads"][0]["deadlines"] = {"action_seconds": 121}
+    elif change == "workload-action-within":
+        # A start bound per workload: a value of its own need not be the site's.
         data["supervision"]["action_timeout_seconds"] = 30
-        data["workloads"][0]["deadlines"] = {"action_seconds": 30}
+        data["workloads"][0]["deadlines"] = {"action_seconds": 120}
     elif change == "workload-probe":
         data["workloads"][1]["deadlines"] = {"probe_seconds": 121}
     elif change == "workload-probe-within":
@@ -506,14 +506,13 @@ def test_retained_supervision_gaps_are_listed_in_document_order(data: dict[str, 
         restart_budget={"starts": 4, "window_seconds": 1200},
         action_timeout_seconds=121,
     )
-    data["workloads"][0]["deadlines"] = {"action_seconds": 70}
-    data["workloads"][1]["deadlines"] = {"action_seconds": 80, "probe_seconds": 300}
+    data["workloads"][0]["deadlines"] = {"action_seconds": 170}
+    data["workloads"][1]["deadlines"] = {"action_seconds": 180, "probe_seconds": 300}
     named = gaps(parsed(data))
     assert named == (
         "/supervision/action_timeout_seconds",
         "/supervision/component_exit_code",
         "/supervision/failure_exit_code",
-        "/supervision/restart_budget",
         "/workloads/0/deadlines/action_seconds",
         "/workloads/1/components/0/recovery",
         "/workloads/1/deadlines/action_seconds",
@@ -544,7 +543,7 @@ def test_retained_bounds_are_those_of_the_retained_supervisor() -> None:
         "recovery_code",
         "recovery_repeat_cycles",
     }
-    # The runtime settings bound the start call of recovery, once per installation.
+    # The runtime settings bound the start call of recovery, per installation and per workload.
     assert instance_module.RETAINED_ACTION_DEADLINE_MAXIMUM == 120
     settings = strict_loads((ROOT / "examples/runtime-settings.json").read_bytes())
     parse_settings({**settings, "start_timeout_seconds": 120})
@@ -553,13 +552,10 @@ def test_retained_bounds_are_those_of_the_retained_supervisor() -> None:
 
 
 def test_action_deadlines_within_the_start_bound_are_not_gaps(data: dict[str, Any]) -> None:
-    """The retained supervisor has one start bound: longer ones and differing ones remain."""
+    """The retained supervisor bounds a start per workload: only longer deadlines remain."""
     data["supervision"]["action_timeout_seconds"] = 120
     data["workloads"][0]["deadlines"] = {"action_seconds": 121}
     data["workloads"][1]["deadlines"] = {"action_seconds": 120}
     assert gaps(parsed(data)) == ("/workloads/0/deadlines/action_seconds",)
     data["workloads"][1]["deadlines"] = {"action_seconds": 40}
-    assert gaps(parsed(data)) == (
-        "/workloads/0/deadlines/action_seconds",
-        "/workloads/1/deadlines/action_seconds",
-    )
+    assert gaps(parsed(data)) == ("/workloads/0/deadlines/action_seconds",)

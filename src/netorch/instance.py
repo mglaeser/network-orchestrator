@@ -81,8 +81,9 @@ _OPTIONAL_SUPERVISION = ("component_exit_code", "restart_budget", "action_timeou
 _DEADLINES = ("probe_seconds", "action_seconds")
 # What the retained supervisor can be told. Its Monit rule matches the reserved start
 # status only, a monitor's check timeout is at most 120 seconds, and the runtime
-# settings bound the vendor start call with one value for the installation, at most
-# 120 seconds (`start_timeout_seconds`).
+# settings bound the vendor start call for the installation and for each workload, at
+# most 120 seconds (`start_timeout_seconds`). They also take every restart budget
+# this vocabulary can state (`restart_budget`, the same bounds).
 RETAINED_PROBE_DEADLINE_MAXIMUM = 120
 RETAINED_ACTION_DEADLINE_MAXIMUM: int | None = 120
 
@@ -875,9 +876,9 @@ def retained_supervision_gaps(instance: Instance) -> tuple[str, ...]:
 
     An instance describes the supervisor of its site. The retained supervisor
     implements part of that vocabulary: the reserved start status, no second
-    status, no in-guest ensure, no restart budget, a probe deadline up to its
-    monitor timeout, and one deadline for a start action per installation. Each
-    result is a JSON
+    status, no in-guest ensure, every restart budget, a probe deadline up to its
+    monitor timeout, and a deadline for a start action up to the bound of the
+    runtime settings, for the site and for each workload. Each result is a JSON
     pointer into the canonical instance, in document order. A renderer for the
     retained supervisor must refuse an instance for which the result is not
     empty. Nothing is read, rendered or run here.
@@ -890,8 +891,6 @@ def retained_supervision_gaps(instance: Instance) -> tuple[str, ...]:
         gaps.append("/supervision/component_exit_code")
     if supervision.failure_exit_code != RECOVERY_FAILURE_EXIT_CODE:
         gaps.append("/supervision/failure_exit_code")
-    if supervision.restart_budget is not None:
-        gaps.append("/supervision/restart_budget")
     for index, workload in enumerate(instance.workloads):
         gaps.extend(
             f"/workloads/{index}/components/{position}/recovery"
@@ -900,12 +899,7 @@ def retained_supervision_gaps(instance: Instance) -> tuple[str, ...]:
         )
         deadlines = workload.deadlines
         if deadlines is not None:
-            if _beyond(deadlines.action_seconds, RETAINED_ACTION_DEADLINE_MAXIMUM) or (
-                # One start bound for the installation: a workload's own value is
-                # honoured only where it is the site's.
-                deadlines.action_seconds is not None
-                and deadlines.action_seconds != supervision.action_timeout_seconds
-            ):
+            if _beyond(deadlines.action_seconds, RETAINED_ACTION_DEADLINE_MAXIMUM):
                 gaps.append(f"/workloads/{index}/deadlines/action_seconds")
             if _beyond(deadlines.probe_seconds, RETAINED_PROBE_DEADLINE_MAXIMUM):
                 gaps.append(f"/workloads/{index}/deadlines/probe_seconds")
