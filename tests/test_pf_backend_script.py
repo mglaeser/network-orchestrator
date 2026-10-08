@@ -444,7 +444,9 @@ def test_a_listing_that_warns_or_fails_is_not_taken_for_an_answer(
 
     result = sandbox.run(operation, ANCHOR)
 
-    assert result.returncode == 1
+    # Refused either way. A listing that failed ends with status 1; one that ended
+    # with status 0 and an unexpected line ends with the script's own status for it.
+    assert result.returncode == (1 if "exit" in fault else 76)
     # Nothing was loaded, killed or enabled on the strength of that read.
     assert not any(call.split()[0] in {"-k", "-E", "-X"} for call in sandbox.calls)
     assert sandbox.loads == []

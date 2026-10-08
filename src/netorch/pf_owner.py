@@ -30,8 +30,8 @@ from typing import Any, Protocol
 # from outside this package (ctypes), so it is imported here and listed as well.
 from . import darwin_volume  # noqa: F401
 from .codec import MAX_JSON_BYTES, canonical_bytes, digest, strict_loads
-from .config import parse_config, profile_digest, profile_view, to_dict
-from .model import Config, Profile, Scope
+from .config import backing_publication, parse_config, profile_digest, profile_view, to_dict
+from .model import Config, PortRange, Profile, Scope
 from .planner import Action, plan
 from .process import Result, run
 from .state import (
@@ -54,6 +54,11 @@ _HASH = re.compile(r"[0-9a-f]{64}\Z")
 # before, or a site's pinned name. The kernel refuses a component of 64 characters
 # or more, so a pinned name has at most 63. The backend script checks the same.
 _ANCHOR = re.compile(r"com\.apple/(?:netorch\.[a-z][a-z0-9-]{0,62}|[a-z][a-z0-9.-]{0,62})\Z")
+# A sibling of the owned anchor is somebody else's anchor. Its name is read from
+# a listing and is only ever given to two read-only listings: one component
+# directly below the same parent, of letters, digits, `_`, `.` and `-`, at most
+# 63 characters. The backend script checks the same before the tool sees it.
+_SIBLING = re.compile(r"com\.apple/[A-Za-z0-9][A-Za-z0-9_.-]{0,62}\Z")
 # The kernel prints its boot session with uuid_unparse_upper: one upper-case UUID.
 _BOOT_SESSION = re.compile(r"[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\Z")
 _REASON = "unobserved"
@@ -68,14 +73,99 @@ DEFERRAL_REASONS = frozenset(
         "endpoint-unverified",
         "ports-unverified",
         "states-retained",
+        "translation-order-unverified",
     }
 )
+# Why a pass does not report a loaded rule ready although it leaves it loaded.
+# `translation-order-unverified`: something the use of a rule pair rests on was
+# not verified by that pass, and the lack of it cannot expose anything.
+# `runtime-unknown`: the pass has no current runtime evidence for a rule that
+# ends at the host's own address, and the installation chose to keep such a
+# rule. A withheld profile is not a deferred profile: a deferred profile has no
+# rule loaded.
+WITHHOLDING_REASONS = frozenset({"translation-order-unverified", "runtime-unknown"})
+# The plan's reasons for a retirement that can mean that this pass merely has no
+# current runtime evidence: the reading of the runtime ran out of time as a
+# whole, so that the snapshot has no network generation (`network-unknown`), the
+# snapshot is older than the profile allows (`snapshot-stale`), or the service's
+# own observation is unknown or has aged out (`endpoint-unknown`). Every other
+# reason of `planner._profile_plan` states a fact, or concerns an authority or
+# the profile's own readback, and retires as before.
+_EVIDENCE_MISSING = frozenset({"snapshot-stale", "endpoint-unknown", "network-unknown"})
+# None of the three is one statement. The runtime observer also reports as
+# unknown a container that is not the enrolled one, one that its listing does
+# not have, one that two reads describe differently, and a runtime whose
+# version, helper, network or settings are not the accepted ones or changed
+# during the read. This is the one reason of an unknown observation with which
+# a read says only that it gave no answer: it ran out of time. `unavailable` is
+# not such a reason. The observer has it for a tool that answered with an
+# error, which is how the service manager says that it has no such job and how
+# the vendor's tool says that a network or a container does not exist; and the
+# owner records it when the observer raised, which includes the observer's
+# refusal to run code that a user could replace.
+_NO_ANSWER = frozenset({"timed-out"})
 # 2**53 - 1: every JSON reader of the published report represents it exactly.
 _MAX_GATE_REVISION = 9007199254740991
+# The backend script's own exit status for a listing that ended with status 0
+# and a line on standard error that is not a known notice. A listing that failed
+# has status 1, like every other failure of the script.
+_LISTING_NOTICE_STATUS = 76
+# The operations of the script that read such a listing.
+_LISTING_OPERATIONS = frozenset(
+    {
+        "inspect",
+        "replace",
+        "states",
+        "enabled",
+        "references",
+        "translation-hooks",
+        "siblings",
+        "sibling",
+    }
+)
+# What the owner records for it wherever it records a read that failed.
+LISTING_NOTICE = "listing-notice"
+# The translation hooks of the main ruleset in the one order that is accepted:
+# the hook of the namespace every owned anchor lives below, then the vendor's
+# sharing hook where it exists, for outbound translation and again for
+# redirection. Translation rules are first match across these hooks, so a
+# vendor hook that is evaluated first translates a guest's packet before the
+# owned rule sees it. The forms are the ones an existing site's own helper
+# requires and has run against; no published source gives them.
+_TRANSLATION_HOOKS = (
+    ("nat-anchor", "com.apple/*", True),
+    ("nat-anchor", "com.apple.internet-sharing", False),
+    ("rdr-anchor", "com.apple/*", True),
+    ("rdr-anchor", "com.apple.internet-sharing", False),
+)
+# More children of the parent anchor than this are not read one by one.
+_MAX_SIBLINGS = 64
+# The bound of one whole translation-order check, in seconds, beside the bound
+# of each backend call. A check makes at most 2 + _MAX_SIBLINGS calls: the
+# hooks, the children and one per sibling. A call that answers is a shell start
+# and one or two listings; eight seconds leave each of 66 calls about 120 ms,
+# and they are two of the bounds of a single call, so one slow answer does not
+# use them up. When the bound is used up the check has not passed.
+_TRANSLATION_CHECK_SECONDS = 8.0
 
 
 class PFError(RuntimeError):
     """A complete independently verified pass could not be performed."""
+
+
+class PFListingNotice(PFError):
+    """A listing ended with status 0 and a line that is not a known notice.
+
+    Nothing was read, so everything that follows is what follows a listing that
+    failed. Only which backend operation was refused and how many unexpected
+    lines the script counted are kept: the lines are the tool's text and never
+    leave the script.
+    """
+
+    def __init__(self, operation: str, unexpected_lines: int | None) -> None:
+        super().__init__("a PF listing carried an unexpected notice; nothing was read")
+        self.operation = operation
+        self.unexpected_lines = unexpected_lines
 
 
 @dataclass(frozen=True)
@@ -94,6 +184,13 @@ class Installation:
     # What a pass does with its remembered records after a proven reboot.
     # "administrator": nothing by itself while a record is active, as before.
     cold_start: str = "administrator"
+    # What must hold in the main ruleset for a rule pair with an outbound
+    # translation. "present": the two parent hooks exist, as before.
+    translation_order: str = "present"
+    # What a pass does with a loaded rule that ends at the host's own address
+    # when it has no current runtime evidence. "retire": it is withdrawn like
+    # every other rule, as before.
+    runtime_unknown: str = "retire"
 
     def __post_init__(self) -> None:
         if (
@@ -125,6 +222,16 @@ class Installation:
             "self-heal",
         }:
             raise PFError("invalid cold-start decision")
+        if not isinstance(self.translation_order, str) or self.translation_order not in {
+            "present",
+            "verified",
+        }:
+            raise PFError("invalid translation-order decision")
+        if not isinstance(self.runtime_unknown, str) or self.runtime_unknown not in {
+            "retire",
+            "keep-host-paths",
+        }:
+            raise PFError("invalid runtime-unknown decision")
         for value in (self.report_path, self.intent_path):
             if value is not None and (
                 not isinstance(value, str) or not os.path.isabs(value) or "\x00" in value
@@ -150,13 +257,16 @@ class Installation:
         }
         if (
             not isinstance(raw, dict)
-            or set(raw) - {"enable_reference", "cold_start"} != required
+            or set(raw) - {"enable_reference", "cold_start", "translation_order", "runtime_unknown"}
+            != required
             or type(raw["schema_version"]) is not int
             or raw["schema_version"] != 1
             # One spelling per decision: a key exists only for the choice that
             # is not the default, so the default values and null are not input.
             or ("enable_reference" in raw and raw["enable_reference"] != "reacquire")
             or ("cold_start" in raw and raw["cold_start"] != "self-heal")
+            or ("translation_order" in raw and raw["translation_order"] != "verified")
+            or ("runtime_unknown" in raw and raw["runtime_unknown"] != "keep-host-paths")
         ):
             raise PFError("unsupported installation schema")
         return cls(**{key: value for key, value in raw.items() if key != "schema_version"})
@@ -171,6 +281,14 @@ class Installation:
             # Left out while it is the default: an installation that never made
             # the decision keeps the bytes it was stored with.
             del value["cold_start"]
+        if self.translation_order == "present":
+            # Left out while it is the default: an installation that never made
+            # the decision keeps the bytes it was stored with.
+            del value["translation_order"]
+        if self.runtime_unknown == "retire":
+            # Left out while it is the default: an installation that never made
+            # the decision keeps the bytes it was stored with.
+            del value["runtime_unknown"]
         return value
 
 
@@ -239,6 +357,16 @@ def admitted_digest(config: Config, profile: Profile, installation: Installation
                 {}
                 if installation.cold_start == "administrator"
                 else {"cold_start": installation.cold_start}
+            ),
+            **(
+                {}
+                if installation.translation_order == "present"
+                else {"translation_order": installation.translation_order}
+            ),
+            **(
+                {}
+                if installation.runtime_unknown == "retire"
+                else {"runtime_unknown": installation.runtime_unknown}
             ),
         }
     )
@@ -812,6 +940,14 @@ class Backend(Protocol):
     def endpoint(self, scope: Scope, ipv4: str, mac: str | None, *, direct: bool) -> bool: ...
     def ports_clear(self, scope: Scope, profile: Profile, *, apple_dns: bool) -> bool: ...
     def boot_session(self) -> str: ...
+    # Read-only listings for the translation-order check. None of them is
+    # called unless the installation chose that check.
+    def translation_hooks(self) -> str: ...
+    def sibling_anchors(self) -> str: ...
+    def sibling(self, anchor: str) -> str: ...
+    # Read-only socket inventory of one protocol for the judgement of a host
+    # path. A pass calls it only where the installation chose to keep such paths.
+    def socket_inventory(self, protocol: str) -> tuple[tuple[str, int, int, str, str], ...]: ...
 
 
 class ShellBackend:
@@ -826,13 +962,22 @@ class ShellBackend:
             raise PFError("installed mutation backend changed")
 
     def _call(self, operation: str, *arguments: str) -> str:
+        return self._printed(operation, *arguments).strip()
+
+    def _printed(self, operation: str, *arguments: str) -> str:
+        """What the operation printed, untrimmed: for a listing that is read line by line."""
         result = run(
             ["/bin/bash", str(self.script), operation, self.installation.anchor, *arguments],
             timeout=4.0,
         )
+        if result.returncode == _LISTING_NOTICE_STATUS and operation in _LISTING_OPERATIONS:
+            # Beside that status the script writes one number to its standard
+            # error. Anything else there is not a count and is not read.
+            counted = re.fullmatch(rb"([1-9][0-9]{0,5})\n", result.stderr)
+            raise PFListingNotice(operation, None if counted is None else int(counted[1]))
         if result.returncode != 0:
             raise PFError("bounded PF backend operation failed")
-        return result.stdout.decode("utf-8", errors="strict").strip()
+        return result.stdout.decode("utf-8", errors="strict")
 
     def _rules_file(self, name: str, text: str) -> Path:
         path = self.root.directory / name
@@ -913,6 +1058,31 @@ class ShellBackend:
         self._call("enabled")
         # Keep this owned reference through pause/empty rules; container runtime
         # availability must not be changed by releasing another service's PF.
+
+    def translation_hooks(self) -> str:
+        """The translation listing of the main ruleset, as the tool prints it."""
+        return self._call("translation-hooks")
+
+    def sibling_anchors(self) -> str:
+        """The children of the anchor that the owned anchor lives below, as the tool prints them.
+
+        Untrimmed: a name is taken from its line exactly as it was printed.
+        """
+        return self._printed("siblings")
+
+    def sibling(self, anchor: str) -> str:
+        """The translations and the children of one sibling anchor; empty when it has none.
+
+        The name comes from a listing. Its form is checked here and again by the
+        script before the tool is given it, and the owned anchor is not a sibling.
+        """
+        if (
+            not isinstance(anchor, str)
+            or _SIBLING.fullmatch(anchor) is None
+            or anchor == self.installation.anchor
+        ):
+            raise PFError("sibling anchor has no accepted form")
+        return self._call("sibling", anchor)
 
     def reference_held(self) -> bool:
         """Read only: the kernel lists this owner's saved token and PF is enabled.
@@ -1035,9 +1205,13 @@ class ShellBackend:
             and sum(x in {"[bridge]", "[ethernet]"} for x in arp[6:]) == 1
         )
 
+    def socket_inventory(self, protocol: str) -> tuple[tuple[str, int, int, str, str], ...]:
+        """Root's own complete socket inventory of one protocol, as the kernel lists it now."""
+        raw = self._native(["/usr/sbin/netstat", "-anlv", "-W", "-p", protocol])
+        return parse_socket_inventory(raw, protocol)
+
     def ports_clear(self, scope: Scope, profile: Profile, *, apple_dns: bool) -> bool:
-        raw = self._native(["/usr/sbin/netstat", "-anlv", "-W", "-p", profile.protocol])
-        rows = parse_socket_inventory(raw, profile.protocol)
+        rows = self.socket_inventory(profile.protocol)
         for row in rows:
             address, port, pid, command, _family = row
             selected_address = address
@@ -1542,7 +1716,9 @@ def _write_report(installation: Installation, snapshot: Snapshot) -> None:
             temporary.unlink()
 
 
-def _reference_held(backend: Backend, records: Mapping[str, Mapping[str, Any]]) -> bool | None:
+def _reference_held(
+    backend: Backend, records: Mapping[str, Mapping[str, Any]]
+) -> tuple[bool | None, bool]:
     """Whether loaded rules can count on PF being enabled under this owner's reference.
 
     A loaded rule carries nothing while PF is disabled, and only the owner's own
@@ -1551,14 +1727,311 @@ def _reference_held(backend: Backend, records: Mapping[str, Mapping[str, Any]]) 
     read that fails, or that does not list the reference, is not a verification.
     The two are told apart: False is a complete read that does not list the
     reference; None is a read that failed, after which nothing is known.
+
+    The second value says whether that read was refused for an unexpected
+    notice of the tool, which the caller records as the reason.
     """
     if not any(record["active"] for record in records.values()):
-        return True
+        return True, False
     try:
         held = backend.reference_held()
-    except (OSError, RuntimeError, ValueError):
+    except (OSError, RuntimeError, ValueError) as unread:
+        return None, isinstance(unread, PFListingNotice)
+    return (held if isinstance(held, bool) else None), False
+
+
+def _translates_outbound(rules: str) -> bool:
+    """Whether rendered rules hold an outbound translation: the UDP return pair does."""
+    return any(line.startswith("nat ") for line in rules.splitlines())
+
+
+def translation_hooks_in_order(listing: Any) -> bool:
+    """Whether the main ruleset's translation listing is exactly the accepted hooks in order.
+
+    Each line is one of the four hook forms, with or without the trailing
+    ` all` the printer may add; the two parent hooks are required, the two
+    sharing hooks may be absent; every line appears at most once and in the
+    fixed order. Any other line, order or repetition is not verified. Empty
+    lines are not hooks.
+    """
+    if not isinstance(listing, str):
+        return False
+    position = 0
+    for line in listing.split("\n"):
+        if not line:
+            continue
+        # Every hook up to the one this line names is passed; a required hook
+        # that is passed over is missing or comes later than it may.
+        while True:
+            if position == len(_TRANSLATION_HOOKS):
+                return False
+            kind, anchor, required = _TRANSLATION_HOOKS[position]
+            position += 1
+            if line in (f'{kind} "{anchor}"', f'{kind} "{anchor}" all'):
+                break
+            if required:
+                return False
+    return not any(required for _, _, required in _TRANSLATION_HOOKS[position:])
+
+
+def _listed_children(listing: Any) -> list[str] | None:
+    """The names in a listing of an anchor's children, or None when it is not such a listing.
+
+    A name is taken as the printer prints it. The printer of this lineage
+    writes each child as two spaces, its full path and a line feed (FreeBSD
+    8.4.0 `contrib/pf/pfctl/pfctl.c`, `pfctl_show_anchors`, lines 1949-1950).
+    Only that indentation is removed, and what remains must be a sibling's name
+    exactly: a line with any other white space, an empty line or any other
+    form makes the whole listing unusable, before a name of it is handed on.
+    """
+    if not isinstance(listing, str):
         return None
-    return held if isinstance(held, bool) else None
+    lines = listing.split("\n")
+    if lines[-1] == "":
+        # The line feed that ends the last line.
+        lines.pop()
+    names: list[str] = []
+    for line in lines:
+        if not line.startswith("  ") or _SIBLING.fullmatch(line[2:]) is None:
+            return None
+        names.append(line[2:])
+    return names
+
+
+def _translation_order_verified(
+    backend: Backend, anchor: str, *, clock: Callable[[], float] = time.monotonic
+) -> tuple[bool, PFListingNotice | None]:
+    """Whether nothing can translate a guest's packet before the owned rule does.
+
+    Two facts, each from a fresh read: the hooks of the main ruleset are the
+    accepted ones in order, and no sibling of the owned anchor holds a
+    translation rule or a child. The siblings are the children of the parent
+    anchor; there may be at most 64, each named once in the form of a sibling,
+    and every one but the owned anchor is read by itself. A listing that cannot
+    be read, or anything outside these bounds, is not verified.
+
+    The whole check has a bound of its own beside the bound of each call. No
+    call starts once it is used up, and a check that ends after it has not
+    passed, so a check takes at most that bound and the bound of one call.
+
+    The second value is the notice when a read was refused for an unexpected
+    notice of the tool: the caller records the reason and passes on which
+    listing it was.
+    """
+    deadline = clock() + _TRANSLATION_CHECK_SECONDS
+    try:
+        if clock() >= deadline or not translation_hooks_in_order(backend.translation_hooks()):
+            return False, None
+        if clock() >= deadline:
+            return False, None
+        names = _listed_children(backend.sibling_anchors())
+        if names is None or len(names) > _MAX_SIBLINGS or len(set(names)) != len(names):
+            return False, None
+        for name in names:
+            if name == anchor:
+                continue
+            if clock() >= deadline or backend.sibling(name) != "":
+                return False, None
+    except (OSError, RuntimeError, ValueError) as unread:
+        return False, unread if isinstance(unread, PFListingNotice) else None
+    return clock() < deadline, None
+
+
+def _host_path(
+    config: Config, profile: Profile, record: Mapping[str, Any]
+) -> tuple[PortRange, Profile] | None:
+    """The host ports and the publication of a record whose rules end at the host's own address.
+
+    Such a record is the host redirect, and the fallback form of a guest-direct
+    profile, which is recorded as one. The record and its rules must both say
+    so: an active record of that kind and target, the policy it was rendered
+    from, and rules that are exactly what the renderer writes for this profile
+    with the scope's host address as the target, so that no rule of the record
+    names another target. The ports are the ones those rules translate to; the
+    publication is the native one behind them, whose plan the profile inherits.
+    None for every other record.
+    """
+    scope = config.scope(profile.scope)
+    strategy = record["effective_strategy"]
+    if profile.kind == "host-redirect" and strategy is None:
+        publication = backing_publication(config, profile)
+        ports = profile.target_ports or profile.ports
+    elif profile.fallback_publication is not None and strategy == "degraded-fallback":
+        publication = config.profile(profile.fallback_publication)
+        ports = publication.ports
+    else:
+        return None
+    if (
+        record["active"] is not True
+        or record["kind"] != "host-redirect"
+        or record["target_ipv4"] != scope.host_ipv4
+        or record["policy_digest"] != profile_digest(config, profile)
+        or record["rules"]
+        != render_profile(config, profile, scope.host_ipv4, effective_strategy=strategy)
+    ):
+        return None
+    return ports, publication
+
+
+def _planned_then(
+    config: Config,
+    snapshot: Snapshot,
+    admissions: Mapping[str, Admission],
+    intent: Intent,
+    owned: set[str],
+    now: float,
+) -> tuple[Action, ...]:
+    """The plan of a pass's snapshot at the time the snapshot was taken.
+
+    For evidence that is present and too old: whether age alone made the plan
+    of the pass retire is what this plan says. It is the planner's own plan of
+    the same snapshot, the same admissions and the same intent, with the
+    snapshot's time as its clock. The owner's readback of its own records
+    belongs to this pass, not to the evidence, and is dated at that time for
+    it; so are the admissions that the owner itself gives the runtime's
+    publications on every pass. Everything else is taken as it is: an admission
+    that was given after the snapshot was taken is not valid at that time, and
+    an observation that is older than the snapshot is as old then as it is.
+    A snapshot dated ahead of the clock names no time at which it was taken;
+    nothing is planned for it.
+    """
+    then = snapshot.observed_at
+    if then > now:
+        return ()
+    return plan(
+        config,
+        Snapshot(
+            then,
+            snapshot.network_generation,
+            snapshot.services,
+            {
+                key: replace(item, observed_at=then) if key in owned else item
+                for key, item in snapshot.profiles.items()
+            },
+        ),
+        {
+            key: item if key in owned else replace(item, approved_at=then)
+            for key, item in admissions.items()
+        },
+        intent,
+        then,
+    ).actions
+
+
+def _evidence_missing(
+    profile: Profile,
+    publication: Profile,
+    planned: tuple[Action, ...],
+    observed: Observation | None,
+    earlier: tuple[Action, ...] = (),
+) -> bool:
+    """Whether the plan retires a profile only because the pass has no current runtime evidence.
+
+    Two things must say so. This pass's observation of the profile's service,
+    which is the service of the publication behind it as well, must state no
+    finding. Either it is unknown for the reason in `_NO_ANSWER`: its read ran
+    out of time. Or it is present and age alone made the plan retire:
+    `earlier`, the plan of the same snapshot at the time the snapshot was taken
+    (`_planned_then`), has exactly one action for the profile, the verified
+    no-op that leaves a loaded rule untouched. Present evidence that states
+    another instance, generation, contract, address or publication is a
+    finding, however old it is. And the reason of the profile's withdrawal must
+    be one of `_EVIDENCE_MISSING`. A reason that it inherits from the native
+    publication behind it, `publication-not-ready`, counts only when every
+    action the plan has for that publication carries such a reason itself. A
+    snapshot without a network generation counts only with a service whose
+    read ran out of time: a present service beside it is not what such a read
+    leaves.
+    """
+    if observed is None:
+        return False
+    if observed.state == "present":
+        then = [
+            (action.operation, action.reason) for action in earlier if action.profile == profile.id
+        ]
+        if then != [("noop", "verified")]:
+            return False
+    elif observed.reason not in _NO_ANSWER:
+        # Only an unknown observation can carry that reason.
+        return False
+    reasons = {
+        action.reason
+        for action in planned
+        if action.profile == profile.id and action.operation == "withdraw"
+    }
+    if reasons == {"publication-not-ready"}:
+        reasons = {action.reason for action in planned if action.profile == publication.id}
+    if "network-unknown" in reasons and observed.reason not in _NO_ANSWER:
+        return False
+    return bool(reasons) and reasons <= _EVIDENCE_MISSING
+
+
+def _listening(
+    rows: tuple[tuple[str, int, int, str, str], ...], host_ipv4: str, ports: PortRange
+) -> bool:
+    """Whether a socket inventory lists a listener on every one of the ports.
+
+    A listener is a row of an IPv4 or dual-stack socket whose local address is
+    the wildcard or the host's own address. For TCP the inventory holds only
+    sockets in the listening state. UDP has no such state: there it is a socket
+    bound to the port.
+    """
+    heard = {
+        port
+        for address, port, _pid, _command, family in rows
+        if family == "IPv4" and address in {"*", host_ipv4}
+    }
+    return all(port in heard for port in range(ports.first, ports.last + 1))
+
+
+def _inventory(
+    backend: Backend,
+    inventories: dict[str, tuple[tuple[str, int, int, str, str], ...] | None],
+    protocol: str,
+) -> tuple[tuple[str, int, int, str, str], ...] | None:
+    """A pass's socket inventory of one protocol, read once; None when it could not be read."""
+    if protocol not in inventories:
+        try:
+            inventories[protocol] = backend.socket_inventory(protocol)
+        except (OSError, RuntimeError, ValueError):
+            # Not an empty inventory: nothing is known, so no listener is established.
+            inventories[protocol] = None
+    return inventories[protocol]
+
+
+def _judged(
+    backend: Backend,
+    config: Config,
+    records: Mapping[str, Mapping[str, Any]],
+    candidates: Mapping[str, PortRange],
+) -> tuple[dict[str, str], bool]:
+    """The host paths a pass keeps, of those its plan retires only for missing evidence.
+
+    This is all that is read for the judgement, and a pass reads it before its
+    first action. First the owner's enable reference, with the reader of every
+    pass's final readback: it must be held and listed now. A loaded rule
+    carries nothing while PF is disabled, and the owner never takes the
+    reference for a rule that it has no evidence for; an answer that it is not
+    held, and a read that failed, keep nothing, and the inventory is then not
+    read. Then root's own socket inventory, once for each protocol of a
+    candidate: it must list a listener of the profile's protocol on every port
+    the rule translates to. Whatever is not kept is retired where the plan has
+    it, as it always was.
+
+    The second value says whether the reference read was refused for an
+    unexpected notice of the tool, which the caller records.
+    """
+    held, refused = _reference_held(backend, records)
+    if held is not True:
+        return {}, refused
+    kept: dict[str, str] = {}
+    inventories: dict[str, tuple[tuple[str, int, int, str, str], ...] | None] = {}
+    for key, ports in candidates.items():
+        profile = config.profile(key)
+        rows = _inventory(backend, inventories, profile.protocol)
+        if rows is not None and _listening(rows, config.scope(profile.scope).host_ipv4, ports):
+            kept[key] = "runtime-unknown"
+    return kept, False
 
 
 def _deferrals(deferred: Mapping[str, str]) -> dict[str, str]:
@@ -1566,6 +2039,26 @@ def _deferrals(deferred: Mapping[str, str]) -> dict[str, str]:
     if not DEFERRAL_REASONS.issuperset(deferred.values()):
         raise PFError("unknown deferral reason")
     return dict(sorted(deferred.items()))
+
+
+def _withholdings(withheld: Mapping[str, str]) -> dict[str, str]:
+    """A pass's withheld pairs with their reasons, in one order; the vocabulary is closed."""
+    if not WITHHOLDING_REASONS.issuperset(withheld.values()):
+        raise PFError("unknown withholding reason")
+    return dict(sorted(withheld.items()))
+
+
+def _refused_listing(notice: PFListingNotice) -> dict[str, Any]:
+    """Which listing was refused for a notice and how many lines the script counted.
+
+    Closed words and a number, never the tool's text: what a command writes to
+    standard error when such a read ends it, and what a pass hands back when it
+    absorbed one in the translation-order check.
+    """
+    refused: dict[str, Any] = {"operation": notice.operation}
+    if notice.unexpected_lines is not None:
+        refused["unexpected_lines"] = notice.unexpected_lines
+    return refused
 
 
 def reconcile(
@@ -1686,7 +2179,7 @@ def reconcile(
         stamp = now()
         try:
             snapshot = _snapshot(config, runtime, records, backend, stamp, installation.owner)
-        except (OSError, RuntimeError, ValueError):
+        except (OSError, RuntimeError, ValueError) as unread:
             # Unknown state metadata must not retain known active exposure. The
             # anchor was already exactly identified, so withdrawal is safe;
             # no activation or claimed state-drain success follows this read.
@@ -1720,7 +2213,10 @@ def reconcile(
                     "phase": "failed",
                     "candidate_records": retired,
                     "failed_at": stamp,
-                    "reason": "kernel-state-unknown",
+                    # The same outcome either way; the record says which it was.
+                    "reason": LISTING_NOTICE
+                    if isinstance(unread, PFListingNotice)
+                    else "kernel-state-unknown",
                     **boot,
                 },
             )
@@ -1787,6 +2283,35 @@ def reconcile(
         actions = [action for action in actions if action.operation == "withdraw"] + [
             action for action in actions if action.operation != "withdraw"
         ]
+        # Where the installation chose it, a loaded rule that ends at the host's
+        # own address is not retired merely because this pass has no current
+        # runtime evidence. Which profiles that can concern is decided here,
+        # from the records, the policy, the plan and the snapshot the plan was
+        # made from: nothing is read for it. Whether such a rule is kept is
+        # judged below, before the first action of the pass, so that no rule is
+        # loaded and unjudged while the pass acts. The plan keeps the order it
+        # has above: a rule that is not kept is retired where the plan has it,
+        # with every other rule.
+        candidates: dict[str, PortRange] = {}
+        if installation.runtime_unknown == "keep-host-paths":
+            withdrawn = {
+                action.profile for action in candidate.actions if action.operation == "withdraw"
+            }
+            earlier: tuple[Action, ...] | None = None
+            for key in sorted(owned & set(records) & withdrawn):
+                host_profile = config.profile(key)
+                path = _host_path(config, host_profile, records[key])
+                observed = snapshot.services.get(host_profile.service)
+                if path is None or observed is None:
+                    continue
+                if observed.state == "present" and earlier is None:
+                    # Evidence that is present although the plan retires: what
+                    # the same snapshot says at the time it was taken.
+                    earlier = _planned_then(config, snapshot, admissions, intent, owned, stamp)
+                if _evidence_missing(
+                    host_profile, path[1], candidate.actions, observed, earlier or ()
+                ):
+                    candidates[key] = path[0]
         root.write(
             "journal.json",
             {
@@ -1804,7 +2329,28 @@ def reconcile(
         changed: list[str] = []
         acquired = False
         deferred: dict[str, str] = {}
+        # A read that this pass absorbed, in a deferral or in the check of a
+        # loaded pair, was refused for an unexpected notice of the tool. The
+        # outcome is that of a read that failed; the final journal record names
+        # the notice unless the reference readback established something more
+        # specific.
+        noticed = False
+        # The first read of the translation-order check that was refused for a
+        # notice in this pass: its operation and count are handed back with the
+        # result, so that the listing can be told from the others.
+        order_notice: PFListingNotice | None = None
+        # The host paths this pass keeps although its plan would retire them,
+        # and the ones it kept at first and retired after all, before it took
+        # the enable reference: their planned actions are settled.
+        kept: dict[str, str] = {}
+        settled: set[str] = set()
         try:
+            if candidates:
+                # The judgement, before anything is written: the enable
+                # reference and the socket inventory are all that is read for
+                # it, and only a pass with a candidate reads them.
+                kept, refused_reference = _judged(backend, config, records, candidates)
+                noticed = noticed or refused_reference
             for action in actions:
                 if action.operation in {"blocked", "pending", "noop"}:
                     continue
@@ -1816,6 +2362,10 @@ def reconcile(
                     config
                 ):
                     raise PFError("protected desired snapshot changed during pass")
+                if action.profile in kept or action.profile in settled:
+                    # Kept: neither withdrawn nor drained, nothing is written
+                    # for it. Settled: its retirement was carried out already.
+                    continue
                 if action.operation == "activate":
                     # Nothing has been written for this profile in this pass.
                     # A precondition that is not met leaves it without a rule
@@ -1838,7 +2388,8 @@ def reconcile(
                         )
                         fresh_intent = _inhibition(root, installation)
                         fresh_plan = plan(config, fresh_snapshot, admissions, fresh_intent, now())
-                    except (OSError, RuntimeError, ValueError):
+                    except (OSError, RuntimeError, ValueError) as unread:
+                        noticed = noticed or isinstance(unread, PFListingNotice)
                         deferred[action.profile] = "evidence-unavailable"
                         continue
                     if action not in fresh_plan.actions:
@@ -1874,10 +2425,71 @@ def reconcile(
                     if not clear:
                         deferred[action.profile] = "ports-unverified"
                         continue
+                    if installation.translation_order == "verified" and _translates_outbound(
+                        render_profile(
+                            config,
+                            profile,
+                            action.target_ipv4,
+                            effective_strategy=action.effective_strategy,
+                        )
+                    ):
+                        # Only for a pair with an outbound translation, and only
+                        # where the installation chose it: nothing may translate
+                        # the guest's packets before the pair does.
+                        ordered, notice = _translation_order_verified(backend, installation.anchor)
+                        if notice is not None:
+                            noticed = True
+                            order_notice = order_notice or notice
+                        if not ordered:
+                            deferred[action.profile] = "translation-order-unverified"
+                            continue
                     # From here on a failure is a write in doubt, not a deferral:
                     # the enable reference and the rule load change the kernel.
-                    backend.ensure_reference()
-                    acquired = True
+                    if kept:
+                        # The reference is never taken while a kept host path is
+                        # loaded: enabling PF puts every loaded rule into effect,
+                        # and this pass has no evidence for a kept one. It was
+                        # held when the pass judged. It is read back again here,
+                        # and unless it is held and listed now, every kept rule
+                        # is retired before it is taken: this activation then
+                        # finds what it finds without the decision. A host
+                        # redirect has no state to invalidate, so its record
+                        # goes with its rule, as at its drain.
+                        still_held, refused_reference = _reference_held(backend, records)
+                        noticed = noticed or refused_reference
+                        if still_held is not True:
+                            update = {
+                                key: value for key, value in records.items() if key not in kept
+                            }
+                            before = compose_rules(records)
+                            after = compose_rules(update)
+                            root.write(
+                                "journal.json",
+                                {
+                                    "schema_version": 1,
+                                    "phase": "failed" if needs_ack else "applying",
+                                    "actions": [asdict(item) for item in actions],
+                                    "candidate_records": update,
+                                    "started_at": stamp,
+                                    **boot,
+                                },
+                            )
+                            if before != after:
+                                backend.replace(before, after)
+                                if backend.inspect() != backend.normalize(after):
+                                    raise PFError("PF write readback did not match candidate")
+                            records = update
+                            root.write("live.json", {"schema_version": 1, "records": records})
+                            for key in sorted(kept):
+                                changed.extend((f"{key}:withdraw", f"{key}:drain"))
+                            settled.update(kept)
+                            kept = {}
+                    # With a kept rule still loaded, the reference was read back
+                    # as held and listed a moment ago: nothing is to be taken,
+                    # and the one call that can take it is not made.
+                    if not kept:
+                        backend.ensure_reference()
+                        acquired = True
                     update = dict(records)
                     update[action.profile] = {
                         "active": True,
@@ -1983,7 +2595,7 @@ def reconcile(
             # Read on every pass that leaves a rule loaded, not only at an
             # activation: another tool can disable PF at any time, which also
             # drops every enable reference.
-            held = _reference_held(backend, records)
+            held, refused = _reference_held(backend, records)
             reacquired = False
             if (
                 held is False
@@ -1994,6 +2606,10 @@ def reconcile(
                 and all(
                     key in verified_profiles for key, record in records.items() if record["active"]
                 )
+                # Never by a pass that keeps a host path, even where its final
+                # evidence verifies that rule again: the pass after it, which
+                # has that evidence from its start, takes the reference.
+                and not kept
                 and not _inhibition(root, installation).blocked
             ):
                 # The administrator chose that a reference which a complete read
@@ -2008,8 +2624,33 @@ def reconcile(
                 # every pass would take another one each time.
                 backend.ensure_reference()
                 reacquired = True
-                held = _reference_held(backend, records)
+                held, refused = _reference_held(backend, records)
             reference_verified = held is True
+            # Where the installation chose the translation-order check, a pair
+            # that is loaded is gated in its readiness only. The check is made
+            # once, here, after every action of the pass, so that no withdrawal
+            # and no drain waits for its reads. If it does not pass, or cannot
+            # be read, each loaded pair is withheld: its rules stay loaded and
+            # unchanged, and it is not reported ready. Nothing is withdrawn or
+            # invalidated for this reason: an unverified translation order can
+            # cost the path, it cannot expose a guest.
+            # A host path that this pass kept is withheld as well: it was judged
+            # before the first action of the pass, and it is not reported ready.
+            withheld: dict[str, str] = dict(kept)
+            if installation.translation_order == "verified":
+                pairs = [
+                    key
+                    for key, record in records.items()
+                    if record["active"] and _translates_outbound(record["rules"])
+                ]
+                if pairs:
+                    ordered, notice = _translation_order_verified(backend, installation.anchor)
+                    if notice is not None:
+                        noticed = True
+                        order_notice = order_notice or notice
+                    if not ordered:
+                        withheld.update(dict.fromkeys(pairs, "translation-order-unverified"))
+            withheld = _withholdings(withheld)
             phase = (
                 "failed"
                 if needs_ack
@@ -2017,6 +2658,7 @@ def reconcile(
                     "committed"
                     if reference_verified
                     and not deferred
+                    and not withheld
                     and all(
                         action.operation == "noop"
                         for action in status.actions
@@ -2032,8 +2674,23 @@ def reconcile(
                     "phase": phase,
                     "actions": [asdict(action) for action in actions],
                     "finished_at": now(),
-                    **({} if reference_verified else {"reason": "enable-reference-unverified"}),
+                    # One reason per record, and a notice never hides a finding.
+                    # The last reference readback decides: refused for a notice,
+                    # it is the notice; completed without listing the token, or
+                    # failed, it is the unverified reference, as before, whatever
+                    # another read of the pass was refused for. With the
+                    # reference verified, a pass that absorbed a notice, in a
+                    # deferral or in the check of a loaded pair, ends as after a
+                    # read that failed, never `committed`, and names it here.
+                    **(
+                        {"reason": LISTING_NOTICE}
+                        if refused or (noticed and reference_verified)
+                        else {}
+                        if reference_verified
+                        else {"reason": "enable-reference-unverified"}
+                    ),
                     **({"deferred": deferred} if deferred else {}),
+                    **({"withheld": withheld} if withheld else {}),
                     **boot,
                 },
             )
@@ -2069,6 +2726,7 @@ def reconcile(
                     and key in verified_profiles
                     and reference_verified
                     and key not in deferred
+                    and key not in withheld
                 )
                 data["admission_digest"] = (
                     admitted_digest(config, profile, installation) if valid_approval else None
@@ -2076,6 +2734,8 @@ def reconcile(
                 data["policy_digest"] = profile_digest(config, config.profile(key))
                 if key in deferred:
                     data["deferred"] = deferred[key]
+                if key in withheld:
+                    data["withheld"] = withheld[key]
                 # What a workload manager waits for before a planned stop, without
                 # a call into root: this pass ended knowing the hold, by the
                 # revision of the file the manager wrote, and the state and the
@@ -2098,10 +2758,15 @@ def reconcile(
             report(
                 installation, Snapshot(final.observed_at, final.network_generation, {}, published)
             )
+            # A kept host path has its rules and is not pending, whatever the
+            # final plan says of it: that is `blocked` for as long as runtime
+            # evidence stays unknown.
             pending = [
                 action.profile
                 for action in status.actions
-                if action.profile in owned and action.operation in {"pending", "blocked"}
+                if action.profile in owned
+                and action.operation in {"pending", "blocked"}
+                and action.profile not in kept
             ]
             pending.extend(key for key in deferred if key not in pending)
             return {
@@ -2110,14 +2775,29 @@ def reconcile(
                 "changed": changed,
                 "pending": pending,
                 **({"deferred": deferred} if deferred else {}),
+                # Reported where a deferral is and in its shape, but apart from
+                # it and not among the pending: a withheld pair has its rules.
+                **({"withheld": withheld} if withheld else {}),
                 # Enabling PF again is never silent: the result says so, and the
                 # scheduled job writes such a result to its log.
                 **({"reference": "reacquired"} if reacquired else {}),
+                # A read of the translation-order check that was refused for a
+                # notice did not end the pass, so no error names its listing.
+                # The result does, and the entry point writes it to standard
+                # error as it does for a refused listing that ends a command.
+                **(
+                    {"listing_notice": _refused_listing(order_notice)}
+                    if order_notice is not None
+                    else {}
+                ),
             }
-        except BaseException:
+        except BaseException as failure:
             failed_journal = root.read("journal.json")
             failed_journal["phase"] = "failed"
             failed_journal["failed_at"] = now()
+            if isinstance(failure, PFListingNotice):
+                # Failed as for a listing that failed; the record says which.
+                failed_journal["reason"] = LISTING_NOTICE
             root.write("journal.json", failed_journal)
             raise
 
@@ -2396,6 +3076,16 @@ def admit(
                     if installation.cold_start == "administrator"
                     else {"cold_start": installation.cold_start}
                 ),
+                **(
+                    {}
+                    if installation.translation_order == "present"
+                    else {"translation_order": installation.translation_order}
+                ),
+                **(
+                    {}
+                    if installation.runtime_unknown == "retire"
+                    else {"runtime_unknown": installation.runtime_unknown}
+                ),
             },
         }
 
@@ -2561,6 +3251,16 @@ def main(argv: list[str] | None = None) -> int:
                             if installation.cold_start == "administrator"
                             else {"cold_start": installation.cold_start}
                         ),
+                        **(
+                            {}
+                            if installation.translation_order == "present"
+                            else {"translation_order": installation.translation_order}
+                        ),
+                        **(
+                            {}
+                            if installation.runtime_unknown == "retire"
+                            else {"runtime_unknown": installation.runtime_unknown}
+                        ),
                         "expected_digest": admitted_digest(config, profile, installation),
                         "previous": _read_admissions(root.read("admissions.json")).get(profile.id),
                         "risk_acknowledgement_required": profile.safety.kind == "bounded",
@@ -2622,22 +3322,41 @@ def main(argv: list[str] | None = None) -> int:
             or result.get("reference")
         ):
             print(canonical_bytes(result).decode("utf-8"))
+        if args.command == "reconcile" and "listing_notice" in result:
+            # The pass absorbed a refused read of its translation-order check
+            # and completed. Which listing it was goes to standard error in the
+            # line that a refused listing writes when it ends a command.
+            print(
+                canonical_bytes(
+                    {
+                        "schema_version": 1,
+                        "error": PFListingNotice.__name__,
+                        "reason": LISTING_NOTICE,
+                        **result["listing_notice"],
+                    }
+                ).decode("utf-8"),
+                file=sys.stderr,
+            )
         return 0
     except StageNotQualified as exc:
         print(canonical_bytes(exc.to_dict()).decode("utf-8"), file=sys.stderr)
         return NOT_QUALIFIED
     except (OSError, RuntimeError, ValueError, KeyError) as exc:
         # Operational stderr never exposes addresses, credentials or raw tools.
-        print(
-            canonical_bytes(
-                {
-                    "schema_version": 1,
-                    "error": type(exc).__name__,
-                    "reason": "independent owner operation failed; inspect protected journal",
-                }
-            ).decode("utf-8"),
-            file=sys.stderr,
-        )
+        failure: dict[str, Any] = {
+            "schema_version": 1,
+            "error": type(exc).__name__,
+            "reason": "independent owner operation failed; inspect protected journal",
+        }
+        if isinstance(exc, PFListingNotice):
+            # Still none of the tool's text: the closed reason, which of the
+            # backend's own operations was refused, and how many unexpected
+            # lines the script counted when it could count them.
+            failure["reason"] = LISTING_NOTICE
+            failure["operation"] = exc.operation
+            if exc.unexpected_lines is not None:
+                failure["unexpected_lines"] = exc.unexpected_lines
+        print(canonical_bytes(failure).decode("utf-8"), file=sys.stderr)
         return 75 if type(exc).__name__ == "Busy" else 65
 
 
