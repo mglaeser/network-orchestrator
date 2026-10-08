@@ -26,7 +26,13 @@ from netorch.state import Intent, Observation, admissions_to_dict, intent_to_dic
 
 
 @pytest.fixture
-def enrolled(tmp_path):
+def enrolled(tmp_path, monkeypatch):
+    # This fixture supplies mocked vendor reads. Keep native ACL I/O in its
+    # dedicated tests below, too: concurrent test directory creation can change
+    # a shared ancestor while /bin/ls runs and correctly invalidate its snapshot.
+    # Identity metadata and deadline checks remain live; ACL-specific tests can
+    # replace this syscall stub explicitly.
+    monkeypatch.setattr(runtime, "reject_acl", lambda _path, **_kwargs: None)
     config = load_config(Path(__file__).resolve().parents[1] / "examples/network.json")
     uid, gid = os.geteuid(), os.getegid()
     contracts, items = [], {}
@@ -86,7 +92,10 @@ def enrolled(tmp_path):
             for service in config.services
         ),
     )
+    state = tmp_path / "state"
+    state.mkdir(mode=0o700)
     paths = {key: tmp_path / (key + ".json") for key in ("policy", "admissions", "intent")}
+    paths["intent"] = state / "intent.json"
     values = {
         "policy": to_dict(config),
         "admissions": admissions_to_dict(mock_admissions(config)),

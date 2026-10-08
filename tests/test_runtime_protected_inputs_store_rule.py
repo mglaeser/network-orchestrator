@@ -77,6 +77,9 @@ def alone(site: Site, tmp_path: Path, record: str) -> tuple[Any, Any, FakeRunner
     elsewhere.write(other + ".json", store.read(other + ".json"))
     (store.directory / (other + ".json")).unlink()
     settings = replace(settings, **{other: str(elsewhere.directory / (other + ".json"))})
+    if other == "intent":
+        # Keep operator intent bound to its own lock while isolating admissions.
+        settings = replace(settings, state_dir=str(elsewhere.directory))
     return config, settings, runner, store.directory
 
 

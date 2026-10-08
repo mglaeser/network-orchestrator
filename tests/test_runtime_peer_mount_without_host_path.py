@@ -46,6 +46,7 @@ from netorch.state import Intent, intent_to_dict
 from netorch.storage import Store
 from tests.test_apple_runtime import FakeRunner, enrolled
 from tests.test_pf_owner import FakeBackend
+from tests.test_runtime_fleet_start import declared
 from tests.test_runtime_tolerated_stopped_peer import tolerating
 
 __all__ = ["enrolled"]
@@ -552,8 +553,7 @@ def test_a_guest_memory_row_of_another_shape_is_still_malformed(
 def test_the_tolerance_setting_is_still_what_accepts_a_stopped_second_writer(
     enrolled: Any, state: str, tolerated: bool, expected: tuple[str, str]
 ) -> None:
-    config, settings, items = enrolled
-    runner = FakeRunner(settings, items)
+    config, settings, runner = declared(enrolled)
     # A definition that really names the camera's host directory, and has guest
     # memory as well. Only the camera's contract can tolerate it.
     define(

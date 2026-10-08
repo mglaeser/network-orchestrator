@@ -727,19 +727,22 @@ def test_a_lowered_budget_and_a_retired_service_are_read_without_surprise(enroll
 
 def test_recovery_refuses_a_budget_whose_hold_it_could_not_write(enrolled: Any) -> None:
     config, settings, items = enrolled
-    # The intent of these settings lies outside their state directory. The
-    # loader refuses that with a budget; settings built in code end here.
-    assert settings.intent != str(Path(settings.state_dir) / "intent.json")
+    # Deliberately move intent outside the operation lock's authoritative store.
+    other = Path(settings.state_dir).parent / "other-intent.json"
+    other.write_bytes(Path(settings.intent).read_bytes())
+    other.chmod(0o600)
+    settings = replace(settings, intent=str(other))
     budgeted = replace(settings, restart_budget=runtime_settings.RestartBudget(3, 600))
     runner = FakeRunner(budgeted, items)
     runner.items["example-camera"]["status"]["state"] = "stopped"
     with pytest.raises(ValueError, match="restart budget"):
         runtime.recover_service(config, budgeted, "camera", runner, wall=lambda: T0)
     assert runner.calls == []
-    assert not Path(settings.state_dir).exists()
-    # Without the budget the same settings recover as they always did.
-    recovered = runtime.recover_service(config, settings, "camera", runner)
-    assert recovered.services["camera"].state == "present"
+    assert not (Path(settings.state_dir) / "restart-budget.json").exists()
+    # Omitting the budget cannot bypass the same operator pause authority.
+    with pytest.raises(runtime.RuntimeReadError):
+        runtime.recover_service(config, settings, "camera", runner)
+    assert not starts(runner)
 
 
 def test_the_start_command_ends_like_a_start_that_a_hold_refuses(
@@ -816,21 +819,21 @@ def _authored() -> dict[str, Any]:
         "state_dir": "/private/state",
         "start_timeout_seconds": 15,
         "fleet_start": {
-            "api_label": ".".join(["example", "vendor", "api"]),
+            "api_label": "com.apple.container.apiserver",
             "api_executable": "/Library/ExampleVendor/libexec/api-server",
-            "runtime_label_prefix": ".".join(["example", "vendor", ""]),
+            "runtime_label_prefix": "com.apple.container.",
         },
     }
 
 
 def test_settings_without_a_budget_keep_their_bytes() -> None:
-    """Every literal below was computed with the tree this change is based on."""
+    """Vendor identity fixture changed; undeclared shipped bytes remain pinned."""
     settings = parse_settings(_authored())
     stored = canonical_bytes(settings_to_dict(settings))
     assert b"restart_budget" not in stored
     assert (
         hashlib.sha256(stored).hexdigest()
-        == "ae39cf85f604d2651db5c486742ecbab4d598222ecc90e493b94b9313adaf1c6"
+        == "0a04e844aa59161821368f48993b4ce44f5c65204241e008c351a52ec7ecf692"
     )
     assert (
         contract_digest(settings.contract("camera"))

@@ -42,9 +42,9 @@ __all__ = ["enrolled"]
 ROOT = Path(__file__).resolve().parents[1]
 # Assembled at run time: the public host-data guard reads a literal as a site namespace.
 NAMESPACE = ".".join(["org", "example"])
-API_LABEL = f"{NAMESPACE}.vendor-api"
+API_LABEL = "com.apple.container.apiserver"
 API_PROGRAM = "/usr/libexec/example-api"
-JOB_PREFIX = f"{NAMESPACE}.runtime."
+JOB_PREFIX = "com.apple.container."
 JOB = f"{NAMESPACE}.job"
 HANDLER = "example-runtime"
 DECLARATION = {
@@ -132,8 +132,13 @@ class FleetRunner(FakeRunner):
             if label.startswith(JOB_PREFIX):
                 self.calls.append((argv, kwargs))
                 assert kwargs["max_output"] == 262_144 and 0 < kwargs["timeout"] <= 3
-                name = label.removeprefix(f"{JOB_PREFIX}{HANDLER}.")
-                assert name in self.items, argv
+                matches = [
+                    name
+                    for name, item in self.items.items()
+                    if label == f"{JOB_PREFIX}{item['configuration'].get('runtimeHandler')}.{name}"
+                ]
+                assert len(matches) == 1, argv
+                name = matches[0]
                 if self.job_print is not None:
                     return self.job_print
                 if name in self.jobs.get(domain, set()):
@@ -190,7 +195,9 @@ def job_reads(runner: FakeRunner) -> list[str]:
     return [
         argv[2]
         for argv, _ in runner.calls
-        if argv[:2] == ["/bin/launchctl", "print"] and f"/{JOB_PREFIX}" in argv[2]
+        if argv[:2] == ["/bin/launchctl", "print"]
+        and f"/{JOB_PREFIX}" in argv[2]
+        and not argv[2].endswith("/" + API_LABEL)
     ]
 
 
@@ -573,12 +580,16 @@ def test_the_declaration_is_closed_and_strict(case: str) -> None:
         parse_settings({**authored(), "fleet_start": {**DECLARATION, **REFUSED_MEMBERS[case]}})
 
 
-def test_the_declaration_accepts_its_bounds() -> None:
-    longest = {"api_label": "a" * 128, "runtime_label_prefix": "a" * 96 + "."}
-    parsed = parse_settings({**authored(), "fleet_start": {**DECLARATION, **longest}})
-    assert settings_to_dict(parsed)["fleet_start"] == {**DECLARATION, **longest}
-    shortest = {"api_label": "a", "runtime_label_prefix": "a."}
-    assert parse_settings({**authored(), "fleet_start": {**DECLARATION, **shortest}}).fleet_start
+@pytest.mark.parametrize(
+    "changed",
+    [
+        {"api_label": "a" * 128, "runtime_label_prefix": "a" * 96 + "."},
+        {"api_label": "a", "runtime_label_prefix": "a."},
+    ],
+)
+def test_syntactically_valid_foreign_labels_are_not_vendor_evidence(changed: Any) -> None:
+    with pytest.raises(ValueError):
+        parse_settings({**authored(), "fleet_start": {**DECLARATION, **changed}})
 
 
 @pytest.mark.parametrize("missing", sorted(DECLARATION))

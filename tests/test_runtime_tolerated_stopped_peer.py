@@ -12,6 +12,7 @@ from netorch import apple_runtime as runtime
 from netorch.codec import digest
 from netorch.runtime_settings import contract_digest, parse_settings, settings_to_dict
 from tests.test_apple_runtime import FakeRunner, enrolled
+from tests.test_runtime_fleet_start import declared
 from tests.test_runtime_settings import authored
 
 __all__ = ["enrolled"]
@@ -26,6 +27,8 @@ def retain(runner: FakeRunner, name: str = RETAINED, state: str = "stopped") -> 
     """Add a second definition over the camera's writable host path."""
     peer = copy.deepcopy(runner.items["example-camera"])
     peer["id"] = name
+    if "id" in peer["configuration"]:
+        peer["configuration"]["id"] = name
     peer["status"] = {"state": state, "networks": []}
     if state == "running":
         peer["status"]["startedDate"] = "2026-01-01T00:00:05Z"
@@ -57,8 +60,7 @@ def test_a_stopped_peer_is_refused_unless_it_is_enrolled(enrolled: Any) -> None:
 
 
 def test_an_enrolled_stopped_peer_is_tolerated(enrolled: Any) -> None:
-    config, settings, items = enrolled
-    runner = FakeRunner(settings, items)
+    config, settings, runner = declared(enrolled)
     retain(runner)
     config, settings = tolerating(config, settings, "camera", RETAINED)
     observed = runtime.observe_runtime(config, settings, runner, clock=lambda: 1000)
@@ -76,8 +78,7 @@ def test_an_enrolled_peer_that_is_not_stopped_is_refused(enrolled: Any, state: s
 
 
 def test_the_tolerance_covers_only_the_enrolled_name(enrolled: Any) -> None:
-    config, settings, items = enrolled
-    runner = FakeRunner(settings, items)
+    config, settings, runner = declared(enrolled)
     retain(runner)
     retain(runner, name="another-retained-definition")
     config, settings = tolerating(config, settings, "camera", RETAINED)
@@ -96,11 +97,11 @@ def test_the_tolerance_belongs_to_one_contract(enrolled: Any) -> None:
 
 
 def test_recovery_starts_the_workload_and_never_the_tolerated_peer(enrolled: Any) -> None:
-    config, settings, items = enrolled
-    runner = FakeRunner(settings, items)
+    config, settings, runner = declared(enrolled)
     retain(runner)
     config, settings = tolerating(config, settings, "camera", RETAINED)
     runner.items["example-camera"]["status"]["state"] = "stopped"
+    runner.jobs[runner.domain].discard("example-camera")
     recovered = runtime.recover_service(config, settings, "camera", runner)
     assert recovered.services["camera"].state == "present"
     starts = [argv for argv, _ in runner.calls if argv[1:2] == ["start"]]

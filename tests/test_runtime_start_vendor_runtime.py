@@ -455,10 +455,12 @@ def test_the_declaration_needs_the_vendor_label_the_own_domain_and_a_printable_p
     assert parse_settings({**authored(), "fleet_start": declared}).fleet_start is not None
     # The vendor's start command loads one job only: absence of another label proves nothing.
     other = {**declared, "api_label": ".".join(["org", "example", "vendor-api"])}
-    with pytest.raises(ValueError, match="vendor's API label"):
+    with pytest.raises(ValueError, match="fleet start declaration"):
         parse_settings({**authored(), "fleet_start": other})
     undeclared = {key: value for key, value in other.items() if key != "runtime_start"}
-    assert parse_settings({**authored(), "fleet_start": undeclared}).fleet_start is not None
+    # Omitting the vendor-start action cannot permit a false stopped-fleet proof.
+    with pytest.raises(ValueError, match="fleet start declaration"):
+        parse_settings({**authored(), "fleet_start": undeclared})
     system = authored()
     system["networks"][0]["helper_domain"] = "system"
     assert parse_settings({**system, "fleet_start": dict(FLEET_ONLY)}).fleet_start is not None

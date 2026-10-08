@@ -29,21 +29,22 @@ ROOT = Path(__file__).resolve().parents[1]
 LIMIT = MAX_JSON_BYTES
 REDACTED = '{"error":"runtime-evidence-or-authority-incomplete"}\n'
 VOLUME = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
-# Assembled at run time: the public host-data guard reads a literal as a site namespace.
-NAMESPACE = ".".join(["org", "example"])
+# Platform constants, not a synthetic alternative namespace: another label cannot prove a stop.
 DECLARATION = {
-    "api_label": f"{NAMESPACE}.vendor-api",
+    "api_label": "com.apple.container.apiserver",
     "api_executable": "/usr/libexec/example-api",
-    "runtime_label_prefix": f"{NAMESPACE}.runtime.",
+    "runtime_label_prefix": "com.apple.container.",
 }
 FLEET = FleetStart(**DECLARATION)
 # SHA-256 of the canonical form `settings_to_dict` gives, taken from the tree
-# before the unset declaration was dropped earlier: no byte of any of them moves.
+# before the unset declaration was dropped earlier. Declared fixtures now use
+# the source-defined vendor labels; their expected hashes were recomputed for
+# that deliberate fixture-input change, not a serialization change.
 BASE_FORM = {
     "example": "d1307ffc7cb45fb28b71c4cd190e57a4f8548b76b28a66fad9c4eec52cc28ab8",
-    "example-declared": "e3b10f0dbe9e171160414dad0453eee1cc972f0f0d5c4f1391ae766d06016444",
+    "example-declared": "8bad530ee4454b91f756cb62eab5e6244f643e7150155426b7671c7715b612c3",
     "every-member": "74291cd0a91bfabb879201824a013ac00b9f445a6f768b32001241ea265a1a89",
-    "every-member-declared": "51b5b2b5b8747011fc2534761712a84f8fe11a0adc36447cbd50307c90d14036",
+    "every-member-declared": "9d892ce28fd9bbf36fe08db71ed54c1bfa3449c81c22c18f66302ef86c3a7b4d",
 }
 
 

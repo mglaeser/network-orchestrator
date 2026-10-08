@@ -28,6 +28,18 @@ loader. Operator data supplies:
 | Fleet start (optional) | launchd label and program of the vendor API job, label prefix of the per-guest runtime jobs; left out, the all-stopped guard applies |
 | Runtime start (optional, inside fleet start) | Application root and install root for which the supervisor may run the vendor's own start command, optional bound of that call; left out, nothing here starts the vendor runtime |
 
+The optional `fleet_start` declaration must name API label
+`com.apple.container.apiserver` and runtime label prefix `com.apple.container.`.
+These are vendor platform constants at accepted tags 1.2.0, 1.4.1 and 1.5.0:
+[`Plugin.getLaunchdLabel`](https://github.com/apple/container/blob/1.5.0/Sources/ContainerPlugin/Plugin.swift)
+builds each guest job from that prefix, the runtime handler and the guest identifier.
+An arbitrary instance prefix could ask about nonexistent jobs while real guests
+survive an API restart, producing false stopped evidence. The loader refuses
+other labels and direct observation also checks the declaration. Install paths
+remain instance data. Previously accepted alternative labels must be corrected;
+settings, provisioning digests and root admissions then change. The native
+qualification gate remains closed.
+
 `helper_domain` is the launchd domain in which the network helper is
 registered: `system`, `gui/<uid>` or `user/<uid>`, where `<uid>` is the enrolled
 account's UID. Another account's domain and every other spelling are refused.
@@ -58,7 +70,10 @@ DNS-SD records; DHCP changes and additional eligible devices need no code edit.
 Every setting belongs to its private installation; examples are documentation
 data, not discoverable host defaults.
 
-`intent` and `admissions` name the state store's own records. The runtime owner
+`intent` must name `state_dir/intent.json`, the record protected by the same
+operation lock that operator pause/resume commands use. A different private
+unpaused file is damaged intent, so a probe cannot authorize recovery and a
+start is refused. `admissions` names the state store's own record. The runtime owner
 reads each of them only where and as the store writes it: in a directory of mode
 0700 that the user who runs the command owns and that is not a symbolic link, as
 a regular file of mode 0600 with exactly one link, owned by that user and at
@@ -67,9 +82,10 @@ either. The store writes into no other directory and replaces no other file, so
 a record in any other place or form can take neither a pause nor an admission,
 and it is not read. An intent record like that is damaged intent: `probe`
 returns 69, `start` refuses and no activation is verified. An admissions record
-like that admits nothing. The settings loader does not require the two paths to
-lie in `state_dir`; a record elsewhere is read by the same rule, so the
-directory that holds it has to be one the store would accept. Directories
+like that admits nothing. The settings loader permits authored read-only inputs outside `state_dir`, but
+an intent elsewhere authorizes no activation or recovery. Admissions kept
+elsewhere are read by the same protected-file rule; their directory must be
+one the store would accept. Directories
 further up are not examined, by this reader as by the store. The other inputs
 are read as [deployment.md](deployment.md) describes.
 
@@ -156,9 +172,14 @@ path, so a workload that has a memory-backed mount itself still reads
 
 A site that keeps a second definition over the same writable path without ever
 running it, for example a retained test definition, can enroll that definition's
-name in the contract's `tolerated_stopped_peers`. The peer is then accepted only
-while the inventory reports it exactly `stopped`; running, stopping or unknown it
-is rejected as before, and so is every name that is not listed. The list is
+name in the contract's `tolerated_stopped_peers`. The peer is accepted only while the inventory reports it exactly `stopped` and
+`fleet_start` supplies the additional service-manager proof: its configuration
+identity and runtime handler must be valid, and no guest job may be loaded in
+either enrolled account domain. Without that declaration, or while the peer's
+job survives an API restart, the exception gives no verified target. Running,
+stopping or unknown peers and every name that is not listed remain refused.
+This additional check closes the API-reset case in the stopped-peer exception;
+it does not start or enroll the retained peer. The list is
 closed: at most 16 distinct vendor container names in sorted order, none of them
 an enrolled workload. It is part of the contract and settings digests only when
 it is not empty, so an enrollment without it keeps its digests and admissions.

@@ -10,8 +10,6 @@ from typing import Any
 from .codec import canonical_bytes, digest, strict_load, strict_loads
 
 _ID = re.compile(r"[a-z][a-z0-9-]*\Z")
-_JOB_LABEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
-_JOB_LABEL_PREFIX = re.compile(r"[A-Za-z0-9][A-Za-z0-9.-]{0,95}\.\Z")
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
 _VERSIONS = {"1.2.0", "1.4.1", "1.5.0"}
 # The vendor's own container-name rule (apple/container `ManagedContainer.nameValid`,
@@ -34,6 +32,7 @@ READ_TIMEOUT_MAXIMUM = 120 - READ_TIMEOUT_MARGIN
 # The one job the vendor's own start command writes and loads (apple/container
 # `SystemStart.run`, the same constant at tags 1.2.0, 1.4.1 and 1.5.0).
 _VENDOR_API_LABEL = "com.apple.container.apiserver"
+_VENDOR_RUNTIME_PREFIX = "com.apple.container."
 # Every character at which `str.splitlines` ends a line (Python's documented
 # table: line feed, carriage return, line tabulation, form feed, file, group
 # and record separator, next line, line separator, paragraph separator).
@@ -160,6 +159,16 @@ class RuntimeSettings:
             if contract.service == service:
                 return contract
         raise ValueError("service has no runtime contract")
+
+
+def check_fleet_identity(fleet: FleetStart) -> None:
+    """Service identities fixed by the accepted vendor versions, never host choices.
+
+    Plugin.getLaunchdLabel hardcodes the prefix at tags 1.2.0, 1.4.1 and 1.5.0.
+    Querying any other prefix can prove only that unrelated jobs are absent.
+    """
+    if fleet.api_label != _VENDOR_API_LABEL or fleet.runtime_label_prefix != _VENDOR_RUNTIME_PREFIX:
+        raise ValueError("fleet start requires the vendor's API label and runtime prefix")
 
 
 def _contract_dict(contract: RuntimeContract) -> dict[str, Any]:
@@ -458,10 +467,8 @@ def parse_settings(value: Any) -> RuntimeSettings:
             {"runtime_start"},
         )
         if (
-            not isinstance(item["api_label"], str)
-            or not _JOB_LABEL.fullmatch(item["api_label"])
-            or not isinstance(item["runtime_label_prefix"], str)
-            or not _JOB_LABEL_PREFIX.fullmatch(item["runtime_label_prefix"])
+            item["api_label"] != _VENDOR_API_LABEL
+            or item["runtime_label_prefix"] != _VENDOR_RUNTIME_PREFIX
         ):
             raise ValueError("invalid fleet start declaration")
         # That one domain is where the API job and the runtime jobs are looked up.

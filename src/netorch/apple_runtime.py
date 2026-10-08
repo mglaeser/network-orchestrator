@@ -38,6 +38,7 @@ from .runtime_settings import (
     RuntimeNetwork,
     RuntimeSettings,
     RuntimeStart,
+    check_fleet_identity,
     contract_digest,
     load_settings,
     parse_settings,
@@ -414,6 +415,30 @@ class Reader:
         if result.returncode == 0 and result.stdout and not result.stderr:
             return False
         raise RuntimeReadError("unavailable")
+
+    def stopped_guest_job(
+        self, current: dict[str, Any], name: str, network: RuntimeNetwork
+    ) -> None:
+        """Confirm a stopped API row against the actual vendor runtime jobs."""
+        fleet = self.settings.fleet_start
+        if fleet is None:
+            raise RuntimeReadError("identity-mismatch")
+        check_fleet_identity(fleet)
+        handler = current["configuration"].get("runtimeHandler")
+        if (
+            not isinstance(handler, str)
+            or _RUNTIME_HANDLER.fullmatch(handler) is None
+            or current["configuration"].get("id") != name
+        ):
+            raise RuntimeReadError("identity-mismatch")
+        label = f"{fleet.runtime_label_prefix}{handler}.{name}"
+        uid = self.settings.account.uid
+        domains = (
+            ("system",) if network.helper_domain == "system" else (f"gui/{uid}", f"user/{uid}")
+        )
+        for domain in domains:
+            if not self.job_absent(domain, label):
+                raise RuntimeReadError("generation-mismatch")
 
     def runtime_job(self, fleet: FleetStart, start: RuntimeStart, domain: str) -> str:
         """The API job as the declared start loads it: `absent`, `idle` or `running`.
@@ -883,6 +908,7 @@ def _check_contract(
     current: dict[str, Any],
     inventory: list[dict[str, Any]],
     *,
+    reader: Reader,
     deadline: float | None = None,
     checked_acls: set[ACLKey] | None = None,
 ) -> None:
@@ -903,10 +929,6 @@ def _check_contract(
         for peer in inventory:
             if peer["id"] == current["id"]:
                 continue
-            # An enrolled exception for a retained definition: while it is exactly
-            # stopped it writes nothing. Running, stopping or unknown is refused.
-            if peer["id"] in contract.tolerated_stopped_peers and peer["state"] == "stopped":
-                continue
             # Only a mount with a host path can be a second writer of one. That a
             # memory-backed mount has none is known for a peer that names the
             # vendor's Linux runtime; under another handler, or without the
@@ -915,19 +937,28 @@ def _check_contract(
             for other, other_writable in _mounts(
                 peer["configuration"], without_guest_memory=guest_memory
             ):
-                if other_writable and (
+                if not other_writable:
+                    continue
+                overlapping = (
                     source == other
                     or source.startswith(other.rstrip("/") + "/")
                     or other.startswith(source.rstrip("/") + "/")
-                ):
-                    raise RuntimeReadError("identity-mismatch")
-                # Different authored paths can alias the same writable object.
-                if (
-                    other_writable
-                    and os.path.exists(other)
+                )
+                aliased = (
+                    os.path.exists(other)
                     and os.path.exists(source)
                     and os.path.samefile(other, source)
-                ):
+                )
+                if not overlapping and not aliased:
+                    continue
+                # An API restart can report stopped while the peer's job survives.
+                # Only independent service-manager evidence permits this exception.
+                if peer["id"] in contract.tolerated_stopped_peers and peer["state"] == "stopped":
+                    network = next(
+                        item for item in reader.settings.networks if item.scope == contract.scope
+                    )
+                    reader.stopped_guest_job(peer, peer["id"], network)
+                else:
                     raise RuntimeReadError("identity-mismatch")
 
 
@@ -956,27 +987,8 @@ def _service(
     reader: Reader,
 ) -> Observation:
     if current["state"] == "stopped":
-        fleet = reader.settings.fleet_start
-        if fleet is not None:
-            # The API gives every stored definition this state whenever it starts,
-            # so its word alone does not say that the guest is not running. The
-            # guest's runtime job carries the configuration's own identifier.
-            handler = current["configuration"].get("runtimeHandler")
-            if (
-                not isinstance(handler, str)
-                or _RUNTIME_HANDLER.fullmatch(handler) is None
-                or current["configuration"].get("id") != contract.name
-            ):
-                raise RuntimeReadError("identity-mismatch")
-            label = f"{fleet.runtime_label_prefix}{handler}.{contract.name}"
-            uid = reader.settings.account.uid
-            # An earlier incarnation of the API may have registered the guest in
-            # the account's other domain; a job there is as live as one here.
-            for domain in (
-                ("system",) if network.helper_domain == "system" else (f"gui/{uid}", f"user/{uid}")
-            ):
-                if not reader.job_absent(domain, label):
-                    raise RuntimeReadError("generation-mismatch")
+        if reader.settings.fleet_start is not None:
+            reader.stopped_guest_job(current, contract.name, network)
         return Observation(
             "absent",
             "confirmed-absent",
@@ -1142,6 +1154,8 @@ def observe_runtime(
     generation = None
     inspected: dict[str, dict[str, Any]] = {}
     try:
+        if settings.fleet_start is not None:
+            check_fleet_identity(settings.fleet_start)
         if settings.owner not in {
             owner.id
             for owner in config.owners
@@ -1187,6 +1201,7 @@ def observe_runtime(
                     contract,
                     current,
                     inventory,
+                    reader=reader,
                     deadline=reader.deadline,
                     checked_acls=reader.checked_acls,
                 )
@@ -1260,7 +1275,11 @@ def _private_json(path: str) -> Any:
 
 
 def _intent(settings: RuntimeSettings) -> Intent:
-    if settings.intent is None:
+    if settings.state_dir is None or settings.intent != str(
+        Path(settings.state_dir) / "intent.json"
+    ):
+        # Operator pause/unhold and recovery must share one record and lock.
+        # A different private unpaused file is not evidence of operator intent.
         return Intent(damaged=True)
     try:
         intent = intent_from_dict(_private_json(settings.intent))
@@ -1548,6 +1567,7 @@ def _declared_start(settings: RuntimeSettings) -> tuple[FleetStart, RuntimeStart
     fleet = settings.fleet_start
     if fleet is None or fleet.runtime_start is None:
         raise ValueError("the settings declare no start of the vendor runtime")
+    check_fleet_identity(fleet)
     uid = settings.account.uid
     if os.geteuid() == 0 or os.geteuid() != uid:
         raise PermissionError("the vendor runtime belongs to the enrolled user")
@@ -1890,7 +1910,7 @@ def main(argv: list[str] | None = None) -> int:
         # Nothing was observed or started; the caller may try again.
         print(canonical_json({"error": "busy"}), file=sys.stderr)
         return BUSY
-    except (ValueError, OSError, RuntimeReadError, ProcessTimeout, OutputLimit):
+    except (ValueError, OSError, RuntimeReadError, ProcessTimeout, OutputLimit, UnsafeState):
         print(
             canonical_json({"error": "runtime-evidence-or-authority-incomplete"}), file=sys.stderr
         )
