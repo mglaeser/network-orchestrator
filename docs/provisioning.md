@@ -183,9 +183,12 @@ netorch deploy rollback --state-dir /operator/state/netorch --scope user \
 
 Recovery of a failed upgrade verifies the retained predecessor and exact failed
 journal, accepts only old or new owned job bytes, restores predecessor files/jobs
-and preserves current intent. A failed first installation removes only verified
-new job files and leaves its private staged release and gated root snapshot as
-evidence. No application or administrator admission data is deleted.
+and preserves current intent. It writes the receipt back as the failed
+installation found it: the journal holds that receipt, so the restored release
+still names its own predecessor and can be rolled back to it. A failed first
+installation removes only verified new job files and leaves its private staged
+release and gated root snapshot as evidence. No application or administrator
+admission data is deleted.
 
 Recovery accepts a journal in `failed`, a journal left in an in-progress
 installation phase, which it treats as the failed phase, and a journal left in
@@ -209,7 +212,16 @@ Rollback is an explicit reversal of a **committed** release. It verifies all
 retained files, fences the exact current digest and restoration boundaries, and
 restores the previous jobs. Root rollback also uses its own owner installer to
 restore reviewed desired policy/backend; it never clears admissions or pause.
-Only one predecessor is retained in the receipt to bound journal growth. Older
+Only one predecessor is retained in the receipt to bound journal growth: the
+receipt of a new release names the release it replaced without that release's
+own predecessor, and an installation journal holds the replaced receipt as it
+was, with its one predecessor and nothing older. A journal written by an earlier
+version holds the replaced receipt without its predecessor; recovering such a
+journal restores the release as that version did, with no release to roll back
+to. With the record of the release being installed the journal holds up to
+three release records. An installation whose journal would not fit the state
+store's bound for one record (1 MiB) is refused before it takes its suspension
+or opens a journal, so nothing is changed and nothing needs recovery. Older
 release files can be retained according to the site's separate cleanup policy.
 A committed rollback revalidates the predecessor's interpreter and platform
 contract before any transition or native effect. Retained receipts do not prove
@@ -229,6 +241,19 @@ closes the journal if the predecessor's receipt is already in place. A first
 attempt still requires the current release's exact job bytes. A journal left
 by a failed rollback of an earlier version has no scope or digests and is not
 resumed.
+
+Without a receipt there is no release to roll back, and rollback refuses. A job
+that only the previous release has is new to the installation. Rollback checks
+it as an installation checks a new job, before it takes its suspension, writes
+its journal or stops anything: a file of that job's name in the launchd
+directory refuses the rollback, and so does a label of that name that
+`launchctl print` does not report absent. Only a repeated rollback accepts such
+a file, and only with the previous release's exact bytes. Its first attempt
+writes that file before it loads the job, so with the file launchd is not asked
+about the label, and without it the label must be absent as on a first attempt.
+An upgrade or a recovery does not wait for a job that it stops and does not load
+again. A rollback started while launchd still reports such a job is refused by
+this check; nothing has changed then, and the same command is repeated.
 
 An interrupted rollback also stops and retains its phase. An unexpected foreign
 file, changed boundary, damaged intent, replaced release, unavailable restore
