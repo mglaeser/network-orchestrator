@@ -51,9 +51,12 @@ the file depends on the input:
 - The state store opens the records of a state directory (intent, journals,
   receipts and the root owner's records) without following a final symbolic
   link. They must be single-link regular files of mode 0600 owned by the calling
-  user, in a private mode 0700 directory of that user. The provider bindings and
-  the Bonjour settings, with the admissions and intent they name, are held to
-  the same file rule.
+  user, in a private mode 0700 directory of that user. The Apple runtime owner
+  holds the intent and admissions that runtime settings name to this whole
+  rule, the directory included, whenever it reads them for `probe`, `start` or
+  an activation request. The provider bindings and the Bonjour settings, with
+  the admissions and intent they name, are held to the rule for the file; the
+  directory that holds them is not examined.
 - Bundle sources and bundle files are also opened without following a final
   symbolic link and must be single-link regular files that group and others
   cannot write. The PF owner's `install` reads its policy, settings and backend
@@ -65,8 +68,7 @@ the file depends on the input:
   The same reader serves a deployment `--manifest`, the `intent.json` of a
   reconciliation preview, a `snapshot-file` binding, the policy path named in
   Bonjour or runtime settings, and the Apple runtime and workload commands for
-  their settings file, the intent and admissions paths named in it and a recipe
-  file.
+  their settings file and a recipe file.
 
 Keep settings and mutable private state in mode 0600 files and private
 directories whichever reader applies.

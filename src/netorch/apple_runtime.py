@@ -23,7 +23,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any, NoReturn
 
-from .codec import canonical_bytes, canonical_json, digest, strict_load, strict_loads
+from .codec import canonical_bytes, canonical_json, digest, strict_loads
 from .config import config_digest, load_config, parse_config, profile_digest, to_dict
 from .darwin_volume import volume_uuid
 from .model import Config, Profile
@@ -1194,11 +1194,50 @@ def observe_runtime(
     return Snapshot(now, generation, services, profiles)
 
 
+def _private_json(path: str) -> Any:
+    """One of this owner's own records, by the rule of the state store.
+
+    The store keeps intent and admissions in a directory of mode 0700 that its
+    user owns and that is no symbolic link, as regular files of mode 0600 with
+    one link, owned by that user. It writes into no other directory and
+    replaces no other file, so a record in any other place or form can take
+    neither a pause nor an admission, and it is not read here either. The
+    directory is held to the store's own check and the record is opened
+    relative to the checked directory, without following a symbolic link at
+    either name; another type, owner, mode or link count is refused. Nothing
+    is created and no lock is taken.
+    """
+    directory, name = os.path.split(path)
+    parent = os.open(directory, os.O_RDONLY | os.O_NOFOLLOW | os.O_DIRECTORY)
+    try:
+        try:
+            # One rule, not two: what the store requires of a directory it writes into.
+            Store._check_directory_info(os.fstat(parent))
+        except UnsafeState as exc:
+            raise ValueError("runtime intent and admissions need a private directory") from exc
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+        try:
+            info = os.fstat(fd)
+            if (
+                not stat.S_ISREG(info.st_mode)
+                or info.st_uid != os.geteuid()
+                or stat.S_IMODE(info.st_mode) != 0o600
+                or info.st_nlink != 1
+            ):
+                raise ValueError("runtime intent and admissions must be private regular files")
+            with os.fdopen(os.dup(fd), "rb") as stream:
+                return strict_loads(stream.read(1_048_577))
+        finally:
+            os.close(fd)
+    finally:
+        os.close(parent)
+
+
 def _intent(settings: RuntimeSettings) -> Intent:
     if settings.intent is None:
         return Intent(damaged=True)
     try:
-        intent = intent_from_dict(strict_load(settings.intent))
+        intent = intent_from_dict(_private_json(settings.intent))
     except (ValueError, OSError):
         return Intent(damaged=True)
     # A hold on a service that is not enrolled here inhibits every workload.
@@ -1622,7 +1661,7 @@ def handle_request(
             raise NativePublicationMaintenance("incomplete")
         if request["action"] != "activate" or settings.admissions is None:
             raise ValueError("unsupported native publication operation")
-        admitted = admissions_from_dict(strict_load(settings.admissions)).get(profile.id)
+        admitted = admissions_from_dict(_private_json(settings.admissions)).get(profile.id)
         if (
             _intent(settings).blocks(profile.service)
             or admitted is None

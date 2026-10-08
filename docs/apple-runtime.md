@@ -33,6 +33,21 @@ DNS-SD records; DHCP changes and additional eligible devices need no code edit.
 Every setting belongs to its private installation; examples are documentation
 data, not discoverable host defaults.
 
+`intent` and `admissions` name the state store's own records. The runtime owner
+reads each of them only where and as the store writes it: in a directory of mode
+0700 that the user who runs the command owns and that is not a symbolic link, as
+a regular file of mode 0600 with exactly one link, owned by that user and at
+most 1 MiB large; a symbolic link at the record's own name is not followed
+either. The store writes into no other directory and replaces no other file, so
+a record in any other place or form can take neither a pause nor an admission,
+and it is not read. An intent record like that is damaged intent: `probe`
+returns 69, `start` refuses and no activation is verified. An admissions record
+like that admits nothing. The settings loader does not require the two paths to
+lie in `state_dir`; a record elsewhere is read by the same rule, so the
+directory that holds it has to be one the store would accept. Directories
+further up are not examined, by this reader as by the store. The other inputs
+are read as [deployment.md](deployment.md) describes.
+
 Enrollment fingerprints the **complete native container configuration** rather
 than replacing it with a minimal resource definition. Images, entrypoints,
 environment, mounts, socket publications, CPUs, memory, labels, sysctls and
