@@ -797,6 +797,21 @@ def test_property_list_text_escapes_what_the_capture_escapes(tmp_path: Path) -> 
     assert render_one(b"plain", "x > y")[0] == [("literal-style-unsupported", "/a")]
 
 
+def test_property_list_text_that_keeps_gt_bare_cannot_hold_the_cdata_end(tmp_path: Path) -> None:
+    collected: dict[str, bytes] = {}
+
+    def render_one(text: bytes) -> list[tuple[str, str | None]]:
+        collected.clear()
+        raw = PLIST_HEAD + b"<dict><key>a</key><string>" + text + b"</string></dict></plist>\n"
+        path = one(tmp_path, raw, "plist", {"/a": HARDWARE})
+        return reasons(render_sources(path, hardware("x ]]> y"), collect=collected))
+
+    # XML character data cannot hold "]]>": a capture that leaves ">" bare cannot write it.
+    assert render_one(b"a > b") == [("value-not-representable", "/a")] and collected == {}
+    assert render_one(b"plain") == [("literal-style-unsupported", "/a")] and collected == {}
+    assert render_one(b"a &gt; b") == [] and b"<string>x ]]&gt; y</string>" in collected["input"]
+
+
 def test_assignment_and_list_values_keep_their_quoting(tmp_path: Path) -> None:
     raw = b"  A=bare-1  \n\tB=\"two words\"\t\nC='it is'\n"
     mapping = {"/A": "/workloads/example-web/name", "/B": HARDWARE}
