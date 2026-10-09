@@ -129,6 +129,13 @@ def site(
     """The fixture's site with a fallback for the name-service path, every profile admitted."""
     root, config, settings, _, snapshots = environment
     profiles = list(config.profiles)
+    # Keep a genuinely independent direct path: the fallback setup below makes
+    # the resolver address unverifiable. A direct rule to that same address
+    # cannot truthfully remain ready alongside its fallback after loaded
+    # endpoint checks were added. A fourth synthetic guest also keeps the direct
+    # path independent of tests that stop the media guest or the web proxy.
+    direct_index = next(index for index, profile in enumerate(profiles) if profile.id == DIRECT)
+    profiles[direct_index] = replace(profiles[direct_index], service="direct-controller")
     index = next(index for index, profile in enumerate(profiles) if profile.id == NAMES)
     profiles[index] = replace(profiles[index], fallback_publication=NATIVE)
     profiles.append(
@@ -149,7 +156,14 @@ def site(
         profiles[index] = replace(
             profiles[index], safety=replace(profiles[index].safety, max_age_seconds=seconds)
         )
-    config = replace(config, profiles=tuple(profiles))
+    config = replace(
+        config,
+        profiles=tuple(profiles),
+        services=(
+            *config.services,
+            replace(config.service("media-controller"), id="direct-controller"),
+        ),
+    )
     validate_config(config)
     root.write("policy.json", to_dict(config))
     current = snapshots[-1]
@@ -166,7 +180,19 @@ def site(
             "policy_digest": profile_digest(config, config.profile(NATIVE)),
         },
     )
-    snapshots.append(replace(current, profiles=observed))
+    snapshots.append(
+        replace(
+            current,
+            profiles=observed,
+            services={
+                **current.services,
+                "direct-controller": replace(
+                    current.services["media-controller"],
+                    data={**current.services["media-controller"].data, "ipv4": "198.51.100.13"},
+                ),
+            },
+        )
+    )
     if decision:
         settings = replace(settings, runtime_unknown=KEY)
         root.write("installation.json", settings.to_dict())
@@ -293,11 +319,12 @@ def test_without_the_decision_one_pass_without_evidence_retires_every_rule(
 # SHA-256 over everything three passes of an installation without the decision
 # hand back, publish, store and ask of the kernel (a verified pass, a pass
 # without evidence, a verified pass again), computed with this test body on the
-# tree this change is based on.
-BASE_PASSES = "afccf21c8c23fa8565c3aea0f230a094b4f7b0511b60fedce694c9a77289f1ab"
+# current fixture with independently reachable direct and fallback guests and
+# fresh checks of loaded endpoints.
+BASE_PASSES = "4343dcb0ef2231588d4f4aa813a61ce0be965bd5e478f60e0466fea87621d372"
 
 
-def test_without_the_decision_nothing_is_read_and_no_byte_changes(
+def test_without_the_keep_decision_no_host_path_inventory_reads_and_stored_setting_unchanged(
     environment: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # The two inputs of an admission that differ from tree to tree by design are
@@ -743,9 +770,14 @@ def test_the_reasons_that_keep_are_two_closed_lists() -> None:
     assert frozenset({"timed-out"}) == owner._NO_ANSWER
     assert isinstance(owner._NO_ANSWER, frozenset)
     assert owner._NO_ANSWER < OBSERVATION_REASONS
-    # The word a kept rule is withheld with is one of the two of that vocabulary
-    # and of no other.
-    assert frozenset({"translation-order-unverified", REASON}) == owner.WITHHOLDING_REASONS
+    # Kept host paths have a distinct withholding reason; loaded precondition
+    # checks add reasons that do not change the runtime-unknown keep decision.
+    assert (
+        frozenset(
+            {"translation-order-unverified", REASON, "endpoint-unverified", "ports-unverified"}
+        )
+        == owner.WITHHOLDING_REASONS
+    )
     assert REASON not in owner.DEFERRAL_REASONS and REASON not in planner.ACTION_REASONS
     assert REASON not in OBSERVATION_REASONS
 
@@ -2268,14 +2300,17 @@ class Watching(Sockets):
 
 
 def test_the_judgement_precedes_every_action_of_the_pass(environment: Any) -> None:
-    resolver, media = address(environment, "resolver"), address(environment, "media-controller")
     backend = Watching(environment[0])
     environment = loaded(site(environment, backend))
+    direct, media = (
+        address(environment, "direct-controller"),
+        address(environment, "media-controller"),
+    )
     root = environment[0]
     # A LAN client's state of each guest rule: both are invalidated by the pass.
     backend.flow_states = "\n".join(
         [
-            f"all tcp 192.0.2.77:54321 -> {resolver}:53 ESTABLISHED:ESTABLISHED",
+            f"all tcp 192.0.2.77:54321 -> {direct}:53 ESTABLISHED:ESTABLISHED",
             f"all udp {media}:45001 -> 192.0.2.77:7000 SINGLE:MULTIPLE",
         ]
     )
@@ -2294,7 +2329,7 @@ def test_the_judgement_precedes_every_action_of_the_pass(environment: Any) -> No
     ]
     # Both withdrawals and both invalidations follow. The read after them is
     # the reference readback that ends every pass.
-    everything = [("replace",), ("replace",), ("drain", resolver), ("drain", media)]
+    everything = [("replace",), ("replace",), ("drain", direct), ("drain", media)]
     assert backend.noted[3:] == [("reference", "applying", True, everything)]
     # The plan of record has the order it always had: every withdrawal, then
     # every drain, the two host paths among the others.
@@ -2594,23 +2629,23 @@ LOST: dict[str, Callable[[Lossy], None]] = {
 def test_a_reference_lost_before_an_activation_retires_the_kept_rules_first(
     environment: Any, how: str
 ) -> None:
-    resolver = address(environment, "resolver")
     backend = Lossy()
     environment = loaded(site(environment, backend))
+    direct = address(environment, "direct-controller")
     root = environment[0]
     verified = retired_pair(environment)
     # A LAN client's state of the guest rule that this pass retires, and a
     # connection of the host itself, which is nobody's to invalidate.
     backend.flow_states = "\n".join(
         [
-            f"all tcp 192.0.2.77:54321 -> {resolver}:53 ESTABLISHED:ESTABLISHED",
+            f"all tcp 192.0.2.77:54321 -> {direct}:53 ESTABLISHED:ESTABLISHED",
             f"all tcp {HOST}:50000 -> 203.0.113.9:443 ESTABLISHED:ESTABLISHED",
         ]
     )
     # The reference is held when the pass judges, and gone before the pair is loaded.
     LOST[how](backend)
 
-    environment[4].append(unknown(verified, "resolver", "web-proxy"))
+    environment[4].append(unknown(verified, "resolver", "web-proxy", "direct-controller"))
     result, report = observed_pass(environment)
 
     # Both host paths were kept at first. Before the reference is taken for the
@@ -2635,9 +2670,7 @@ def test_a_reference_lost_before_an_activation_retires_the_kept_rules_first(
         assert "withheld" not in report.profiles[key].data
     # No state of the host's own address is invalidated for a host redirect,
     # also not by the drain that the plan has for the web path behind the pair.
-    assert [command for command in backend.commands if command[0] == "drain"] == [
-        ("drain", resolver)
-    ]
+    assert [command for command in backend.commands if command[0] == "drain"] == [("drain", direct)]
     if how == "not listed any more":
         # Taken once, with nothing loaded.
         assert backend.taken == [[]]
@@ -2864,12 +2897,14 @@ def test_a_pass_that_keeps_a_rule_does_not_take_the_reference_at_its_end(
     assert ("reference",) not in backend.commands
     assert root.read("journal.json")["reason"] == "enable-reference-unverified"
     assert ready(report) == []
-    # The next pass has that evidence from its start: nothing is kept, the pair
-    # is activated again, and the reference is taken once, with only rules
+    # The next pass has that evidence from its start: nothing is kept, the two
+    # independent guest paths activate again. Each acquisition sees only rules
     # loaded that this pass verified.
     result, report = observed_pass(environment, lambda config, settings: verified)
-    assert "withheld" not in result and backend.taken == [sorted(HOST_PATHS)]
-    assert result["changed"] == [f"{PAIR}:activate"] and set(HOST_PATHS) <= set(ready(report))
+    assert "withheld" not in result
+    assert backend.taken == [sorted(HOST_PATHS), sorted([DIRECT, *HOST_PATHS])]
+    assert result["changed"] == [f"{DIRECT}:activate", f"{PAIR}:activate"]
+    assert set(HOST_PATHS) <= set(ready(report))
 
 
 @pytest.mark.parametrize("heal", [False, True], ids=["administrator", "self-heal"])

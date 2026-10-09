@@ -35,6 +35,7 @@ user-state/
   admissions.json          user profile approvals
   intent.json              durable operator pause, holder suspensions and service holds
   recovery-starts.json     starts issued by recovery; only with a restart budget
+  runtime-starts.json      vendor runtime attempts; only with its separate start budget
   journal.json             reconciliation phases
   installation-journal.json installation phases
   installation-receipt.json retained reviewed release identity
@@ -98,6 +99,25 @@ persistent mounts, helper generation, boot/login constraints and missing gates.
 Use bounded read-only observation and enrolled definition capture before writes.
 An inspection timeout, Local Network denial or contradictory stopped listing is
 unknown, not proof that a workload needs recovery.
+
+The independent root observer also requires the vendor CLI and every enrolled
+network-helper executable to be administrator-owned, single-link regular files
+under protected physical ancestors, with no group/other write permission or ACL
+grants. A user-owned package-manager installation does not qualify, even when
+its unprivileged reader works: dropping a probe's UID does not make a replaceable
+program trustworthy evidence for root. Inspect each physical path, resolved
+target and ancestor using owner/mode/link/ACL metadata; an install-method label
+alone proves none of those properties. Do not weaken the check or recursively
+change ownership of an existing package-manager tree.
+
+If replacement is needed, prepare a separately reviewed administrator-owned
+vendor installation, verify the pinned executable/helper identities, and update
+every enrolled path and actual consumer together in its own runtime window.
+Re-enroll and re-accept the complete runtime/application baseline; the ordinary
+extraction transaction cannot hide that replacement or a runtime upgrade. A
+package advertised as an installer is not by itself proof that its resulting
+paths pass these checks. Until exact installed paths qualify, keep the existing
+owner and record the root-observer prerequisite as blocked.
 
 While a legacy owner remains authoritative, statically derive its literal facts
 and fail a regeneration check if the catalog drifts. Never source configuration
@@ -257,9 +277,15 @@ not of the rule ([`restart_budget`](apple-runtime.md#restart-budget) of the
 runtime settings): once it is spent the start holds the service instead, the
 probe no longer returns 42 and the rule stops matching until an operator
 releases the hold. That budget counts the starts of workloads only. The start
-of the vendor runtime (`runtime-start`) does not read it, so a runtime monitor
-with `recovery_repeat_cycles` runs `runtime-start` again every N cycles for as
-long as `runtime-probe` returns 42, and no budget stops it.
+of the vendor runtime (`runtime-start`) does not read it. Its independent
+optional `fleet_start.runtime_start.start_budget` counts both vendor starts
+and activation of an idle API job. Exhaustion adds the durable
+`runtime-start-budget` / `supervisor` suspension, so the runtime probe returns
+69 until the operator releases that holder. All owners sharing the intent
+honour the suspension. Without this separate setting a runtime monitor with
+`recovery_repeat_cycles` continues every N cycles while its probe returns 42.
+See [runtime start budget](apple-runtime.md#runtime-start-budget) for accounting,
+failure and release semantics; neither setting opens the release's mutation gate.
 
 Local Network consent must be accepted in the actual LaunchAgent identity and
 launch context. Terminal/SSH success does not prove this context. Record consent

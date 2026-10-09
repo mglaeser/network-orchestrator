@@ -123,8 +123,9 @@ def test_one_unverified_target_defers_only_its_profiles(environment: Any) -> Non
     for key in ("media-udp", "proxy-standard"):
         assert report.profiles[key].data["root_ready"] is True
     assert root.read("journal.json")["phase"] == "inhibited"
-    # Each target was checked once: nothing is retried inside a pass.
-    assert sum(command[0] == "endpoint" for command in backend.commands) == 4
+    # No failed activation is retried. The two successfully loaded endpoints
+    # are checked again for final readiness.
+    assert sum(command[0] == "endpoint" for command in backend.commands) == 6
 
     # No acknowledgement is owed. The next pass reads everything again.
     backend.unavailable_guests = set()

@@ -1,6 +1,6 @@
 # Test strategy and evidence tiers
 
-Version 0.3 has an empty native-qualified support matrix. Public native mutation
+Version 0.4 has an empty native-qualified support matrix. Public native mutation
 entrypoints refuse before state or tools; tests of retained execution internals
 use explicit injected seams and never bypass production guards.
 
@@ -224,6 +224,9 @@ provide supported nested virtualization for actual Apple Container networking,
 and its image is not an operator's exact OS build. It cannot certify production
 PF, Bonjour consent or physical devices. See
 [GitHub hosted-runner limits](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
+
+The [native qualification procedures](native-qualification.md) map every tier 3–5
+requirement to its baseline, observation, pass criterion and evidence scope.
 
 ## Tier 3: isolated native packet and discovery acceptance
 

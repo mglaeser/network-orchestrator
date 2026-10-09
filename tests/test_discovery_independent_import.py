@@ -55,7 +55,7 @@ EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
 AUDIO = ("HEARD-AUDIO", "MULTI-RECEIVER")
 # On the base tree the retained discovery digest has version 3. Open changes to the
 # owner's runtime behaviour raise that number to 4 and hash the same members.
-POLICY_DIGEST_VERSIONS = (5,)
+POLICY_DIGEST_VERSIONS = (6,)
 BASE: dict[str, dict[str, Any]] = {
     "instance.json": {
         "instance_digest": "f0adf2a76ad106f1ed758b0ab9f05388a15b4e11934f37faa68e377190ff732e",

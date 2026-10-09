@@ -1,0 +1,1321 @@
+{
+  "schema_version": 1,
+  "baseline": "de4cbb520a960266360f00722b3a89e2426c00d3",
+  "public_prs_inventoried": 119,
+  "new_heads_reviewed": 7,
+  "review_threads_on_new_heads": 0,
+  "new_issue_comments": 0,
+  "native_acceptance": false,
+  "production_changed": false,
+  "dependencies_changed": false,
+  "previous_ledger": "2026-10-08-proposal-ledger.json",
+  "proof_notes": {
+    "discovery": "93 new proposal cases passed; 9 proposed-alternative assertions independently fail with --runxfail; four OS-spawn counterexamples failed before repair, eight new regression cases pass.",
+    "packet_dns": "10 characterization/guard cases passed; 15 readiness assertions independently reproduced; repaired U3/N8 assertions pass.",
+    "runtime": "R-O8 reproduction issued four starts versus three; optional separate budget plus malformed-state/clock/intent tests added.",
+    "limits": "Counts overlap; final full matrix belongs to the exact integration revision and release. Native, fixture provenance and production qualification are separate."
+  },
+  "pull_requests": [
+    {
+      "number": 1,
+      "head": "c5b47d8d4dfd79a30e2d1294000b5300c92c65c1",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 2,
+      "head": "e36fbcbeff5ee0b0ae6ae64b19fbe986df7db01c",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 3,
+      "head": "873f730488157e667668a646dfab7483023383a8",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 4,
+      "head": "52997e57ec8c6d6d4c54ebefd715a0b8f4aafde7",
+      "state_at_review": "closed",
+      "merged_at_review": true,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 5,
+      "head": "aea0a3e95b5199df93e121a9cc19c28fcf7038bd",
+      "state_at_review": "closed",
+      "merged_at_review": true,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 6,
+      "head": "60fc9d100fd60e02e3237d48741fb663d3d8ea68",
+      "state_at_review": "closed",
+      "merged_at_review": true,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 7,
+      "head": "8e28f5c0a8d86f9cc5475bd1575a0f5925d6c6be",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 8,
+      "head": "7e1c5232a49eb03e93850e473a85f8f154d3f0c0",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 9,
+      "head": "bac2b771c9e30a4551d8580eb8b33d5d931d603b",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 10,
+      "head": "bb3f33dd5e780c2820fd9ec2e29335c47744ad7b",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 11,
+      "head": "92249525d1a54f53ad9cbceb02c9263d32d0d0f5",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 12,
+      "head": "0c2bfad2ab858db26e84a928f1b104433e71f8a7",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 13,
+      "head": "77560d05a89b36055b1050924d7caf0a367e7a64",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 14,
+      "head": "bad386ca8061a10ab5f6397a625488588553e40e",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 15,
+      "head": "b0e6d8d0b031f3ea856929b7a820e7ef9e5c601e",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 16,
+      "head": "c9ee3fd223279982b4d412792d37866c5731c356",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 17,
+      "head": "21c49201363a2a5e355aaee098600cdb6e37fd74",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 18,
+      "head": "583b5b83c1affbf87916678843d47a7e26c41109",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 19,
+      "head": "ba2ea30f83fe2d551ead050f74a726b76f11c728",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 20,
+      "head": "299cca205ddf69be49b3cae54b3fca1484683ef1",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 21,
+      "head": "bf8b285474bad5096300f914d0277a4eefab53bf",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 22,
+      "head": "0d9d863762e59775191857a001b6bd6dc541bad9",
+      "state_at_review": "closed",
+      "merged_at_review": true,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 23,
+      "head": "a9cc9f0ac9464f7b841b0718e3bb5f0b3bc91d99",
+      "state_at_review": "closed",
+      "merged_at_review": true,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 24,
+      "head": "cbfc74490dc2cd92ee21653533b8fcff0404a927",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 25,
+      "head": "56db89886d0daf2d6a535e640c286772b58f0256",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 26,
+      "head": "1f1666e8c4b37b428cec3a48c626cd1518ef5804",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 27,
+      "head": "a70e9a2d383c188002b8b41c1b73d6f8a26b4468",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 28,
+      "head": "99c47468b725fde60ca56e65fd7fdc80dc034701",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 29,
+      "head": "3bdfc6f5701604623a501d9a181e0a0b854d8c95",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 30,
+      "head": "620962f6b811895b672707957f8c9680006dea7b",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 31,
+      "head": "42e31d058da095e515a3509d85b21bc30da06dda",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 32,
+      "head": "6ddc99f257f285db9de57e74fd36b1ead396fb53",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 33,
+      "head": "e9a2ff53ae2f4c4cc4f271cb2cfd30b27cf51a81",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 34,
+      "head": "03ad4eaacbe0c636059411fa7ac6d0006cc6ef58",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 35,
+      "head": "0820a7238b5d4f5cb064882812b090ff0336fcdf",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 36,
+      "head": "85216c54741a0cf7260bb84eb57b17b95ceb8f37",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 37,
+      "head": "157b775fe377c51320ffabee1f3914fd06ad33f4",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 38,
+      "head": "f85fc7984c9a678c167497ba4bfe8894bf277a86",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 39,
+      "head": "b975cc717b4c7bc3eafccc4db3652764c2a461b8",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 40,
+      "head": "937ce4432db4b21b403fc97645610ae4d7b4bf0f",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 41,
+      "head": "d148912102e1ba6aca38236120b0f75f65fc1fb7",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 42,
+      "head": "e15903f6637237263a4ee6fc55f12268fae5d3a4",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 43,
+      "head": "4092bcd0b8aebfe309dbfda58e735f2f43f7b255",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 44,
+      "head": "2dc428d205ee3a6932cb879dd26a17476b92e2cf",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 45,
+      "head": "61201f59c80fb010cdcf6fa00cc09a62d3385a33",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 46,
+      "head": "f0cd1bd762d819f8b070b791978f2532fd39766b",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 47,
+      "head": "307190d61cf0c650e2b1d4b243af7e2cba5a0391",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 48,
+      "head": "4caed302342d9812d78b96870c403dbccfacc0f1",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 49,
+      "head": "8b7416c07f45e0fdb65ccdcd90cf8502b8f2520b",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 50,
+      "head": "0fc94998404c12e855cdc85bba022e9f4164c4d8",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 51,
+      "head": "de6642556183cbcbcca33251658cc49a671d6a34",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 52,
+      "head": "882a6efca1c6a01ea6b3b00a30810e08b9f8540e",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 53,
+      "head": "d6ae89c2f73edadad60a062cbd4d58dfba699aba",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 54,
+      "head": "9a9e0ae6061e34878c2dbb7b6572a56d46fcaded",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 55,
+      "head": "d0a19df245fcc022b9dec249f1392138789b3c1e",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 56,
+      "head": "de261086e31449a3f39ad50e9f2c9df7b4ec1cb1",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 57,
+      "head": "8134743e010daff61b0f9e762485adc7fe29aba2",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 58,
+      "head": "18ef0a0d61250d7cc88a73211d19810b6813d3ed",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 59,
+      "head": "200aa8846a1f6b8debddb78d511eb267d5fe6189",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 60,
+      "head": "d7a6bd83372d327d5e0fc8615b0ebf2456322678",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 61,
+      "head": "58354fb1ae8779673bffd46962dc177d923cbb2a",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 62,
+      "head": "accb7c1f7b229e72b103f8fe1c3a453128522057",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 63,
+      "head": "fcf9f96bacb793dbdcd2d753c37d35f06ed47218",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 64,
+      "head": "ee267430065db09683043a1d18e3d4c2dd0d3a75",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 65,
+      "head": "eaf0fe7942d68c08a47efca6f7f92d535aac60ff",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 66,
+      "head": "d306a08ba990b92db967e720b3c0b9026eac4a6f",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 67,
+      "head": "17fce7c9d15f30d9ce5c9fbc75495688f6b63910",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 68,
+      "head": "76c7d27efe2cb48c4b51d312361b8bd92e18a50c",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 69,
+      "head": "a7f935b84505f5c4aa1d1284ce41dac9cbe18463",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 70,
+      "head": "f13c572f64aa785be57702be373211d8985e661d",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 71,
+      "head": "834069e06da64aa8fd6b22340d7d50a2f200816a",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 72,
+      "head": "b6b66624007c04ba2dbe596dc9e6d45f21cd6904",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 73,
+      "head": "77e6a5b7859b9d3cd5276de486590a7fc05652f7",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 74,
+      "head": "7b7f20c844002eb72adcd7bc5cd5c00dfe87e967",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 75,
+      "head": "fe73e197a327beed235d53974e5d2736dc2ead27",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 76,
+      "head": "a5954c3a1a8fd930d58198abca7808eff27751df",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 77,
+      "head": "ae39adc8ec07bf307df966d29f8a05bef70cc20a",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": true,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 78,
+      "head": "dcc92e347a0b8ae4831222a224fd781a37f43928",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": true,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 79,
+      "head": "ea478a28c687ce3a8f68d578b94a6576980d67fe",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 80,
+      "head": "fe8431cf193d77e232bb25a4bfa8483dade72f76",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 81,
+      "head": "050abd3f672728ba72a8c5f24a8b696acc727f7a",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 82,
+      "head": "4a2741ceeaebbaa321fe81bcfa15411e8e59e339",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 83,
+      "head": "e21370d0801e306e2eb5a9d0ed4b3f1fdcafb9ce",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 84,
+      "head": "1c9ece85300b9315f1cd13db2dffdd5341db7c74",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 85,
+      "head": "188f32ebd07dbb9cd9f6aff83d21a26c2cc4d3bd",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 86,
+      "head": "2a3481f137da8896b7d2e93f89bdca7d145d5b57",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 87,
+      "head": "2a179e24385cc6b4766507179ef46413153d6196",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 88,
+      "head": "580509dada0a666c417a8edc4b5b2b1d3c9ec972",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 89,
+      "head": "d1bb980f3528c5fe13f644a3efcfed1abaed3a46",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 90,
+      "head": "53071922bd63a1b33c54480a1507c09fdf202a36",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 91,
+      "head": "3d2f9369fed3cea41a82658dccc96cb0ce469273",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 92,
+      "head": "e4bd4ae830ba61cff0a6bd2483119efaab548661",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 93,
+      "head": "cf700adff5582b7e40c0dbe3434ee8d148e5c9ef",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 94,
+      "head": "09b3d2bc733c2c26a29a452369b30a422a333fb6",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 95,
+      "head": "e5fda3a29fd074d9ff48500b829a84447edcaf86",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 96,
+      "head": "2e5b77a528352b48cdd2c064d921e82348a79b14",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 97,
+      "head": "5609523c149ba8a23f54693d83c194b8093ac2bf",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 98,
+      "head": "404378c40b2f126d433c7c055bf575d330c70ba6",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 99,
+      "head": "1a64843eb23c333a43b8a44eb074ceb05ff53bbd",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 100,
+      "head": "d383640152cdb22225d3f1fb0c59297b136fa00d",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 101,
+      "head": "c9256444fea995e30e6e3e24ca24b3f6d7649032",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 102,
+      "head": "5d0285783b19929dab57b6e15fee0cd705dd580f",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 103,
+      "head": "c18b14887653d6c676c964f7d9a924aa81856c5e",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 104,
+      "head": "13b81402c49f6f3a85f8d1d674bc8d93552d74b2",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 105,
+      "head": "dcc7c4b32c5234ff8e7c9e5d3ce63f6a38e22125",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 106,
+      "head": "d846b70eea7653c9e74b126173c5c238b0677124",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 107,
+      "head": "f839f99332995e5c899ca75ec21841cf99d926c0",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 108,
+      "head": "c90e2d95a57d0fbc470f26bc3328e9e16dc18d13",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 109,
+      "head": "795f59939788e78e3ca0f4f45e984fdeb7b7b0dd",
+      "state_at_review": "closed",
+      "merged_at_review": false,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 110,
+      "head": "ebcb4d6f728bdec762f16630c1909af9418e515e",
+      "state_at_review": "closed",
+      "merged_at_review": true,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 112,
+      "head": "c12a4b919d8d20503b26f805e9802f5e0ca101cb",
+      "state_at_review": "closed",
+      "merged_at_review": true,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 113,
+      "head": "0e81b49d3b19965ec26d4158901ab531e6c8755b",
+      "state_at_review": "closed",
+      "merged_at_review": true,
+      "disposition": "historical-disposition-retained-current-combined-suite-revalidated",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": false
+    },
+    {
+      "number": 121,
+      "head": "ac6e32e37b547fae1f216cd9eeeccb62cec79c94",
+      "state_at_review": "open",
+      "merged_at_review": false,
+      "disposition": "adapted-alias-reread-and-digest6",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": true
+    },
+    {
+      "number": 122,
+      "head": "7902a90dfd688c7c6ef8a8d2f1e8638877e818fc",
+      "state_at_review": "open",
+      "merged_at_review": false,
+      "disposition": "adapted-backoff-os-errors-and-digest6",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": true
+    },
+    {
+      "number": 123,
+      "head": "60cffe0d4ef9caa3f6ce4dc8ed4642254595551d",
+      "state_at_review": "open",
+      "merged_at_review": false,
+      "disposition": "partial-loaded-precondition-fix-other-proposals-disposed",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": true
+    },
+    {
+      "number": 124,
+      "head": "e620b719bc85ce1a4d9fc54ee9977d35033a8b71",
+      "state_at_review": "open",
+      "merged_at_review": false,
+      "disposition": "partial-loaded-coexistence-fix-other-proposals-disposed",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": true
+    },
+    {
+      "number": 125,
+      "head": "a8f8609ae7d0d7235f1c0268e3c6b74f7c857173",
+      "state_at_review": "open",
+      "merged_at_review": false,
+      "disposition": "runtime-budget-native-procedures-trust-guidance-residuals-preserved",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": true
+    },
+    {
+      "number": 126,
+      "head": "df47fea8fa8635ebd8857a67fd32cc1133c2ad90",
+      "state_at_review": "open",
+      "merged_at_review": false,
+      "disposition": "evidence-recorded-unsafe-relaxations-declined-parity-gates-retained",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": true
+    },
+    {
+      "number": 127,
+      "head": "185ecd3938bab99d0d55e70d115931890df1e9d0",
+      "state_at_review": "open",
+      "merged_at_review": false,
+      "disposition": "incorporated-corrected-guides-and-characterization-tests",
+      "new_comments_reviewed": false,
+      "new_exact_head_reviewed": true
+    }
+  ],
+  "findings": [
+    {
+      "id": "R-D1",
+      "claim": "confirmed-current-source-or-counterexample",
+      "disposition": "implemented-with-regression",
+      "detail": "Confirmed alias-first export loss. Fixed through #121 plus digest 6."
+    },
+    {
+      "id": "R-D2",
+      "claim": "confirmed-current-source-or-counterexample",
+      "disposition": "implemented-with-regression",
+      "detail": "Confirmed rapid registration retry. Fixed through #122 plus real OS failure handling and digest 6."
+    },
+    {
+      "id": "R-D3",
+      "claim": "confirmed-current-source-or-counterexample",
+      "disposition": "guidance-or-existing-gate-retained-proposal-not-authority",
+      "detail": "Confirmed fifth unusable instance fails its type scan. Retain the bounded default; broadening tolerated unanswered input is a measured deployment choice, not justified by a synthetic busy network alone. Discovery parity remains required."
+    },
+    {
+      "id": "R-D4",
+      "claim": "confirmed-current-source-or-counterexample",
+      "disposition": "guidance-or-existing-gate-retained-proposal-not-authority",
+      "detail": "Automatic announced-TCP enumeration is missing. Existing extraction/parity blocker remains; a fixed allowlist is not declared equivalent."
+    },
+    {
+      "id": "R-D5",
+      "claim": "confirmed-current-source-or-counterexample",
+      "disposition": "guidance-or-existing-gate-retained-proposal-not-authority",
+      "detail": "Publication ownership is proved, independent listener health is not. A listener alone cannot establish identity or application health. Preserve exact own-publication selection and require application-connect qualification; no new probing authority is inferred."
+    },
+    {
+      "id": "R-D6",
+      "claim": "confirmed-current-source-or-counterexample",
+      "disposition": "guidance-or-existing-gate-retained-proposal-not-authority",
+      "detail": "Renewal can have a gap; optional overlap already exists. Native registration continuity and consent are unverified."
+    },
+    {
+      "id": "R-D7",
+      "claim": "confirmed-current-source-or-counterexample",
+      "disposition": "guidance-or-existing-gate-retained-proposal-not-authority",
+      "detail": "A syntactically valid lease need not retain records for the requested number of slow passes. Document the lease/pass/carry relationship; qualify real timing instead of widening leases implicitly."
+    },
+    {
+      "id": "R-D8",
+      "claim": "confirmed-current-source-or-counterexample",
+      "disposition": "guidance-or-existing-gate-retained-proposal-not-authority",
+      "detail": "Only the announcing guest's URL endpoint is rewritten. A URL naming a different guest remains as announced. Blind rewriting would invent identity; repair/declare the source or prove a profile-specific rewrite before migration."
+    },
+    {
+      "id": "R-D9",
+      "claim": "confirmed-current-source-or-counterexample",
+      "disposition": "guidance-or-existing-gate-retained-proposal-not-authority",
+      "detail": "Guest-interface absence withdraws projections. Retain current interface/address proof; do not preserve exports on uncertain topology."
+    },
+    {
+      "id": "R-D10",
+      "claim": "confirmed-current-source-or-counterexample",
+      "disposition": "guidance-or-existing-gate-retained-proposal-not-authority",
+      "detail": "A new guest generation requires fresh coordinator intent after cleanup. Retain the fence; an old generation request is not authority for the replacement."
+    },
+    {
+      "id": "R-D11",
+      "claim": "confirmed-current-source-or-counterexample",
+      "disposition": "guidance-or-existing-gate-retained-proposal-not-authority",
+      "detail": "Independent import is already explicit. Its visibility/health does not prove an audio return path."
+    },
+    {
+      "id": "R-D12",
+      "claim": "confirmed-current-source-or-counterexample",
+      "disposition": "guidance-or-existing-gate-retained-proposal-not-authority",
+      "detail": "Projected-name derivation can differ from the predecessor. Exact name parity remains blocking; do not rename existing accessories as a side effect."
+    },
+    {
+      "id": "R-D13",
+      "claim": "confirmed-current-source-or-counterexample",
+      "disposition": "guidance-or-existing-gate-retained-proposal-not-authority",
+      "detail": "The scanner's runtime read remains bounded at eight seconds. Actual timing/conformance must be measured; a slower former owner does not authorize unbounded reads."
+    },
+    {
+      "id": "R-D14",
+      "claim": "confirmed-current-source-or-counterexample",
+      "disposition": "guidance-or-existing-gate-retained-proposal-not-authority",
+      "detail": "A renewal with no currently confirmed client can cause coordinator cleanup. Retain truthful unknown status and existing protocol. Qualified overlap may address availability, but unknown cannot become present."
+    },
+    {
+      "id": "R-D15",
+      "claim": "confirmed-current-source-or-counterexample",
+      "disposition": "guidance-or-existing-gate-retained-proposal-not-authority",
+      "detail": "Unconfirmed or wrong-generation discovery readback leaves a failed journal. Confirmed behavior, but blanket pending treatment is rejected: it would silently relax the owner protocol. Any narrower deferred-state design must separately prove expiry, cancellation, fresh generations and recovery after every write phase."
+    },
+    {
+      "id": "R-U1",
+      "claim": "confirmed-current-source-or-counterexample",
+      "disposition": "guidance-or-existing-gate-retained-proposal-not-authority",
+      "detail": "Unknown-driven retirement may invalidate all states of the guest address. Retain cleanup of both directions; delaying it without a reviewed bounded identity decision can retain traffic to a reused address."
+    },
+    {
+      "id": "R-U2",
+      "claim": "confirmed-current-source-or-counterexample",
+      "disposition": "guidance-or-existing-gate-retained-proposal-not-authority",
+      "detail": "A failed invalidation blocks this owner's other profiles. Retain conservative journal isolation. Per-address partial commits need a separately proven recovery design; not a small retry change."
+    },
+    {
+      "id": "R-U3",
+      "claim": "confirmed-current-source-or-counterexample",
+      "disposition": "implemented-with-regression",
+      "detail": "Loaded pairs previously skipped endpoint/socket rechecks. Fixed with bounded rechecks and negative readiness; no native packet claim."
+    },
+    {
+      "id": "R-U4",
+      "claim": "confirmed-current-source-or-counterexample",
+      "disposition": "guidance-or-existing-gate-retained-proposal-not-authority",
+      "detail": "A reused old address can keep a pair retired and can incur address-wide state invalidation. Retain the conservative gate; safe selective state identity is not established. This availability/foreign-flow residual must be accepted or the architecture changed before migration."
+    },
+    {
+      "id": "R-U5",
+      "claim": "additional-sender-ports-unverified",
+      "disposition": "guidance-or-existing-gate-retained-proposal-not-authority",
+      "detail": "Fixed media ports outside the configured range are not covered, but the cited receiver timing service does not prove this sender needs them. Applicability is unverified; capture the actual path before any range change."
+    },
+    {
+      "id": "R-U6",
+      "claim": "current-qualification-gap-confirmed-historical-silence-claim-rejected",
+      "disposition": "guidance-or-existing-gate-retained-proposal-not-authority",
+      "detail": "Rendered rules and successful calls do not prove audible output. Historical audible confirmations exist and must not be denied; they do not qualify this exact candidate. Current release still needs first-packet and heard-audio evidence."
+    },
+    {
+      "id": "R-U7",
+      "claim": "synthetic-parser-behavior-confirmed-native-grammar-unverified",
+      "disposition": "guidance-or-existing-gate-retained-proposal-not-authority",
+      "detail": "An unfamiliar zoned IPv6 state row can make the complete listing unknown. No trustworthy native fixture supplied. Retain strict parsing; qualify observed grammar before extending it. IPv6 is outside custom policy, not asserted blocked."
+    },
+    {
+      "id": "R-N1",
+      "claim": "confirmed-current-source-or-counterexample",
+      "disposition": "guidance-or-existing-gate-retained-proposal-not-authority",
+      "detail": "Direct/fallback switching has a rule-free pass. Retain drain plus later fresh identity; same-pass substitution is not proven safe."
+    },
+    {
+      "id": "R-N2",
+      "claim": "confirmed-current-source-or-counterexample",
+      "disposition": "guidance-or-existing-gate-retained-proposal-not-authority",
+      "detail": "A timed-out runtime read does not newly activate a DNS fallback. Retain unknown-no-activation; keep-host-paths only retains eligible already loaded host paths."
+    },
+    {
+      "id": "R-N3",
+      "claim": "confirmed-current-source-or-counterexample",
+      "disposition": "guidance-or-existing-gate-retained-proposal-not-authority",
+      "detail": "Same-address restart still changes generation and requires a fresh pass. Retain the fence; address equality is not instance identity."
+    },
+    {
+      "id": "R-N4",
+      "claim": "confirmed-current-source-or-counterexample",
+      "disposition": "guidance-or-existing-gate-retained-proposal-not-authority",
+      "detail": "An incomplete/oversized/timed-out state listing withdraws all owned rules. Retain conservative unknown handling. Partial owner availability requires a separate journal/state attribution design."
+    },
+    {
+      "id": "R-N5",
+      "claim": "confirmed-current-source-or-counterexample",
+      "disposition": "guidance-or-existing-gate-retained-proposal-not-authority",
+      "detail": "LAN-only DNS source scope is a known parity difference where the predecessor accepts other sources. Resolve explicitly per profile; no silent widening."
+    },
+    {
+      "id": "R-N6",
+      "claim": "confirmed-current-source-or-counterexample",
+      "disposition": "guidance-or-existing-gate-retained-proposal-not-authority",
+      "detail": "Pause withdraws owned DNS as well as other rules. Preserve negative intent; use existing scoped holds only where their contract fits."
+    },
+    {
+      "id": "R-N7",
+      "claim": "confirmed-current-source-or-counterexample",
+      "disposition": "guidance-or-existing-gate-retained-proposal-not-authority",
+      "detail": "Runtime health does not ask a functional DNS question. Preserve separate component health and require client-side DNS/dashboard checks before each migration step. Do not infer permission to restart a resolver from packet health alone."
+    },
+    {
+      "id": "R-N8",
+      "claim": "confirmed-current-source-or-counterexample",
+      "disposition": "implemented-with-regression",
+      "detail": "Loaded host rules previously skipped listener/coexistence rechecks. Fixed, including DNS coexistence at final readiness."
+    },
+    {
+      "id": "R-O1",
+      "claim": "confirmed-current-source-or-counterexample",
+      "disposition": "guidance-or-existing-gate-retained-proposal-not-authority",
+      "detail": "Native mutation remains gated and qualified platforms empty. Retain; source completeness and green CI do not open the gate."
+    },
+    {
+      "id": "R-O2",
+      "claim": "confirmed-current-source-or-counterexample",
+      "disposition": "guidance-or-existing-gate-retained-proposal-not-authority",
+      "detail": "Candidate platform/version is not observed installed backend identity. Exact runtime/Socktainer alignment and native qualification remain separate migration prerequisites."
+    },
+    {
+      "id": "R-O3",
+      "claim": "confirmed-current-source-or-counterexample",
+      "disposition": "guidance-or-existing-gate-retained-proposal-not-authority",
+      "detail": "Root observation refuses user-replaceable CLI/helper executables and ancestors. Intentional security boundary. Document trusted installation and caller reconciliation as a separate runtime change, not an automatic chmod or reinstall."
+    },
+    {
+      "id": "R-O4",
+      "claim": "confirmed-current-source-or-counterexample",
+      "disposition": "guidance-or-existing-gate-retained-proposal-not-authority",
+      "detail": "Native procedures lacked per-requirement coverage. Adopt the corrected procedure inventory with a registry coverage check. No procedures were executed. Bounded identity, import visibility and API writer residuals never become absolute verified safety."
+    },
+    {
+      "id": "R-O5",
+      "claim": "confirmed-current-source-or-counterexample",
+      "disposition": "guidance-or-existing-gate-retained-proposal-not-authority",
+      "detail": "Values embedded in consuming programs still need extraction/conformance. Static literal inventory alone is not proof. Existing parity gate retained."
+    },
+    {
+      "id": "R-O6",
+      "claim": "confirmed-current-source-or-counterexample",
+      "disposition": "guidance-or-existing-gate-retained-proposal-not-authority",
+      "detail": "Component repair inside a guest is not implemented. Existing component-health/repair parity gate retained; do not restart the parent or introduce arbitrary commands."
+    },
+    {
+      "id": "R-O7",
+      "claim": "confirmed-current-source-or-counterexample",
+      "disposition": "guidance-or-existing-gate-retained-proposal-not-authority",
+      "detail": "Manager-specific workload-start hooks lack vocabulary/parity. Do not introduce executable hooks into data. Migration of an affected owner remains blocked pending a narrowly extracted existing contract."
+    },
+    {
+      "id": "R-O8",
+      "claim": "confirmed-current-source-or-counterexample",
+      "disposition": "implemented-with-regression",
+      "detail": "Workload restart budgets did not bound vendor-runtime attempts. Add explicit `runtime_start.start_budget`, a separate durable counter and existing-format supervisor suspension. Record attempts before effects and reject damaged state; no new privileged path."
+    }
+  ]
+}

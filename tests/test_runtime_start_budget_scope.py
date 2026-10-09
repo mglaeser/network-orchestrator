@@ -3,7 +3,8 @@
 The deployment guide says that a budget of starts belongs to the guarded start
 and that, once it is spent, the probe no longer returns 42. That holds for a
 workload (`recover_service` spends the budget; `test_runtime_restart_budget.py`).
-`runtime-start` does not read the budget: a runtime monitor that repeats its
+`runtime-start` does not read the workload budget: without the separate
+`runtime_start.start_budget`, a runtime monitor that repeats its
 rule gets one more vendor start on every firing while the probe returns 42,
 whether the starts fail or the runtime comes up and stops again. Everything
 native is the fake of the existing runtime-start tests.

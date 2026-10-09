@@ -99,6 +99,8 @@ class RuntimeStart:
     install_root: str
     # Bound of the one vendor call; unset means 20 seconds.
     timeout_seconds: int | None = None
+    # Separate from workload recovery: both vendor start and idle activation count.
+    start_budget: RestartBudget | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -228,6 +230,23 @@ def _start_timeout(data: dict[str, Any]) -> int | None:
     if type(seconds) is not int or not 1 <= seconds <= 120:
         raise ValueError("start timeout must be a whole number of seconds from 1 to 120")
     return seconds
+
+
+def _budget(value: Any, paths: dict[str, str | None]) -> RestartBudget:
+    """The same finite attempt policy, with independent records for each caller."""
+    item = _object(value, {"starts", "window_seconds"})
+    if (
+        type(item["starts"]) is not int
+        or not 1 <= item["starts"] <= 10
+        or type(item["window_seconds"]) is not int
+        or not 60 <= item["window_seconds"] <= 86400
+    ):
+        raise ValueError("invalid restart budget")
+    if paths["state_dir"] is None or paths["intent"] != str(
+        Path(paths["state_dir"]) / "intent.json"
+    ):
+        raise ValueError("a restart budget needs the durable intent in the state directory")
+    return RestartBudget(item["starts"], item["window_seconds"])
 
 
 def _exact_path(value: Any) -> str:
@@ -477,7 +496,11 @@ def parse_settings(value: Any) -> RuntimeSettings:
         start = None
         if "runtime_start" in item:
             # Present means declared, as above: never null.
-            raw = _object(item["runtime_start"], {"app_root", "install_root"}, {"timeout_seconds"})
+            raw = _object(
+                item["runtime_start"],
+                {"app_root", "install_root"},
+                {"timeout_seconds", "start_budget"},
+            )
             timeout = raw.get("timeout_seconds")
             if "timeout_seconds" in raw and (type(timeout) is not int or not 5 <= timeout <= 120):
                 raise ValueError(
@@ -494,7 +517,10 @@ def parse_settings(value: Any) -> RuntimeSettings:
                 )
             _exact_path(item["api_executable"])
             start = RuntimeStart(
-                _exact_path(raw["app_root"]), _exact_path(raw["install_root"]), timeout
+                _exact_path(raw["app_root"]),
+                _exact_path(raw["install_root"]),
+                timeout,
+                _budget(raw["start_budget"], paths) if "start_budget" in raw else None,
             )
         fleet = FleetStart(
             item["api_label"], _path(item["api_executable"]), item["runtime_label_prefix"], start
@@ -502,22 +528,10 @@ def parse_settings(value: Any) -> RuntimeSettings:
     budget = None
     if "restart_budget" in data:
         # Present means stated. An explicit null is not a second way to leave it out.
-        item = _object(data["restart_budget"], {"starts", "window_seconds"})
-        if (
-            type(item["starts"]) is not int
-            or not 1 <= item["starts"] <= 10
-            or type(item["window_seconds"]) is not int
-            or not 60 <= item["window_seconds"] <= 86400
-        ):
-            raise ValueError("invalid restart budget")
         # A spent budget becomes a hold in the durable intent, written under the
         # lock of the state directory. Recovery can do that only for the intent
         # file of that directory, which is also the one every reader is given.
-        if paths["state_dir"] is None or paths["intent"] != str(
-            Path(paths["state_dir"]) / "intent.json"
-        ):
-            raise ValueError("a restart budget needs the durable intent in the state directory")
-        budget = RestartBudget(item["starts"], item["window_seconds"])
+        budget = _budget(data["restart_budget"], paths)
     return RuntimeSettings(
         1,
         data["owner"],
@@ -557,7 +571,9 @@ def settings_to_dict(settings: RuntimeSettings) -> dict[str, Any]:
         del value["fleet_start"]
     elif value["fleet_start"]["runtime_start"] is None:
         del value["fleet_start"]["runtime_start"]
-    elif value["fleet_start"]["runtime_start"]["timeout_seconds"] is None:
-        del value["fleet_start"]["runtime_start"]["timeout_seconds"]
+    else:
+        for name in ("timeout_seconds", "start_budget"):
+            if value["fleet_start"]["runtime_start"][name] is None:
+                del value["fleet_start"]["runtime_start"][name]
     result: dict[str, Any] = strict_loads(canonical_bytes(value))
     return result

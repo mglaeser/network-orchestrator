@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.4.3 — adversarial readiness integration
+
+- Read export aliases with a bounded second address query; back off failed
+  registration clients, including real OS process failures, and clean up partial
+  registration construction. Discovery contract version 6 rejects older proofs.
+- Recheck loaded forwarding endpoints and socket coexistence before claiming
+  readiness. Retire a failed direct endpoint through the existing drain journal;
+  a late failure withholds readiness without silently selecting a fallback.
+- Add a separate optional durable runtime-start attempt budget using existing
+  negative intent and locks. Preserve old settings when the budget is absent.
+- Correct drain/hold/budget documentation and adopt per-requirement native
+  qualification procedures. Resolve readiness proposals by evidence; do not
+  weaken generation, unknown-state, journal or address-cleanup safety gates.
+- Preserve empty native qualification, public activation guards and existing
+  production owners. No dependency or Action pin changes.
+
 ## 0.4.2 — migration preparation and health checkpoints
 
 - Document parity and native qualification gates, one-owner migration and

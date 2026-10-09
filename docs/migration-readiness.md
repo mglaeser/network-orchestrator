@@ -5,7 +5,9 @@ one. The current release retains its empty native-qualified platform matrix and
 its activation gate. Root privileges, a passing health checkpoint or a complete
 plan cannot bypass that gate. Existing networking owners remain installed.
 
-The [migration runbook](migration-runbook.md) describes the sequence. The
+The [migration runbook](migration-runbook.md) describes the sequence.
+The [native procedures](native-qualification.md) specify per-requirement
+baselines, observations, pass criteria and evidence scope. The
 [release closure record](reviews/2026-10-08-closure-and-qualification.md) identifies
 the remaining implementation/parity limits. The [requirements registry](../src/netorch/requirements.py),
 [acceptance schema](../schemas/acceptance-evidence.schema.json) and

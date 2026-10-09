@@ -719,23 +719,44 @@ class Registration:
         # Read before the spawn: the client arms its own timer later than this,
         # so it cannot end on that timer earlier than its lifetime from here.
         self.spawned = time.monotonic()
-        self.process = subprocess.Popen(
-            registration_argv(record, lifetime_seconds),
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
-            env={"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "LC_ALL": "C"},
-        )
-        self.output = bytearray()
-        self.selector = selectors.DefaultSelector()
-        assert self.process.stdout is not None
-        os.set_blocking(self.process.stdout.fileno(), False)
-        self.selector.register(self.process.stdout, selectors.EVENT_READ)
+        try:
+            self.selector = selectors.DefaultSelector()
+        except OSError as exc:
+            raise DiscoveryFailure("unavailable") from exc
+        try:
+            self.process = subprocess.Popen(
+                registration_argv(record, lifetime_seconds),
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+                env={"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "LC_ALL": "C"},
+            )
+        except OSError as exc:
+            self.selector.close()
+            raise DiscoveryFailure("unavailable") from exc
+        try:
+            self.output = bytearray()
+            assert self.process.stdout is not None
+            os.set_blocking(self.process.stdout.fileno(), False)
+            self.selector.register(self.process.stdout, selectors.EVENT_READ)
+        except OSError as exc:
+            # The child exists but Publisher never received this object. Reap
+            # only that owned child before handing its failure to the hold-off.
+            self.close()
+            raise DiscoveryFailure("unavailable") from exc
         self.started = time.monotonic()
         self.active = False
 
     def poll(self) -> bool:
+        try:
+            return self._poll()
+        except OSError as exc:
+            # OS resource/I/O failures have the same bounded retry policy as
+            # a client exit. Programming errors still fail the whole turn.
+            raise DiscoveryFailure("unavailable") from exc
+
+    def _poll(self) -> bool:
         if self.closed:
             raise DiscoveryFailure("unavailable")
         # Sampled before the read, so the last line of a client that has ended

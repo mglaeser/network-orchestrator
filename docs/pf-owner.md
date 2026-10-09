@@ -468,6 +468,42 @@ put a profile into `pending`. A withheld pair is listed there only when the
 final plan of the pass blocks it for a reason of its own, as every loaded
 profile is; a kept host path is never listed there.
 
+### Preconditions of rules already loaded
+
+A previous activation is not permanent evidence for a current endpoint or a
+clear host socket. Each pass rechecks the route, neighbour and interface of
+guest-targeted rules that its current plan otherwise verifies. A failed check
+retires that profile through the existing journal, withdrawal and state-drain
+sequence, with `deferred: endpoint-unverified`. Other profiles continue. A drain
+or write failure still has the ordinary failure and acknowledgement semantics;
+there is no new failure-isolation mode.
+
+Before publishing readiness, the pass repeats the endpoint and host-socket
+checks for every loaded profile its final plan verifies. A socket conflict or
+failed socket read leaves the rule and its states unchanged, with
+`withheld: ports-unverified`. This includes a port-53 listener that appears
+after activation: the Apple DNS exception must still be explicitly admitted
+and independently verified. Withdrawing a UDP pair for a socket conflict could
+hand first-packet translation to the vendor NAT while older states survive.
+A failing endpoint first seen at this final check is withheld as
+`endpoint-unverified`; the next pass retires it if it still fails. None of these
+profiles is reported `root_ready`, and the owner does not reacquire an enable
+reference while a loaded precondition fails.
+
+Each check batch shares identical endpoint results only within that batch and
+stops starting new checks after eight seconds. A result returned after that
+deadline verifies nothing. Backend operations retain their individual time and
+output bounds; an in-flight operation can finish after the batch deadline. This
+is not a claimed aggregate deadline for the entire owner pass. Native pass
+duration and service continuity still require qualification. Runtime-unknown
+host paths keep their existing separate policy, and none of these checks
+activates a rule, changes admission, or bypasses the later-fresh-pass fence.
+
+Executable evidence: `tests/test_pf_loaded_preconditions.py`. These changes
+alter the root implementation fingerprint, so an upgraded owner requires the
+normal explicit review and admission before activation. They establish source
+and mock behavior only, not native packet or DNS qualification.
+
 A final runtime observation that fails is not a write either. The pass then
 treats every service as unknown, as it does when its first observation fails:
 it ends `inhibited`, reports no profile `root_ready` and leaves the loaded

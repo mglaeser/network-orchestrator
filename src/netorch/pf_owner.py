@@ -110,7 +110,12 @@ DEFERRAL_REASONS = frozenset(
 # ends at the host's own address, and the installation chose to keep such a
 # rule. A withheld profile is not a deferred profile: a deferred profile has no
 # rule loaded.
-WITHHOLDING_REASONS = frozenset({"translation-order-unverified", "runtime-unknown"})
+WITHHOLDING_REASONS = frozenset(
+    {"translation-order-unverified", "runtime-unknown", "endpoint-unverified", "ports-unverified"}
+)
+# A loaded-check batch stops starting native reads after this budget. Individual
+# backend reads retain their own time/output bounds; expiry verifies nothing.
+_LOADED_CHECK_SECONDS = 8.0
 # The plan's reasons for a retirement that can mean that this pass merely has no
 # current runtime evidence: the reading of the runtime ran out of time as a
 # whole, so that the snapshot has no network generation (`network-unknown`), the
@@ -1663,6 +1668,59 @@ def _snapshot(
     return Snapshot(runtime.observed_at, runtime.network_generation, runtime.services, profiles)
 
 
+def _loaded_checks(
+    config: Config,
+    installation: Installation,
+    snapshot: Snapshot,
+    records: Mapping[str, Mapping[str, Any]],
+    backend: Backend,
+    verified: set[str],
+    *,
+    ports: bool,
+    clock: Callable[[], float] | None = None,
+) -> dict[str, str]:
+    """Fresh checks for loaded rules whose independent plan still verifies them.
+
+    These observations never activate anything. Endpoints are checked once per
+    identical scope/target/MAC within this batch (TCP and UDP DNS share one).
+    The final batch also checks socket coexistence. A failed or late read never
+    proves readiness; the next batch starts with an empty cache.
+    """
+    clock = clock or time.monotonic
+    deadline = clock() + _LOADED_CHECK_SECONDS
+    endpoints: dict[tuple[str, str, str | None, bool], bool] = {}
+    refused: dict[str, str] = {}
+    for key in sorted(verified):
+        record = records.get(key)
+        if record is None or not record["active"]:
+            continue
+        profile = config.profile(key)
+        scope = config.scope(profile.scope)
+        service = snapshot.services.get(profile.service)
+        mac = None if service is None else service.data.get("mac")
+        selected_mac = mac if isinstance(mac, str) else None
+        direct = record["kind"] != "host-redirect"
+        identity = (scope.id, record["target_ipv4"], selected_mac if direct else None, direct)
+        if identity not in endpoints:
+            valid = False
+            if clock() < deadline:
+                with contextlib.suppress(OSError, RuntimeError, ValueError):
+                    valid = backend.endpoint(scope, identity[1], identity[2], direct=direct)
+            endpoints[identity] = valid is True and clock() < deadline
+        if not endpoints[identity] or clock() >= deadline:
+            refused[key] = "endpoint-unverified"
+            continue
+        if ports:
+            clear = False
+            with contextlib.suppress(OSError, RuntimeError, ValueError):
+                clear = backend.ports_clear(
+                    scope, profile, apple_dns=installation.allow_apple_dns_coexistence
+                )
+            if clear is not True or clock() >= deadline:
+                refused[key] = "ports-unverified"
+    return refused
+
+
 def _stopped_before_any_write(journal: Mapping[str, Any]) -> bool:
     """Whether an unfinished journal is exactly the record made before any write.
 
@@ -2283,6 +2341,35 @@ def reconcile(
                 )
         candidate = plan(config, snapshot, admissions, intent, stamp)
         actions = [action for action in candidate.actions if action.profile in owned]
+        # Identity is more than the runtime's current address. A loaded guest
+        # rule must still have the independently verified route and neighbour
+        # it needed at activation. Retire a failed one through the same journal,
+        # withdraw-first ordering and drain as every other unsafe guest target.
+        loaded_refused = _loaded_checks(
+            config,
+            installation,
+            snapshot,
+            records,
+            backend,
+            {
+                action.profile
+                for action in actions
+                if action.operation == "noop"
+                and action.profile in records
+                and records[action.profile]["kind"] != "host-redirect"
+            },
+            ports=False,
+        )
+        checked_actions: list[Action] = []
+        for action in actions:
+            if action.profile in loaded_refused:
+                checked_actions.extend(
+                    replace(action, operation=operation, reason="endpoint-invalid")
+                    for operation in ("withdraw", "drain")
+                )
+            else:
+                checked_actions.append(action)
+        actions = checked_actions
         # Policies removed from the desired catalog must retire both rules and
         # states too. Removing a profile is never an implicit ownership handoff.
         for key in sorted(set(records) - owned):
@@ -2360,7 +2447,7 @@ def reconcile(
         )
         changed: list[str] = []
         acquired = False
-        deferred: dict[str, str] = {}
+        deferred: dict[str, str] = dict(loaded_refused)
         # A read that this pass absorbed, in a deferral or in the check of a
         # loaded pair, was refused for an unexpected notice of the tool. The
         # outcome is that of a read that failed; the final journal record names
@@ -2624,6 +2711,21 @@ def reconcile(
                 if action.operation == "noop" and action.reason == "verified"
             }
             deferred = _deferrals(deferred)
+            # Repeat the loaded rule's endpoint/socket checks before any
+            # reference reacquisition and before claiming readiness. A failure
+            # that first appears here is withheld; the next pass retires a
+            # guest whose endpoint still fails. Socket conflicts only withhold:
+            # withdrawing the UDP pair could surrender first-packet translation
+            # to the vendor NAT while its existing states still survive.
+            loaded_withheld = _loaded_checks(
+                config,
+                installation,
+                final,
+                records,
+                backend,
+                verified_profiles & owned,
+                ports=True,
+            )
             # Read on every pass that leaves a rule loaded, not only at an
             # activation: another tool can disable PF at any time, which also
             # drops every enable reference.
@@ -2642,6 +2744,7 @@ def reconcile(
                 # evidence verifies that rule again: the pass after it, which
                 # has that evidence from its start, takes the reference.
                 and not kept
+                and not loaded_withheld
                 and not _inhibition(root, installation).blocked
             ):
                 # The administrator chose that a reference which a complete read
@@ -2668,7 +2771,7 @@ def reconcile(
             # cost the path, it cannot expose a guest.
             # A host path that this pass kept is withheld as well: it was judged
             # before the first action of the pass, and it is not reported ready.
-            withheld: dict[str, str] = dict(kept)
+            withheld: dict[str, str] = {**kept, **loaded_withheld}
             if installation.translation_order == "verified":
                 pairs = [
                     key

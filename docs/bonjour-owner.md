@@ -90,6 +90,12 @@ exactly to the resolved guest hostname/address are projected to the reachable
 LAN address and mapped port. The host name compares by ASCII DNS case
 equivalence, like every other name here. Scheme, path, query and fragment are preserved.
 External URLs, credentials-bearing URLs and opaque/binary TXT data are untouched.
+An endpoint URL naming a different guest-network address is also preserved.
+The owner cannot prove whether it names this guest's former address or another
+service, so it never rewrites that address to this service's publication. Such
+a URL can remain unreachable from the LAN. Migration must inventory these
+values and qualify the application's actual connection path; this projection
+does not repair stale application configuration.
 
 ## Import: genuine Apple media endpoints into the guest network
 
@@ -137,6 +143,12 @@ Discovery digest version 4 binds the changes to record reading, selection and
 leasing made after 0.3.2; each is described where this document covers that
 behavior. Version 1 to 3 requests, candidates and cached readbacks are
 rejected at the owner boundary in the same way.
+
+Discovery digest version 6 binds the bounded alias-address reread and the
+registration failure backoff described below. Version 5 and older candidates,
+requests, endpoint actions and readback cannot enable this changed behavior.
+Upgrade by obtaining fresh reviewed discovery inputs; do not rewrite an old
+approval or cached observation to the new digest.
 
 Discovery digest version 5 additionally binds truthful renewal health, complete
 final-pipe inspection, exact registration-interface identity, and the refusal
@@ -417,13 +429,21 @@ service types of each owned policy, and five of slack. For the example's two
 policies that is 119 seconds, and a rest and two passes are 243. The
 condition is each policy's own: its tolerance, its lease. A policy that follows
 the owner's setting and whose `max_age_seconds` leaves no such room keeps
-withdrawing on the first miss. Settings are refused where a tolerance above 1
-could never keep anything. A lease has room when it exceeds that time by one
-more rest, the least age of a missed record. The owner's `miss_tolerance` above
+withdrawing on the first miss. The settings check requires a lease exceeding
+that time by one more rest, a zero-duration-pass lower bound rather than proof
+that the selected tolerance works on a host. The owner's `miss_tolerance` above
 1 needs such a lease in at least one of the owned policies that follow it, and
 a policy that states `misses` above 1 needs it itself. Where every owned policy
 states its own number, the setting governs none of them and is compared with
 no lease. The example's 120-second leases do not have it.
+
+Keeping a record through `k - 1` missed passes requires
+`max_age_seconds > (k - 1) * P + carry_horizon`, where `P` bounds the actual
+start-to-start pass period, including the rest and the reads. Each scanned
+policy takes at least its browse window, so the smallest accepted lease can
+still retain no misses on a host. Choose the lease from a qualified pass-period
+bound; validation alone neither measures that period nor promises `k - 1`
+retained misses. The source lease always wins over the tolerance.
 
 A pass that fails is weaker evidence that a record is gone than a completed
 pass that did not find it. The settings can therefore give `failed_pass` with
@@ -662,6 +682,12 @@ policy's other records are registered again at the next turn, as before. While a
 record is held back its policy reads `unknown` with the reason of the failure
 (of the latest one where several of its records are held back), and
 `present / verified` again once every record is registered and confirmed.
+
+OS failures while allocating the selector, spawning the client or reading its
+pipe count as `unavailable` client failures and use the same hold-off. A failure
+after spawn but before registration setup completes reaps that owned child and
+closes its pipe and selector; no other process is signalled. Unexpected
+programming errors still fail the complete publisher turn.
 
 A withdrawal of the policy keeps the history, whatever withdrew it: the failure
 itself, an inactive request, a hold, the pause or stale evidence. For a record
