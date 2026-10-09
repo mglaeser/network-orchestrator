@@ -113,9 +113,9 @@ BASE_BYTES = (
     b'"report_path":"/reports/site-forwarding.json","schema_version":1}'
 )
 BASE_DIGEST = "3e1c997edddc964857c42e6a3630cef1cffc9ad768bcee593690e9008c9762f7"
-# SHA-256 over the backend calls of three passes without the decision
-# (activating, healthy, pausing), computed with the test body on that tree.
-BASE_CALLS = "74cfff7820e910d3b2e501a124fc3a75c988c97cc168cdf45d235df523216629"
+# SHA-256 over three passes without translation-order reads (activating,
+# healthy, pausing). Refreshed for the independent loaded endpoint checks.
+BASE_CALLS = "8efa35de0b00bae058d3b2b5aa081de97aa3a18a5fb3c148b29bef2824a641f3"
 
 
 class Ordered(Kernel):
@@ -479,7 +479,9 @@ def test_changing_the_decision_voids_every_admission(environment: Any, decided: 
 # ---- without the decision
 
 
-def test_without_the_decision_nothing_is_read_and_no_call_changes(environment: Any) -> None:
+def test_without_the_decision_no_translation_order_reads_or_stored_setting_changes(
+    environment: Any,
+) -> None:
     backend = Ordered()
     # Everything the check would refuse, were it made.
     backend.hooks = f"{NS} all\n{R} all\n{FOREIGN_TRANSLATION}"
@@ -689,7 +691,10 @@ def assert_withheld(
 
 
 def test_withholding_reasons_are_a_second_closed_vocabulary() -> None:
-    assert frozenset({REASON, "runtime-unknown"}) == owner.WITHHOLDING_REASONS
+    assert (
+        frozenset({REASON, "runtime-unknown", "endpoint-unverified", "ports-unverified"})
+        == owner.WITHHOLDING_REASONS
+    )
     assert isinstance(owner.WITHHOLDING_REASONS, frozenset)
     assert list(owner._withholdings({"b": REASON, "a": REASON})) == ["a", "b"]
     assert owner._withholdings({}) == {}

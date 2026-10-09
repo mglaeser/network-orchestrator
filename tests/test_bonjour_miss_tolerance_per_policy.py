@@ -122,7 +122,7 @@ def stating(config: Config, tolerances: dict[str, int]) -> Config:
     )
 
 
-def entry_digest(config: Config, item: dict[str, Any], version: int = 5) -> str:
+def entry_digest(config: Config, item: dict[str, Any], version: int = 6) -> str:
     """The versioned envelope around one entry exactly as the policy file writes it."""
     service = config.service(item["service"])
     return digest(

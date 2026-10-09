@@ -745,6 +745,7 @@ one more member inside `fleet_start`:
 | `app_root` | the vendor's application data root, an absolute canonical path |
 | `install_root` | the vendor's install root, an absolute canonical path |
 | `timeout_seconds` | optional bound of the one vendor call, a whole number from 5 to 120; left out it is 20 |
+| `start_budget` | optional independent attempt budget; the same closed `starts` / `window_seconds` shape and bounds as a workload restart budget |
 
 The object is closed, both roots are required, and an explicit `null` is
 refused for the object and for the bound. Left out, nothing changes: the key is
@@ -769,10 +770,12 @@ Two commands exist with the declaration, and both refuse without it:
 - `runtime-start` runs as the enrolled account only. It takes the user operation
   lock like `start`, reads the state twice with the intent read after each,
   makes one vendor call and reads the result back. It starts no workload, never
-  repeats the call, and never unloads, stops or repairs anything. In this
+  repeats the call within one invocation, and never unloads, stops or repairs anything. In this
   release it is refused with status 78 like every other mutation.
 
-Three conditions hold before the call, and each is read on both passes:
+Three native conditions hold before the call, and each is read on both passes.
+An optional [runtime start budget](#runtime-start-budget) is then spent before
+the vendor call:
 
 1. **The reviewed launch file is already the expected one.**
    `<app_root>/apiserver/apiserver.plist` exists as a regular file of the
@@ -925,6 +928,54 @@ form is unknown, and five `darwin` contract tests show the real forms on the
 hosted CI runner only. That a job loaded from the supervisor's own session
 runs, the time the call takes and the absence of a download on a given host
 remain native acceptance items.
+
+### Runtime start budget
+
+A repeated runtime monitor can otherwise retry a failed vendor start without
+end. Declare the following inside `fleet_start.runtime_start` to bound those
+attempts independently of workload recovery:
+
+```json
+"start_budget": {"starts": 3, "window_seconds": 600}
+```
+
+The closed object requires both members: `starts` is an integer from 1 to 10,
+and `window_seconds` from 60 to 86400. Explicit `null` is refused. Leaving the
+member out preserves earlier settings bytes, digests and behavior. Older
+releases refuse settings containing this new member; the persisted suspension
+uses the existing intent format and remains effective across a rollback.
+
+Accounting lives in the private state store's `runtime-starts.json`, separate
+from workload `recovery-starts.json`. The existing operation lock serializes
+both. After the two native reads and negative-intent checks, a start records
+its attempt before calling the vendor. Both `system start` for an absent API
+job and `system status` activating a loaded idle job count. Successful, failed,
+timed-out and unconfirmed attempts all count; a running or unknown runtime,
+an existing suspension or an operator pause makes no attempt. The public gate
+still refuses every activating entrypoint before these effects.
+
+Whole-second timestamps round upward. A future timestamp after a clock rollback
+stays inside the window. Invalid clocks and malformed records start nothing.
+When the next attempt would exceed the budget, the owner first records the
+existing-format suspension `runtime-start-budget` with holder `supervisor`,
+then clears only its own counter. Every owner sharing this intent honours the
+suspension; it affects the whole runtime, not one workload. The runtime probe
+returns 69, so its recovery rule stops matching. Neither time nor a reboot
+releases the suspension. Workload holds and counters remain unchanged.
+
+After investigating the failed start, an operator can release exactly that
+suspension through the existing gated `release` operation using those two names.
+This gives a fresh budget without clearing operator pause or another holder.
+A failed counter write permits no vendor call. If storing the suspension fails,
+the owner pins a readable counter as permanently spent and returns unknown;
+the next attempt cannot silently restart merely because time passed. If clearing
+the counter fails after suspension, it stays suspended. An interrupted clear
+can require another explicit release later; it cannot grant an extra start.
+Unsafe state paths remain refused and require inspection, never automatic repair.
+
+Tests use a fake runtime and injected clocks. Native process inventory, supervisor
+behavior and operator release still need their own authorized qualification;
+the counter is not evidence that the runtime can recover on any particular host.
 
 ## Runtime and login gates
 

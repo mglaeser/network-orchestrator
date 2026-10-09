@@ -31,8 +31,10 @@ second writer. Explicit scoped withdrawal remains a safety operation.
 See [the instance guide](docs/instances.md), [review traceability](docs/review-traceability.md)
 and [migration rules](docs/site-migration.md). No production qualification,
 application acceptance or unattended recovery is implied by installing a wheel.
-The [latest adversarial review](docs/reviews/2026-10-08-site-requirements-review.md)
-records the 0.4.0 corrections and proposal dispositions. The
+The [latest adversarial review](docs/reviews/2026-10-09-readiness-review.md)
+records the 0.4.3 corrections and all readiness proposal dispositions. The
+[earlier integrated review](docs/reviews/2026-10-08-site-requirements-review.md)
+records the 0.4.0 baseline. The
 [0.4.1 closure record](docs/reviews/2026-10-08-closure-and-qualification.md) separates
 repository fixes from remaining conformance and production qualification gates.
 

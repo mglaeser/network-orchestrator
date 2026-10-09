@@ -82,6 +82,8 @@ RESTART_BUDGET_HOLDER = "supervisor"
 # clock, rounded up: the record has to outlive a boot, which the monotonic
 # clock does not.
 STARTS_RECORD = "recovery-starts.json"
+RUNTIME_STARTS_RECORD = "runtime-starts.json"
+RUNTIME_BUDGET_OPERATION = "runtime-start-budget"
 _RECORDED_SERVICE = re.compile(r"[a-z][a-z0-9-]{0,63}\Z")
 _RECORDED_STARTS_MAXIMUM = 10
 _CLOCK_LIMIT = 2**53
@@ -1650,12 +1652,74 @@ def runtime_state(settings: RuntimeSettings, runner: Runner = run) -> str:
     return job
 
 
+def _runtime_starts(store: Store) -> list[int] | None:
+    """A missing record is new; malformed or unsafe existing data is unknown."""
+    try:
+        raw = store.read(RUNTIME_STARTS_RECORD)
+    except FileNotFoundError:
+        return []
+    except ValueError:
+        return None
+    if (
+        not isinstance(raw, dict)
+        or set(raw) != {"schema_version", "starts"}
+        or type(raw["schema_version"]) is not int
+        or raw["schema_version"] != 1
+        or not isinstance(raw["starts"], list)
+        or len(raw["starts"]) > _RECORDED_STARTS_MAXIMUM
+        or any(type(entry) is not int or not 0 <= entry < _CLOCK_LIMIT for entry in raw["starts"])
+    ):
+        return None
+    return raw["starts"]
+
+
+def _spend_runtime_start(store: Store, budget: RestartBudget, wall: Callable[[], float]) -> None:
+    """Record before the call; exhaustion suspends until an operator releases it.
+
+    The caller holds the existing operation lock and has proved the runtime's
+    state twice. Workload counters are never read or modified. The durable
+    suspension uses the existing intent format, so every owner and older release
+    honours it. A failed hold write pins any readable record as spent forever.
+    """
+    try:
+        recorded = _runtime_starts(store)
+        now = wall()
+        timed = type(now) in {int, float} and 0 <= now < _CLOCK_LIMIT
+        if recorded is not None and timed:
+            # Future entries stay inside the window after a wall-clock rollback.
+            inside = [entry for entry in recorded if now - entry < budget.window_seconds]
+            if len(inside) < budget.starts:
+                store.write(
+                    RUNTIME_STARTS_RECORD,
+                    {"schema_version": 1, "starts": [*inside, math.ceil(now)]},
+                )
+                return
+        try:
+            intent = intent_from_dict(store.read("intent.json"))
+            intent = intent.suspend(RUNTIME_BUDGET_OPERATION, RESTART_BUDGET_HOLDER)
+            store.write("intent.json", intent_to_dict(intent))
+        except (OSError, ValueError, UnsafeState):
+            if recorded is not None:
+                store.write(
+                    RUNTIME_STARTS_RECORD,
+                    {"schema_version": 1, "starts": [_CLOCK_LIMIT - 1] * _RECORDED_STARTS_MAXIMUM},
+                )
+            raise
+        # Hold first, clear second. Interruption between them cannot grant a start;
+        # after an explicit release it can at worst require another release.
+        store.write(RUNTIME_STARTS_RECORD, {"schema_version": 1, "starts": []})
+    except (OSError, ValueError, UnsafeState) as exc:
+        raise RuntimeReadError("incomplete") from exc
+    raise RuntimeReadError("incomplete")
+
+
 def start_runtime(
     settings: RuntimeSettings,
     runner: Runner = run,
     *,
     clock: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
+    wall: Callable[[], float] = time.time,
 ) -> str:
     """The supervisor's start of the vendor runtime: one call after a twice-read state.
 
@@ -1668,6 +1732,10 @@ def start_runtime(
     fleet, start, domain = _declared_start(settings)
     if settings.state_dir is None:
         raise PermissionError("the vendor runtime belongs to the enrolled user")
+    if start.start_budget is not None and settings.intent != str(
+        Path(settings.state_dir) / "intent.json"
+    ):
+        raise ValueError("a runtime start budget needs the durable intent in the state directory")
     store = Store(Path(settings.state_dir))
     with _state_lock(store, clock, sleep):
         before = runtime_state(settings, runner)
@@ -1676,6 +1744,8 @@ def start_runtime(
         fresh = runtime_state(settings, runner)
         if fresh != before or _intent(settings).blocked:
             raise RuntimeReadError("generation-mismatch")
+        if start.start_budget is not None:
+            _spend_runtime_start(store, start.start_budget, wall)
         arguments = ["system", "status"]
         if before == "absent":
             arguments = ["system", "start", "--app-root", start.app_root]

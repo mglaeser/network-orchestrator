@@ -39,10 +39,43 @@ optimistic `active` flag alone cannot create a registration.
 Browse only configured service types on the named guest interface. Resolve the
 genuine instance, SRV port, IPv4 address and raw TXT bytes. The source host
 must currently hold the announcing service's inspected guest address. A guest
-may hold further addresses, an alias for example; its record is then read by
-the guest address, and the published address and port still come from the
-verified publication alone. The
-service generation is the independently inspected running instance generation.
+may hold further addresses, an alias for example. Its record is read by the
+guest address where the address answer holds it. Where an alias outside the
+guest network answers first, an instance on a published port is read a second
+time (below); an alias inside the guest network is read as it stands, as
+before, and an instance for whose second read there is no room is left out.
+The published address and port still come from the verified publication alone.
+The service generation is the independently inspected running instance generation.
+
+The address is read with `-m`, and with it the client can show one of a
+host's addresses alone ([below](#one-instance-and-the-scan-as-a-whole)). The
+runtime gives each guest exactly one address of the guest network (the scope's
+`guest_cidr`), the guest address among them, so an answer that holds an
+address of that network names a host of it and is read as it stands. An answer
+whose addresses all lie outside the guest network, an alias alone for example,
+may be the first part of the guest's own answer. Where the projection could
+export the instance, that is where its port is the guest port of exactly one
+verified publication of the policy for the type's protocol and the loop
+exclusion does not refuse it, its host is read once more without `-m`. That
+client shows every reply until its own `-t` timer: one more command of
+`scan_seconds` for such an instance. The instance is read by the guest address
+where the second answer holds it, as before where that answer holds another
+address of the guest network, and otherwise it is left out and counted in
+`skipped`, never dropped in silence. A record that an earlier pass exported is
+then withdrawn in this pass whatever the miss tolerance, as for every answer
+that cannot be used ([below](#supervision-leases-and-recovery)). The second
+read is made only where it can end, with one second to spare, before the
+earlier of the scan's own time and the scanner's wait for the scan (45
+seconds, or half the lease where that is less); without that room the instance
+is left out, and a scan whose own time is used up fails as before. In every
+other respect it is the first read: the same interface line, rows,
+diagnostics, failures and forms of a read that did not complete. No import
+makes a second command, and neither does an answer that holds the guest
+address or no address at all, an instance on any other port, which is read as
+it stands whatever its addresses, or an instance that the loop exclusion
+refuses (a record this owner projected into the guest network). An alias
+inside the guest network cannot be told from another guest's address and is
+read as it stands.
 
 A source record is exportable only when exactly one verified publication owned
 by that same service, generation, scope and protocol maps its guest port to the
@@ -57,6 +90,12 @@ exactly to the resolved guest hostname/address are projected to the reachable
 LAN address and mapped port. The host name compares by ASCII DNS case
 equivalence, like every other name here. Scheme, path, query and fragment are preserved.
 External URLs, credentials-bearing URLs and opaque/binary TXT data are untouched.
+An endpoint URL naming a different guest-network address is also preserved.
+The owner cannot prove whether it names this guest's former address or another
+service, so it never rewrites that address to this service's publication. Such
+a URL can remain unreachable from the LAN. Migration must inventory these
+values and qualify the application's actual connection path; this projection
+does not repair stale application configuration.
 
 ## Import: genuine Apple media endpoints into the guest network
 
@@ -105,6 +144,12 @@ leasing made after 0.3.2; each is described where this document covers that
 behavior. Version 1 to 3 requests, candidates and cached readbacks are
 rejected at the owner boundary in the same way.
 
+Discovery digest version 6 binds the bounded alias-address reread and the
+registration failure backoff described below. Version 5 and older candidates,
+requests, endpoint actions and readback cannot enable this changed behavior.
+Upgrade by obtaining fresh reviewed discovery inputs; do not rewrite an old
+approval or cached observation to the new digest.
+
 Discovery digest version 5 additionally binds truthful renewal health, complete
 final-pipe inspection, exact registration-interface identity, and the refusal
 to revive a source explicitly rejected in the current pass. Versions 1 to 4
@@ -130,7 +175,10 @@ duplicate, ambiguous, oversized, denied and timed-out output fails closed.
 
 Browse Add/Rmv rows preserve Unicode names and spaces without shell evaluation.
 SRV must resolve uniquely, and so must IPv4 for an import; an export accepts
-the inspected guest address among several. TXT is read with `-Q … TXT IN`, whose native
+the inspected guest address among several, and reads an answer that shows
+addresses outside the guest network alone a second time where the projection
+could export the instance
+([export](#export-guest-services-to-reachable-lan-endpoints)). TXT is read with `-Q … TXT IN`, whose native
 raw hexadecimal output preserves binary, empty and non-UTF-8 entries. Every
 TXT byte is passed back through Apple's `\xHH` registration grammar. No shell
 interpolation, string splitting or fabricated cache entry is used.
@@ -252,7 +300,7 @@ policy unless the settings count it as a miss
 | The time budget of the scan is used up | `scan` | the scan fails |
 | A fifth unusable instance in one scan | `scan` | the scan fails |
 | Resolve: no reply (a browse entry whose instance is gone), replies that differ, a port outside 1-65535, a target outside `.local.` or not UTF-8 | `resolve_endpoint` | the instance is left out |
-| Address: none, several for an import, several without the guest address for an export | `resolve_ipv4` | the instance is left out |
+| Address: none, several for an import, several without the guest address for an export; for an export also an answer outside the guest network, for an instance the projection could export, whose second read holds neither the guest address nor another address of that network, or for whose second read there is no room | `resolve_ipv4`, `scan` | the instance is left out |
 | TXT: no record, records that differ, a record shorter than one of its strings declares | `resolve_txt` | the instance is left out |
 | The answers form no valid record: a host name longer than 255 bytes | `scan` | the instance is left out |
 | Instances to leave out and no instance of the policy read in the same pass | `scan_policy` | the policy is withdrawn |
@@ -279,13 +327,23 @@ pass and with the time the pass began, and its heartbeat after that, so this
 time ages the candidate of every policy of the pass. This is part of
 discovery digest version 4.
 
+An export instance whose address is read a second time
+([export](#export-guest-services-to-reachable-lan-endpoints)) costs one more
+command, whether it is then published or left out. Each second read adds up to
+`scan_seconds`, the client's own `-t` timer, and is made only where it ends
+before the earlier of the scan's 45 seconds and the scanner's wait for the
+scan, so the bound of one scan and the budget of a pass are unchanged.
+
 Which of these cases the client can show is read from its source
 (`Clients/dns-sd.c` at the revision above), not captured from a host. The scan
 passes `-m` to the resolve, address and TXT commands, and with it the client
 leaves after the first reply that is not marked as followed by more (lines
 841-844, 1209-1212 and 1287-1290). A host with two IPv4 addresses therefore
-shows two rows only if both replies are delivered together; with one row that
-address is read and the instance is published. TXT records that differ are
+shows two rows only if both replies are delivered together; with one row an
+import reads that address, and so does an export, except that for an instance
+the projection could export an address outside the guest network is read a
+second time without `-m`
+([export](#export-guest-services-to-reachable-lan-endpoints)). TXT records that differ are
 likewise two records listed together; an `Add`, `Rmv`, `Add` sequence for a
 record that changed is read as its last value. The address command asks for
 intermediate results (line 2306) and prints a negative answer as
@@ -371,13 +429,21 @@ service types of each owned policy, and five of slack. For the example's two
 policies that is 119 seconds, and a rest and two passes are 243. The
 condition is each policy's own: its tolerance, its lease. A policy that follows
 the owner's setting and whose `max_age_seconds` leaves no such room keeps
-withdrawing on the first miss. Settings are refused where a tolerance above 1
-could never keep anything. A lease has room when it exceeds that time by one
-more rest, the least age of a missed record. The owner's `miss_tolerance` above
+withdrawing on the first miss. The settings check requires a lease exceeding
+that time by one more rest, a zero-duration-pass lower bound rather than proof
+that the selected tolerance works on a host. The owner's `miss_tolerance` above
 1 needs such a lease in at least one of the owned policies that follow it, and
 a policy that states `misses` above 1 needs it itself. Where every owned policy
 states its own number, the setting governs none of them and is compared with
 no lease. The example's 120-second leases do not have it.
+
+Keeping a record through `k - 1` missed passes requires
+`max_age_seconds > (k - 1) * P + carry_horizon`, where `P` bounds the actual
+start-to-start pass period, including the rest and the reads. Each scanned
+policy takes at least its browse window, so the smallest accepted lease can
+still retain no misses on a host. Choose the lease from a qualified pass-period
+bound; validation alone neither measures that period nor promises `k - 1`
+retained misses. The source lease always wins over the tolerance.
 
 A pass that fails is weaker evidence that a record is gone than a completed
 pass that did not find it. The settings can therefore give `failed_pass` with
@@ -598,6 +664,59 @@ Bounded scan denial and registration-child failure are isolated by discovery
 policy. The affected policy withdraws or becomes unknown while sibling policies
 continue refreshing valid records. Global policy/intent corruption still
 invalidates all owned registrations.
+
+A registration-child failure also holds its record back. The failure still
+withdraws its policy in its own turn and reports its reason. The publisher then
+starts no client for that record until 1 second after the failure; each further
+failure of the same record doubles the hold-off, up to 300 seconds. The failure
+of a running client, of a replacement beside it and of a start that cannot be
+made all count; a client that ends on its own timer and a lease that ends do
+not. A client of the record that confirms ends its history, and so does a fresh
+activation request of its policy: an active request whose `requested_at` differs
+from that of the last one the publisher acted on, whether an inactive request
+came between or not. Either way the record's next failure holds it back 1 second
+again. A record that differs in any field (name, type, host, port, address, TXT,
+interface, or the service and generation it came from) is another record, with a
+history of its own; a newer sighting of the same record is the same record. The
+policy's other records are registered again at the next turn, as before. While a
+record is held back its policy reads `unknown` with the reason of the failure
+(of the latest one where several of its records are held back), and
+`present / verified` again once every record is registered and confirmed.
+
+OS failures while allocating the selector, spawning the client or reading its
+pipe count as `unavailable` client failures and use the same hold-off. A failure
+after spawn but before registration setup completes reaps that owned child and
+closes its pipe and selector; no other process is signalled. Unexpected
+programming errors still fail the complete publisher turn.
+
+A withdrawal of the policy keeps the history, whatever withdrew it: the failure
+itself, an inactive request, a hold, the pause or stale evidence. For a record
+without a client it is forgotten 300 seconds after the hold-off ended. Hold-offs
+run on the publisher's monotonic clock; a clock that reads earlier than a
+failure, while no client of the record runs, forgets that failure, and the
+record is registered again at once, as before hold-offs. The history is kept in
+the publisher process's memory only and never written: a publisher that starts
+again, and one whose turn fails as a whole, registers every record at once. The
+two values are constants of the publisher, not settings. A record whose client
+the daemon renames one second after its start, because another advertiser holds
+its name, is thus started 5 times in the first 20 seconds and 10 times in the
+first 10 minutes, then once every 301 seconds; before, it was started again a
+quarter of a second after each failure, 16 times in those 20 seconds. In
+exchange a transient failure costs 1 second before the record is registered
+again, and after repeated failures the wait reaches 300 seconds, also when the
+cause has gone, until a client of the record confirms or a fresh activation
+request arrives.
+
+The coordinator's endpoint waits seven seconds for an activation to be
+confirmed. Measured on the mock tier, with the endpoint, the publisher's turns
+and a client renamed one second after its start on one clock, for conflict
+lengths in steps of a quarter second: an activation that meets a name conflict
+of up to 5 seconds is confirmed within that wait, with the hold-off as before it
+(up to 5.25 seconds where the request arrives just after a turn). Where the
+daemon confirms a registration at once, the publisher before the hold-off also
+confirmed conflicts of 5.25 to 6.25 seconds (5.5 to 6.5), and this one does not;
+where a confirmation takes a second, neither confirms a longer conflict than 5
+seconds (5.25).
 
 One candidate file holds every policy's records. When a pass would exceed that
 file's size or structure bound, the bulkiest policy loses its records with the

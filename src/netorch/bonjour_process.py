@@ -16,8 +16,10 @@ import socket
 import subprocess
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 
-from .discovery import Record
+from .discovery import Record, is_projected_name
+from .model import DiscoveryNames
 from .process import ProcessTimeout, Result, run
 
 DNS_SD = "/usr/bin/dns-sd"
@@ -388,14 +390,8 @@ def resolve_endpoint(raw: bytes, index: int) -> tuple[str, str, int]:
     return fullname, host, port
 
 
-def resolve_ipv4(raw: bytes, hostname: str, index: int, guest_ipv4: str | None = None) -> str:
-    """The host's one current IPv4 address.
-
-    An export passes the announcing service's inspected guest address. A host
-    that holds that address among several is read as that address: the record
-    is tied to the service by it, and what is published comes from the verified
-    publication, never from this answer.
-    """
+def _ipv4_rows(raw: bytes, hostname: str, index: int) -> set[str]:
+    """The addresses an address answer holds after its last Add or Rmv row."""
     pattern = re.compile(
         rf"^{_STAMP}\s+(Add|Rmv)\s+[0-9A-Fa-f]+\s+(\d+)\s+"
         rf"{re.escape(hostname)}\s+([0-9.]+)\s+\d+$"
@@ -417,6 +413,18 @@ def resolve_ipv4(raw: bytes, hostname: str, index: int, guest_ipv4: str | None =
             active.add(address)
         else:
             active.discard(address)
+    return active
+
+
+def resolve_ipv4(raw: bytes, hostname: str, index: int, guest_ipv4: str | None = None) -> str:
+    """The host's one current IPv4 address.
+
+    An export passes the announcing service's inspected guest address. A host
+    that holds that address among several is read as that address: the record
+    is tied to the service by it, and what is published comes from the verified
+    publication, never from this answer.
+    """
+    active = _ipv4_rows(raw, hostname, index)
     if guest_ipv4 is not None and guest_ipv4 in active:
         return guest_ipv4
     if len(active) != 1:
@@ -464,6 +472,30 @@ def resolve_txt(raw: bytes, fullname: str, index: int) -> tuple[bytes, ...]:
     return tuple(entries)
 
 
+def deadline_after(seconds: float) -> float:
+    """The moment ``seconds`` from now on the monotonic clock that a scan reads."""
+    return time.monotonic() + seconds
+
+
+@dataclass(frozen=True, slots=True)
+class SecondRead:
+    """What an export needs to read a host's address once more (scan).
+
+    ``guest_ipv4`` is the inspected guest address and ``guest_network`` the
+    network of which the runtime gives each guest one address. ``ports`` are
+    the guest ports that the policy's verified publications can export for the
+    scanned type and ``names`` the projection prefixes of the loop exclusion.
+    ``scanner_deadline`` is the moment, on the clock the scan reads
+    (deadline_after), at which the scanner stops waiting for the scan.
+    """
+
+    guest_ipv4: str
+    guest_network: ipaddress.IPv4Network
+    ports: frozenset[int]
+    names: DiscoveryNames
+    scanner_deadline: float
+
+
 def scan(
     interface: str,
     index: int,
@@ -475,6 +507,7 @@ def scan(
     max_seconds: float = 45,
     *,
     guest_ipv4: str | None = None,
+    second_read: SecondRead | None = None,
     skipped: list[str] | None = None,
     unanswered: list[str] | None = None,
 ) -> tuple[Record, ...]:
@@ -484,21 +517,29 @@ def scan(
     is added to ``skipped``; also to ``unanswered`` where its resolve printed
     no reply line at all. At most MAX_LEFT_OUT are left out; one more fails
     the scan, marked ``unanswered`` where none of them answered and nothing
-    was read before. ``guest_ipv4`` is the export rule of resolve_ipv4.
+    was read before. ``guest_ipv4`` is the export rule of resolve_ipv4; with
+    ``second_read`` an export reads an address a second time where its first
+    answer may be part of the guest's (read_address()).
     """
     deadline = time.monotonic() + max_seconds
 
-    def query(args: list[str]) -> bytes:
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            raise DiscoveryFailure("timed-out")
-        options = [] if args[0] == "-B" else ["-m"]
+    def room(remaining: float) -> bool:
         # The time limit is the command's own only while the scan's time has
         # room for it and _BUDGET_ROOM more. With less the scan's time is used
         # up, and that is never a read that did not complete: not in a command
-        # that ends then, not above where no time is left, and not where the
-        # scanner stops waiting for the scan.
-        own = remaining >= seconds + 1.0 + _BUDGET_ROOM
+        # that ends then, not in query() where no time is left, and not where
+        # the scanner stops waiting for the scan.
+        return remaining >= seconds + 1.0 + _BUDGET_ROOM
+
+    def query(args: list[str], *, every_reply: bool = False) -> bytes:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise DiscoveryFailure("timed-out")
+        # With -m the client leaves after its first reply that is not marked
+        # as followed by more (841-844, 1209-1212 and 1287-1290). A browse, and
+        # a read of every reply, run until the client's own -t timer (1315-1320).
+        options = [] if args[0] == "-B" or every_reply else ["-m"]
+        own = room(remaining)
         try:
             result = runner(
                 [DNS_SD, "-t", str(seconds), "-i", interface, *options, *args],
@@ -523,6 +564,53 @@ def scan(
             )
             raise
 
+    def read_address(name: str, host: str, port: int) -> str:
+        """The instance's address; for an export, the guest address where its host holds it.
+
+        With -m the client can show one of a host's addresses alone. The
+        runtime gives each guest one address of the guest network, and the
+        guest address is one of them (the planner refuses any other), so an
+        export answer that holds an address of that network names a host of it
+        and is read as before. One that holds addresses outside it alone, an
+        alias for example, may be the first part of the guest's own answer.
+        Where the instance could be exported (its port is one of ``ports``, and
+        the loop exclusion does not refuse it), the host is read once more for
+        every reply, until the command's own time limit and only where that
+        read ends before both the scan's time and the scanner's wait, with
+        _BUDGET_ROOM to spare. The instance is then read by the guest address
+        where that answer holds it, as before where it holds another address of
+        the guest network, and left out otherwise. Every other instance is read
+        as before.
+        """
+        raw = query(["-G", "v4", host])
+        rule = second_read
+        if rule is None:
+            return resolve_ipv4(raw, host, index, guest_ipv4)
+        first = _ipv4_rows(raw, host, index)
+        if (
+            port not in rule.ports
+            or not first
+            or any(ipaddress.IPv4Address(item) in rule.guest_network for item in first)
+            or is_projected_name(rule.names, name, host)
+        ):
+            return resolve_ipv4(raw, host, index, rule.guest_ipv4)
+        clock = time.monotonic()
+        remaining = deadline - clock
+        if not room(min(remaining, rule.scanner_deadline - clock)):
+            # The second read never takes time the scan or the scanner does not
+            # have: without room for its whole limit the instance is left out.
+            # A scan whose own time is used up still fails as such (query()).
+            if remaining <= 0:
+                raise DiscoveryFailure("timed-out")
+            raise _unusable(raw, "incomplete")
+        second = query(["-G", "v4", host], every_reply=True)
+        held = _ipv4_rows(second, host, index)
+        if rule.guest_ipv4 in held:
+            return rule.guest_ipv4
+        if not any(ipaddress.IPv4Address(item) in rule.guest_network for item in held):
+            raise _unusable(second, "incomplete")
+        return resolve_ipv4(raw, host, index, rule.guest_ipv4)
+
     names = browse_names(query(["-B", service_type, "local."]), service_type, index, limit)
     result: list[Record] = []
     left_out = 0
@@ -534,7 +622,7 @@ def scan(
             fullname, host, port = resolve_endpoint(
                 query(["-L", name, service_type, "local."]), index
             )
-            address = resolve_ipv4(query(["-G", "v4", host]), host, index, guest_ipv4)
+            address = read_address(name, host, port)
             txt = resolve_txt(query(["-Q", fullname, "TXT", "IN"]), fullname, index)
             try:
                 record = Record(name, service_type, host, port, address, txt, interface, now)
@@ -631,23 +719,44 @@ class Registration:
         # Read before the spawn: the client arms its own timer later than this,
         # so it cannot end on that timer earlier than its lifetime from here.
         self.spawned = time.monotonic()
-        self.process = subprocess.Popen(
-            registration_argv(record, lifetime_seconds),
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
-            env={"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "LC_ALL": "C"},
-        )
-        self.output = bytearray()
-        self.selector = selectors.DefaultSelector()
-        assert self.process.stdout is not None
-        os.set_blocking(self.process.stdout.fileno(), False)
-        self.selector.register(self.process.stdout, selectors.EVENT_READ)
+        try:
+            self.selector = selectors.DefaultSelector()
+        except OSError as exc:
+            raise DiscoveryFailure("unavailable") from exc
+        try:
+            self.process = subprocess.Popen(
+                registration_argv(record, lifetime_seconds),
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+                env={"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "LC_ALL": "C"},
+            )
+        except OSError as exc:
+            self.selector.close()
+            raise DiscoveryFailure("unavailable") from exc
+        try:
+            self.output = bytearray()
+            assert self.process.stdout is not None
+            os.set_blocking(self.process.stdout.fileno(), False)
+            self.selector.register(self.process.stdout, selectors.EVENT_READ)
+        except OSError as exc:
+            # The child exists but Publisher never received this object. Reap
+            # only that owned child before handing its failure to the hold-off.
+            self.close()
+            raise DiscoveryFailure("unavailable") from exc
         self.started = time.monotonic()
         self.active = False
 
     def poll(self) -> bool:
+        try:
+            return self._poll()
+        except OSError as exc:
+            # OS resource/I/O failures have the same bounded retry policy as
+            # a client exit. Programming errors still fail the whole turn.
+            raise DiscoveryFailure("unavailable") from exc
+
+    def _poll(self) -> bool:
         if self.closed:
             raise DiscoveryFailure("unavailable")
         # Sampled before the read, so the last line of a client that has ended
