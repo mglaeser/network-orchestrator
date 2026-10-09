@@ -256,7 +256,10 @@ A budget of starts, where one is wanted, is a setting of that guarded start and
 not of the rule ([`restart_budget`](apple-runtime.md#restart-budget) of the
 runtime settings): once it is spent the start holds the service instead, the
 probe no longer returns 42 and the rule stops matching until an operator
-releases the hold.
+releases the hold. That budget counts the starts of workloads only. The start
+of the vendor runtime (`runtime-start`) does not read it, so a runtime monitor
+with `recovery_repeat_cycles` runs `runtime-start` again every N cycles for as
+long as `runtime-probe` returns 42, and no budget stops it.
 
 Local Network consent must be accepted in the actual LaunchAgent identity and
 launch context. Terminal/SSH success does not prove this context. Record consent
