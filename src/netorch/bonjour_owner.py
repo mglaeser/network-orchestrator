@@ -1122,6 +1122,35 @@ def lease_records(
     return records
 
 
+# A record whose registration client failed is held back: no client is started
+# for it before this many seconds have passed since the failure, twice as many
+# as the last time after each further failure of that record, and at most
+# _HOLD_OFF_LONGEST. The loop turns every quarter of a second; without a
+# hold-off, a record whose name another advertiser holds would get a client at
+# nearly every turn, each renamed by the daemon and failing, for as long as the
+# conflict lasts. The first is short because the coordinator's endpoint waits
+# seven seconds for an activation to be confirmed.
+_HOLD_OFF_FIRST = 1
+_HOLD_OFF_LONGEST = 300
+
+
+@dataclass(frozen=True, slots=True)
+class HoldOff:
+    """The last failure of one record's registration client and what it holds back."""
+
+    failed_at: float  # the publisher's monotonic clock
+    seconds: int
+    reason: str
+
+    def holds(self, now: float) -> bool:
+        """Whether no client may be started for the record at ``now``.
+
+        Publisher._forget has dropped the entry already where the clock reads
+        earlier than the failure.
+        """
+        return now < self.failed_at + self.seconds
+
+
 class Publisher:
     """Independent watchdog owns all registration children and their deadlines."""
 
@@ -1143,6 +1172,15 @@ class Publisher:
         # Replacements that run beside the client they take over from: at most
         # one for a record, and only with an overlap.
         self.successors: dict[str, Registration] = {}
+        # Records whose client failed and that have not confirmed since, in the
+        # order of their last failure. Kept in this process's memory only and
+        # across a withdrawal of their policy; see _forget and requested for
+        # how long.
+        self.held: dict[str, HoldOff] = {}
+        # The reason each policy reports while its last reconcile held a record back.
+        self.waiting: dict[str, str] = {}
+        # The ``requested_at`` of the last active request acted on, by policy.
+        self.requests: dict[str, Any] = {}
 
     def reconcile(
         self, policy: Discovery, records: tuple[Record, ...], index: int, now: float
@@ -1158,13 +1196,34 @@ class Publisher:
                 self.deadlines.pop(key, None)
                 self.sources_seen_at.pop(key, None)
                 self.renewing.discard(key)
-        confirmed = True
+        clock = time.monotonic()
+        self._forget(policy, clock)
+        # A record whose hold-off has not ended gets no client, and its policy is
+        # not confirmed; its siblings are registered as before.
+        held_back = {
+            key: entry
+            for key, entry in self.held.items()
+            if key in desired and key not in self.children and entry.holds(clock)
+        }
+        if held_back:
+            # The latest failure among them: the history is in the order of failures.
+            self.waiting[policy.id] = list(held_back.values())[-1].reason
+        else:
+            self.waiting.pop(policy.id, None)
+        confirmed = not held_back
         for key, record in desired.items():
+            if key in held_back:
+                continue
             lifetime = min(120, max(1, math.ceil(record.seen_at + policy.max_age_seconds - now)))
             if key not in self.children:
                 # Native CLI self-expiry also bounds orphan registrations after
                 # SIGKILL of this watchdog. No daemon timer alone can do that.
-                self.children[key] = self.factory(record, index, lifetime)
+                try:
+                    self.children[key] = self.factory(record, index, lifetime)
+                except DiscoveryFailure as failure:
+                    # A client that cannot be started holds its record back as well.
+                    self._hold_off(key, failure)
+                    raise
             deadline = time.monotonic() + max(0, record.seen_at + policy.max_age_seconds - now)
             if record.seen_at > self.sources_seen_at.get(key, -1):
                 self.deadlines[key] = deadline
@@ -1216,17 +1275,77 @@ class Publisher:
                         and self.deadlines[key] - ends >= 1
                     ):
                         self.successors[key] = self.factory(record, index, lifetime)
-            except DiscoveryFailure:
+            except DiscoveryFailure as failure:
                 self.children.pop(key).close()
                 self._end_successor(key)
                 self.deadlines.pop(key, None)
                 self.sources_seen_at.pop(key, None)
                 self.renewing.discard(key)
+                self._hold_off(key, failure)
                 raise
             if active:
                 self.renewing.discard(key)
+                # A client of the record has confirmed: its next failure is a first one.
+                self.held.pop(key, None)
             confirmed = active and confirmed
         return confirmed
+
+    def _hold_off(self, key: str, failure: DiscoveryFailure) -> None:
+        """Hold a record back after its client failed: 1 second, or twice its last hold-off.
+
+        Twice the last one where the record has failed before without a
+        confirmation or a fresh activation request since, and 300 seconds at
+        most.
+        """
+        previous = self.held.pop(key, None)
+        self.held[key] = HoldOff(
+            time.monotonic(),
+            _HOLD_OFF_FIRST if previous is None else min(_HOLD_OFF_LONGEST, 2 * previous.seconds),
+            failure.reason,
+        )
+
+    def _forget(self, policy: Discovery, now: float) -> None:
+        """Drop the history of this policy's records that bears on no start any more.
+
+        A record's history is kept while a client of it runs, since that client
+        can fail in its turn. Without one it is kept until the longest hold-off
+        has passed after its own hold-off ended. A clock that reads earlier than
+        the failure drops it at once: the record is registered again at once,
+        as before hold-offs, and its next failure is a first one. So an entry
+        stands for a running client or a failure of the last ten minutes, and a
+        call of reconcile adds at most one.
+        """
+        for key, entry in tuple(self.held.items()):
+            if (
+                key.startswith(policy.id + ":")
+                and key not in self.children
+                and not entry.failed_at <= now < entry.failed_at + entry.seconds + _HOLD_OFF_LONGEST
+            ):
+                del self.held[key]
+
+    def held_back(self, policy: Discovery) -> str | None:
+        """The reason of the failure that holds back a record of this policy, if one does.
+
+        As of the policy's last reconcile; where it holds back several, the
+        reason of the latest failure among them.
+        """
+        return self.waiting.get(policy.id)
+
+    def requested(self, policy: Discovery, requested_at: Any) -> None:
+        """Note the active request of this policy that the publisher acts on.
+
+        One whose ``requested_at`` differs from that of the last one noted, after
+        an inactive request or not, is a fresh attempt of the coordinator. It
+        ends the history of the policy's records: no record waits for a
+        hold-off that an earlier attempt left, and its next failure is a first
+        one.
+        """
+        if policy.id in self.requests and self.requests[policy.id] == requested_at:
+            return
+        self.requests[policy.id] = requested_at
+        for key in tuple(self.held):
+            if key.startswith(policy.id + ":"):
+                del self.held[key]
 
     def _poll_successor(self, key: str) -> None:
         """Let the replacement that runs beside this record's client confirm.
@@ -1267,6 +1386,10 @@ class Publisher:
         self.deadlines.clear()
         self.sources_seen_at.clear()
         self.renewing.clear()
+        # Never written anywhere: a publisher that starts again registers at once.
+        self.held.clear()
+        self.waiting.clear()
+        self.requests.clear()
 
 
 def _signal_stop(callback: Callable[[], None]) -> None:
@@ -1352,6 +1475,9 @@ def publisher_tick(
                         # lease_records has accepted this candidate and its count.
                         left_out = candidates["policies"][policy.id].get("skipped", 0)
                         tolerated = candidates["policies"][policy.id].get("tolerated_failure")
+                        # ... and an active request, which may be a fresh one.
+                        assert isinstance(request, dict)
+                        publisher.requested(policy, request["requested_at"])
             if records is None:
                 publisher.reconcile(policy, (), 1, now)
                 uncertainty = (
@@ -1385,8 +1511,11 @@ def publisher_tick(
                 )
                 continue
             if not active:
+                # A record held back after its client failed keeps that failure's
+                # reason; a record whose client has not confirmed yet is unobserved.
+                reason = publisher.held_back(policy) or "unobserved"
                 profiles[policy.id] = _observation(
-                    config, policy, "unknown", "unobserved", now, proof[0], interface=True
+                    config, policy, "unknown", reason, now, proof[0], interface=True
                 )
             else:
                 state = "absent" if inactive or current_intent.blocks(policy.service) else "present"
