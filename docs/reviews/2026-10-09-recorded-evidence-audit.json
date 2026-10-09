@@ -2650,8 +2650,10 @@
           "symbol": "netorch.bonjour_process.RegistrationExpired.__init__"
         },
         {
-          "associated_test_modules": [],
-          "contract_note": "Thin bounded runner seam; injected tests prove caller contract, real dns-sd command reads now separately recorded.",
+          "associated_test_modules": [
+            "tests/test_discovery_recorded_evidence.py"
+          ],
+          "contract_note": "Recorded interface stdout passes through a temporary executable and the real default process runner. Success, real stderr and real nonzero exit prove the composed validator boundary and child cleanup. No native interface or network operation runs.",
           "end_line": 70,
           "line": 69,
           "remaining_evidence": "Recorded interactive CLI read parsing only where applicable; launchd consent, native registration lifecycle, actual guest projection, measured scan timing and application connectivity remain unqualified.",

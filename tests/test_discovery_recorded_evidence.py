@@ -7,8 +7,13 @@ Malformed variants are test-generated mutations, not additional native captures.
 
 from __future__ import annotations
 
+import json
+import os
 import re
+import sys
+import tempfile
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
@@ -166,3 +171,67 @@ def test_recorded_read_refuses_wrong_interface_even_with_success_status(identifi
         native.confirmed_output(Result(0, raw, b""), 11)
     with pytest.raises(native.DiscoveryFailure):
         native.resolve_endpoint(raw, 11)
+
+
+@pytest.mark.parametrize("outcome", ["clean", "stderr", "nonzero-exit"])
+def test_default_interface_runner_preserves_real_child_failure_signals(monkeypatch, outcome):
+    recording = load_recording("packet", "native-lan-interface")
+    assert recording.status == "exited" and recording.returncode == 0
+    assert recording.stderr == b""
+    assert recording.stdout.startswith(b"en0:")
+    assert b"\tinet 192.0.2.10 " in recording.stdout
+    index_lookups = []
+
+    def observed_index(name):
+        index_lookups.append(name)
+        assert name == "en0"
+        return 10
+
+    monkeypatch.setattr(native.socket, "if_nametoindex", observed_index)
+    with tempfile.TemporaryDirectory(prefix="netorch-ifconfig-replay-", dir="/tmp") as directory:
+        work = Path(directory)
+        executable = work / "offline interface reader"
+        # A no-space temporary interpreter path also works when the checkout
+        # and its virtualenv live in a directory containing spaces.
+        interpreter = work / "python"
+        interpreter.symlink_to(sys.executable)
+        (work / "interface.stdout").write_bytes(recording.stdout)
+        (work / "interface.stderr").write_bytes(
+            b"synthetic child diagnostic\n" if outcome == "stderr" else b""
+        )
+        code = 7 if outcome == "nonzero-exit" else 0
+        # The kernel starts this fixed local Python interpreter. The process
+        # runner itself still receives an argv vector, never a shell command.
+        executable.write_text(
+            f"#!{interpreter}\n"
+            "import json, os, sys\n"
+            "from pathlib import Path\n"
+            "root = Path(__file__).parent\n"
+            "assert sys.argv[1:] == ['en0']\n"
+            "(root / 'invocation.json').write_text(json.dumps(\n"
+            "    {'pid': os.getpid(), 'arguments': sys.argv[1:]}))\n"
+            "data = (root / 'interface.stdout').read_bytes()\n"
+            "middle = len(data) // 2\n"
+            "os.write(1, data[:middle])\n"
+            "os.write(1, data[middle:])\n"
+            "os.write(2, (root / 'interface.stderr').read_bytes())\n"
+            f"raise SystemExit({code})\n"
+        )
+        executable.chmod(0o700)
+        monkeypatch.setattr(native, "IFCONFIG", str(executable))
+        # Deliberately omit runner=. This traverses the real default command()
+        # adapter and process.run(), including actual stdout/stderr/exit status.
+        if outcome == "clean":
+            assert native.interface_index("en0", "192.0.2.10") == 10
+            assert index_lookups == ["en0"]
+        else:
+            with pytest.raises(native.DiscoveryFailure, match="unavailable"):
+                native.interface_index("en0", "192.0.2.10")
+            # Valid-looking stdout cannot authorize an interface lookup when
+            # the real child failed or emitted a diagnostic on its error pipe.
+            assert index_lookups == []
+        invocation = json.loads((work / "invocation.json").read_text())
+        assert invocation["arguments"] == ["en0"]
+        with pytest.raises(ChildProcessError):
+            os.waitpid(invocation["pid"], os.WNOHANG)
+    assert not work.exists()
