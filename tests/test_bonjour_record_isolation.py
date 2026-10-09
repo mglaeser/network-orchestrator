@@ -804,7 +804,9 @@ def test_more_records_than_the_policy_bound_still_withdraw_it(
     [
         ((camera(GUEST, "192.0.2.10"),), 1, None, None),
         ((camera(GUEST, "192.0.2.10"), OTHER_GUEST), 1, 1, None),
-        ((camera("192.0.2.10"),), 0, None, None),
+        # Readiness R-D1: an alias alone, also when read for every reply, leaves
+        # the instance out, and with nothing else read the policy is withdrawn.
+        ((camera("192.0.2.10"),), 0, None, "incomplete"),
         # Unusable, and no other instance was read in the pass: the policy is withdrawn.
         ((camera("192.0.2.10", "198.51.100.77"),), 0, None, "incomplete"),
     ],

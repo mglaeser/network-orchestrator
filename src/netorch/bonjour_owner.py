@@ -19,6 +19,7 @@ import stat
 import subprocess
 import sys
 import time
+from collections import Counter
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, replace
@@ -31,6 +32,8 @@ from .bonjour_process import (
     DiscoveryFailure,
     Registration,
     RegistrationExpired,
+    SecondRead,
+    deadline_after,
     interface_index,
     scan,
 )
@@ -864,13 +867,38 @@ def scan_policy(
     source = scope.interface if policy.direction == "import" else guest.guest_interface
     index = interfaces[policy.scope][0 if policy.direction == "import" else 1]
     # An export ties a record to its service by the inspected guest address; a
-    # guest may hold further addresses. An import keeps exactly one address.
+    # guest may hold further addresses (SecondRead). An import keeps exactly one.
     inspected = snapshot.services[policy.service].data.get("ipv4")
     guest_ipv4 = inspected if policy.direction == "export" and isinstance(inspected, str) else None
+    published = publications(config, policy, snapshot, ready) if guest_ipv4 is not None else ()
     left_out: list[str] = []
     unanswered: list[str] = []
     rejected: list[tuple[str, str]] = []
     rejected_answers: list[tuple[str, str]] = []
+    # The scanner waits for the scans for half the lease where that is less
+    # than a scan's 45 seconds. A scan keeps its second reads inside that wait,
+    # read before the scans start and on the clock the scans read.
+    wait = min(45, policy.max_age_seconds / 2)
+    waits_until = deadline_after(wait)
+
+    def second_read(kind: str) -> SecondRead | None:
+        """What an export's scan of one type may read a second time; nothing for an import.
+
+        Only an instance that the projection could ever export: its port is
+        the guest port of exactly one verified publication for the type's
+        protocol, as project_export matches it.
+        """
+        if guest_ipv4 is None:
+            return None
+        protocol = "tcp" if kind.endswith("._tcp") else "udp"
+        ports = Counter(item.guest_port for item in published if item.protocol == protocol)
+        return SecondRead(
+            guest_ipv4,
+            ipaddress.IPv4Network(scope.guest_cidr),
+            frozenset(port for port, count in ports.items() if count == 1),
+            config.discovery_names,
+            waits_until,
+        )
 
     def read_type(kind: str) -> tuple[Record, ...]:
         # Retain the type with every refusal. A missing browse entry may be
@@ -887,6 +915,7 @@ def scan_policy(
                 settings.scan_seconds,
                 now,
                 guest_ipv4=guest_ipv4,
+                second_read=second_read(kind),
                 skipped=omitted,
                 unanswered=silent,
             )
@@ -899,7 +928,7 @@ def scan_policy(
     with ThreadPoolExecutor(max_workers=min(8, len(policy.types))) as pool:
         futures = [pool.submit(read_type, kind) for kind in policy.types]
         collected: list[Record] = []
-        deadline = time.monotonic() + min(45, policy.max_age_seconds / 2)
+        deadline = time.monotonic() + wait
         for future in futures:
             try:
                 collected.extend(future.result(timeout=max(0.01, deadline - time.monotonic())))
