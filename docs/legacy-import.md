@@ -232,9 +232,13 @@ at all. Equal numbers are only counted (`integer_coincidences`), because
 numbers coincide too often to be evidence.
 
 An examined text leaf of the rendered file that contains an IPv4 literal other
-than the instance's LAN address or prefix refuses the source. This is the
-instance's own rule applied to what is rendered from it: a guest or receiver
-address is state, never an input.
+than the instance's LAN address or prefix refuses the source. Routed IPv6
+addresses (unique-local and global unicast, excluding documentation addresses)
+are refused by the same rule as instance validation. Loopback, multicast and
+link-local literals keep their existing treatment; this does not assert that
+IPv6 networking is blocked or managed. The check also covers fixed text in
+compositions and translations: a guest or receiver address is state, never an
+input.
 
 ### Writing a value
 
@@ -282,7 +286,7 @@ reason, and that source then yields no result:
 | `type-mismatch` | text for a number, a Boolean for text, and the like |
 | `literal-style-unsupported` | no spelling, or no single one, reproduces the captured literal |
 | `value-not-representable` | the style of the literal cannot hold the value |
-| `live-address-in-owner-input` | the rendered file would hold another IPv4 address |
+| `live-address-in-owner-input` | the rendered file would hold another IPv4 address or a routed IPv6 address |
 | `independent-without-duplicate` | an `independent` entry names no constant that repeats a setting |
 | `render-self-check-failed` | the importer does not read the rendered bytes back as intended |
 
@@ -425,8 +429,11 @@ exact boundaries and letter case. A finding carries the hash of the text as it
 was found; an exception therefore exempts one exact spelling.
 
 Provide the VCS tracked-file inventory for CI. The fallback tree walk prunes only
-tool/build state and refuses unchecked symlinks, oversized/non-UTF8 files,
-excessive files/findings or more than 64 MiB of aggregate text. Exceptions name
+tool/build state and refuses missing/non-directory roots, inaccessible subtrees,
+unchecked symlinks, oversized/non-UTF8 files, excessive files/findings or more
+than 64 MiB of aggregate text. Explicit file inventories also refuse symlinked
+ancestors below the selected root. This is a static inventory check; it does not
+isolate the checkout from a hostile concurrent filesystem writer. Exceptions name
 an exact relative path, one kind, a written reason and the exact value SHA256. The public synthetic
 example and the platform contract have explicit, reviewed exceptions; no
 private site folder or broad directory exemption belongs in framework CI.

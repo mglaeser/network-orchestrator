@@ -712,6 +712,9 @@ class Registration:
     def __init__(self, record: Record, index: int, lifetime_seconds: int = 120) -> None:
         if type(index) is not int or index <= 0:
             raise DiscoveryFailure("identity-mismatch")
+        # Validate the entire native request before allocating a selector.
+        # Rejected names/TXT/lifetimes otherwise leak one descriptor per retry.
+        arguments = registration_argv(record, lifetime_seconds)
         self.record = record
         self.index = index
         self.lifetime_seconds = lifetime_seconds
@@ -725,7 +728,7 @@ class Registration:
             raise DiscoveryFailure("unavailable") from exc
         try:
             self.process = subprocess.Popen(
-                registration_argv(record, lifetime_seconds),
+                arguments,
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
@@ -735,6 +738,9 @@ class Registration:
         except OSError as exc:
             self.selector.close()
             raise DiscoveryFailure("unavailable") from exc
+        except BaseException:
+            self.selector.close()
+            raise
         try:
             self.output = bytearray()
             assert self.process.stdout is not None

@@ -61,11 +61,21 @@ class Action:
             raise ValueError("action needs a profile")
         if not isinstance(self.owner, str) or not self.owner:
             raise ValueError("action needs an owner")
-        if self.effective_strategy not in {None, "degraded-fallback"}:
+        if self.effective_strategy is not None and (
+            not isinstance(self.effective_strategy, str)
+            or self.effective_strategy != "degraded-fallback"
+        ):
             raise ValueError("invalid effective transport strategy")
-        if self.operation not in OPERATIONS or self.reason not in ACTION_REASONS:
+        if (
+            not isinstance(self.operation, str)
+            or self.operation not in OPERATIONS
+            or not isinstance(self.reason, str)
+            or self.reason not in ACTION_REASONS
+        ):
             raise ValueError("invalid action operation or reason")
         if self.target_ipv4 is not None:
+            if not isinstance(self.target_ipv4, str):
+                raise ValueError("invalid action target address")
             ipaddress.IPv4Address(self.target_ipv4)
         if self.target_generation is not None and (
             not isinstance(self.target_generation, str) or not self.target_generation
@@ -81,7 +91,12 @@ class Plan:
     actions: tuple[Action, ...]
 
     def __post_init__(self) -> None:
-        if not _HASH.fullmatch(self.policy_digest) or not _HASH.fullmatch(self.snapshot_digest):
+        if (
+            not isinstance(self.policy_digest, str)
+            or not _HASH.fullmatch(self.policy_digest)
+            or not isinstance(self.snapshot_digest, str)
+            or not _HASH.fullmatch(self.snapshot_digest)
+        ):
             raise ValueError("invalid plan digest")
         if type(self.intent_revision) is not int or self.intent_revision < 0:
             raise ValueError("invalid plan intent revision")

@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "id": "process-api",
+  "component": "process-identity",
+  "source": {
+    "kind": "sanitized-native-capture",
+    "captured_on": "2026-10-09",
+    "capture_context": "interactive-user",
+    "os_version": "27.0.1",
+    "os_build": "26A434",
+    "architecture": "arm64",
+    "tool": "ps",
+    "tool_version": null,
+    "original_stdout_sha256": "aed9b7210121f317b9ff1937f4098d115bc1ee75cdac3e7e2ca5e0b3757ae646",
+    "original_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "transformations": [
+      "Source capture identifier: process-api.",
+      "Replaced account UID and executable path consistently with matching sanitized launchd job; preserved native start-time grammar."
+    ],
+    "limitations": [
+      "Sanitized projection of an interactive read; not unmodified native bytes and not launchd/root execution evidence.",
+      "PID selection is supplied by the paired job fixture; this is one observation, not proof of process continuity."
+    ]
+  },
+  "result": {
+    "status": "exited",
+    "returncode": 0,
+    "stdout": "1001 Tue Oct  6 22:25:14 2026 /opt/example/libexec/container-apiserver\n",
+    "stderr": "",
+    "stdout_sha256": "0db2de354fed318a029a9838ffab6b02b8db8dcc6b0147976c8f325669cbc454",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}

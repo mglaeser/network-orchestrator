@@ -1,0 +1,30 @@
+{
+  "component": "macos-preflight",
+  "id": "macos-build",
+  "result": {
+    "returncode": 0,
+    "status": "exited",
+    "stderr": "",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout": "26A434\n",
+    "stdout_sha256": "83a02de12a419e9bd40d0b7c8c3bf118f4e379310a1e11ff7b481ac6b32f3a20"
+  },
+  "schema_version": 1,
+  "source": {
+    "architecture": "arm64",
+    "capture_context": "interactive-user",
+    "captured_on": "2026-10-09",
+    "kind": "native-capture",
+    "limitations": [
+      "Read-only interactive command response, not a LaunchAgent or root observer qualification.",
+      "Offline replay does not establish current host state, runtime compatibility or service health."
+    ],
+    "original_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "original_stdout_sha256": "83a02de12a419e9bd40d0b7c8c3bf118f4e379310a1e11ff7b481ac6b32f3a20",
+    "os_build": "26A434",
+    "os_version": "27.0.1",
+    "tool": "sw_vers",
+    "tool_version": null,
+    "transformations": []
+  }
+}

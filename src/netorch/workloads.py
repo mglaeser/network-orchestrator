@@ -372,6 +372,8 @@ def plan_workloads(
                 if current["state"] == "stopped"
                 else "blocked"
             )
+            if start_initial and action == "start-existing":
+                reader.stopped_guest_job(current, contract.name)
         else:
             action = "create-stopped"
         create_arguments(config, settings, workload)  # Validate the complete CLI before any write.
@@ -635,7 +637,19 @@ def provision_workloads(
                         raise RuntimeReadError("incomplete")
                     hashes[step["name"]] = digest(created["configuration"])
                 if start_initial and step["action"] in {"create-stopped", "start-existing"}:
-                    Reader(settings, runner).native(["start", step["name"]])
+                    # A stopped API row is not proof that an earlier API process
+                    # left no guest job behind. Reuse recovery's current and
+                    # historical handler proof, with a fresh final absence fence.
+                    starter = Reader(settings, runner)
+                    current = starter.inspect(step["name"])
+                    if (
+                        current["state"] != "stopped"
+                        or digest(current["configuration"]) != hashes[step["name"]]
+                    ):
+                        raise RuntimeReadError("generation-mismatch")
+                    starter.stopped_guest_job(current, step["name"])
+                    starter.fence_absent_jobs()
+                    starter.native(["start", step["name"]])
                     if Reader(settings, runner).inspect(step["name"])["state"] != "running":
                         raise RuntimeReadError("incomplete")
                 journal["completed"].append(workload.service)

@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "id": "homekit-01-txt",
+  "component": "dns-sd",
+  "source": {
+    "kind": "sanitized-native-capture",
+    "captured_on": "2026-10-09",
+    "capture_context": "interactive-user",
+    "os_version": "27.0.1",
+    "os_build": "26A434",
+    "architecture": "arm64",
+    "tool": "dns-sd",
+    "tool_version": null,
+    "original_stdout_sha256": "abcd9209442acd9d90d557833736c290ef3f5ca2ef3c1c158bcf641d7ee7d94d",
+    "original_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "transformations": [
+      "Instance labels replaced consistently with neutral Unicode and multiword labels; escaped DNS fullnames and shell-friendly TXT display use matching substitutions.",
+      "Hostnames replaced consistently with endpoint-NN.local.; private IPv4 addresses replaced consistently with RFC 5737 documentation addresses.",
+      "Device identifiers, MAC-like values, pairing/public keys, group IDs and opaque TXT identifiers neutralized; TXT length octets and byte-count/hex display recomputed after substitutions.",
+      "Captured interface index, timestamps, flag bits, row order, table headings, ports and protocol/model/version fields retained."
+    ],
+    "limitations": [
+      "Interactive user read-only DNS-SD capture; does not establish LaunchAgent Local Network consent or qualification.",
+      "Native registration, expiry/renewal, guest-to-LAN projection, shared Home Assistant discovery, packet return traffic and audible playback were not exercised.",
+      "Two selected endpoint resolves per type do not represent every instance in the separate bounded browse; capture is a point-in-time sample, not a complete inventory."
+    ]
+  },
+  "result": {
+    "status": "exited",
+    "returncode": 0,
+    "stdout": "Using interface 10\nDATE: ---Fri 09 Oct 2026---\n20:17:31.516  ...STARTING...\nTimestamp     A/R  Flags         IF  Name                          Type   Class  Rdata\n20:17:31.517  Add  40000002      10  Bridge\\032Unit\\03202\\032ABCDEF._hap._tcp.local. TXT    IN     84 bytes: 11 6D 64 3D 58 58 58 58 20 58 58 58 58 58 58 20 58 58 06 70 76 3D 31 2E 31 14 69 64 3D 30 30 3A 30 30 3A 30 30 3A 30 30 3A 30 30 3A 30 30 05 63 23 3D 37 33 04 73 23 3D 31 04 66 66 3D 30 04 63 69 3D 32 04 73 66 3D 30 0B 73 68 3D 30 30 30 30 30 30 3D 3D\n",
+    "stderr": "",
+    "stdout_sha256": "acf26a963f6e6a5f33b06ff619409bd2b630c44dc0c77376c0d657b9a2bcd9c5",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}

@@ -509,6 +509,11 @@ treats every service as unknown, as it does when its first observation fails:
 it ends `inhibited`, reports no profile `root_ready` and leaves the loaded
 rules to the next pass, whose own first observation decides what to retire.
 
+The owner's saved reference must be a closed record containing one decimal
+token string. Both acquisition and readback reject malformed records before
+calling a native tool; a JSON number is not an alternative spelling of the
+token. A malformed record cannot cause acquisition of another reference.
+
 The owner holds only its own PF enable reference and keeps it while paused or
 empty. It never globally disables PF or releases a token owned by another
 service. A reference is operational runtime coexistence, not evidence of packet
@@ -673,9 +678,11 @@ result of the pass and in the profile's published data. All three are absent
 when nothing is withheld. A pair is not listed in `pending` for being withheld;
 it is listed there when the final plan of the pass also blocks it, for example
 because the last observation of the pass no longer verifies its service. The
-reasons are a second closed vocabulary with two words:
-`translation-order-unverified`, and `runtime-unknown` for a
-[host path kept without runtime evidence](#host-paths-while-runtime-evidence-is-unknown).
+reasons are a second closed vocabulary: `translation-order-unverified`,
+`runtime-unknown` for a
+[host path kept without runtime evidence](#host-paths-while-runtime-evidence-is-unknown),
+and `endpoint-unverified` or `ports-unverified` for a failed
+[loaded precondition](#preconditions-of-rules-already-loaded).
 
 What an operator sees for a withheld pair is a profile that is loaded and not
 ready, with `withheld` in its published data and in the journal that `status`

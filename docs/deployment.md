@@ -298,8 +298,12 @@ netorch deploy prepare-root --bundle /operator/staging/bundle \
   --output /operator/staging/root-reviewed-bundle
 ```
 
-This only prepares reviewed bytes. An administrator separately invokes the
-root-owned installed package to install root scope:
+This only prepares reviewed bytes. Preparation captures and checks every file
+against the validated inventory before creating the output directory, so a
+source changed after validation cannot produce a successful prepared bundle.
+It preserves the whole inventory, including user scope, for verification of the
+same digest. An administrator separately invokes the root-owned installed
+package to install root scope:
 
 ```sh
 /Library/Netorch/runtime/bin/python3 -I -m netorch deploy install-root \

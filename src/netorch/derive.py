@@ -79,6 +79,19 @@ def _merge(target: dict[str, Any], fragment: dict[str, Any]) -> None:
             raise DeriveError("Conflicting JSON owner fields; each setting needs one author")
 
 
+def _array_index(token: str, size: int) -> int | None:
+    """RFC 6901 section 4: ASCII decimal without padding, within this array.
+
+    Check the width before integer conversion so a long token cannot consume an
+    unbounded conversion or acquire a second spelling of an existing element.
+    Object member names are literal and do not use this array-only rule.
+    """
+    if len(token) > len(str(size)) or re.fullmatch(r"0|[1-9][0-9]*", token) is None:
+        return None
+    index = int(token)
+    return index if index < size else None
+
+
 def _fill_pointer(data: dict[str, Any], pointer: str, value: str) -> None:
     if not pointer.startswith("/") or pointer == "/" or "~" in pointer:
         raise DeriveError("Mapping must be a nonempty simple JSON pointer")
@@ -89,8 +102,8 @@ def _fill_pointer(data: dict[str, Any], pointer: str, value: str) -> None:
     for part in parts[:-1]:
         if isinstance(node, dict) and part in node:
             node = node[part]
-        elif isinstance(node, list) and part.isdecimal() and int(part) < len(node):
-            node = node[int(part)]
+        elif isinstance(node, list) and (index := _array_index(part, len(node))) is not None:
+            node = node[index]
         else:
             raise DeriveError("Mapping container is missing")
     last = parts[-1]
@@ -98,10 +111,10 @@ def _fill_pointer(data: dict[str, Any], pointer: str, value: str) -> None:
         if last in node and node[last] is not None:
             raise DeriveError("Mapping would overwrite an authored value")
         node[last] = value
-    elif isinstance(node, list) and last.isdecimal() and int(last) < len(node):
-        if node[int(last)] is not None:
+    elif isinstance(node, list) and (index := _array_index(last, len(node))) is not None:
+        if node[index] is not None:
             raise DeriveError("Mapping would overwrite an authored value")
-        node[int(last)] = value
+        node[index] = value
     else:
         raise DeriveError("Mapping target is unavailable")
 

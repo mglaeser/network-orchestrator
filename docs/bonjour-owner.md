@@ -187,6 +187,11 @@ Synthetic native-format fixtures follow Apple's timestamp width, including the
 single leading hour-padding space before 10:00. Registration callbacks parse the
 timestamp prefix once and retain the full exact name, including consecutive
 spaces. These fixtures are source-derived contracts, not production captures.
+The separate [recorded discovery evidence](discovery-evidence.md) corpus replays
+sanitized output captured from the native CLI and records its limited scope.
+It supplements these source-derived contracts without qualifying publication,
+launchd consent or application connectivity.
+
 Asynchronous registration reads retain incomplete trailing lines until their
 newline; a split pipe read is not a conflicting identity. Every SRV/A/TXT callback must parse; a valid row cannot hide a malformed callback
 or unexpected query row. Fixed native banners are separately recognized,

@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "id": "raop-01-resolve",
+  "component": "dns-sd",
+  "source": {
+    "kind": "sanitized-native-capture",
+    "captured_on": "2026-10-09",
+    "capture_context": "interactive-user",
+    "os_version": "27.0.1",
+    "os_build": "26A434",
+    "architecture": "arm64",
+    "tool": "dns-sd",
+    "tool_version": null,
+    "original_stdout_sha256": "a71f2039cc444f81b2c7888e2cc579b10fa86f7a5bfd5909f7c8de3286fd8cee",
+    "original_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "transformations": [
+      "Instance labels replaced consistently with neutral Unicode and multiword labels; escaped DNS fullnames and shell-friendly TXT display use matching substitutions.",
+      "Hostnames replaced consistently with endpoint-NN.local.; private IPv4 addresses replaced consistently with RFC 5737 documentation addresses.",
+      "Device identifiers, MAC-like values, pairing/public keys, group IDs and opaque TXT identifiers neutralized; TXT length octets and byte-count/hex display recomputed after substitutions.",
+      "Captured interface index, timestamps, flag bits, row order, table headings, ports and protocol/model/version fields retained."
+    ],
+    "limitations": [
+      "Interactive user read-only DNS-SD capture; does not establish LaunchAgent Local Network consent or qualification.",
+      "Native registration, expiry/renewal, guest-to-LAN projection, shared Home Assistant discovery, packet return traffic and audible playback were not exercised.",
+      "Two selected endpoint resolves per type do not represent every instance in the separate bounded browse; capture is a point-in-time sample, not a complete inventory."
+    ]
+  },
+  "result": {
+    "status": "exited",
+    "returncode": 0,
+    "stdout": "Using interface 10\nLookup 020000000002@MediaÄ02._raop._tcp.local.\nDATE: ---Fri 09 Oct 2026---\n20:17:31.420  ...STARTING...\n20:17:31.421  020000000002@MediaÄ02._raop._tcp.local. can be reached at endpoint-05.local.:7000 (interface 10)\n cn=0,1,2,3 da=true et=0,3,5 ft=0x4A7FDFD5,0x3C177FDE sf=0x18644 md=0,1,2 am=AppleTV6,2 pk=0000000000000000000000000000000000000000000000000000000000000000 tp=UDP vn=65537 vs=960.13.1 ov=26.6 vv=1\n",
+    "stderr": "",
+    "stdout_sha256": "d3b9a131178bb388f28886f3f95145b9ebf4c72659ba1a207e18d90b689bcf02",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}

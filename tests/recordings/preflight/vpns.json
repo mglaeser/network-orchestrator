@@ -1,0 +1,30 @@
+{
+  "component": "macos-preflight",
+  "id": "vpns",
+  "result": {
+    "returncode": 0,
+    "status": "exited",
+    "stderr": "",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout": "Available network connection services in the current set (*=enabled):\n",
+    "stdout_sha256": "f2708f8fd2aa72b80df8d3c1c196464d6a0ad1a823a0e201369cd985dd0422d1"
+  },
+  "schema_version": 1,
+  "source": {
+    "architecture": "arm64",
+    "capture_context": "interactive-user",
+    "captured_on": "2026-10-09",
+    "kind": "native-capture",
+    "limitations": [
+      "Read-only interactive command response, not a LaunchAgent or root observer qualification.",
+      "Offline replay does not establish current host state, runtime compatibility or service health."
+    ],
+    "original_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "original_stdout_sha256": "f2708f8fd2aa72b80df8d3c1c196464d6a0ad1a823a0e201369cd985dd0422d1",
+    "os_build": "26A434",
+    "os_version": "27.0.1",
+    "tool": "scutil",
+    "tool_version": null,
+    "transformations": []
+  }
+}

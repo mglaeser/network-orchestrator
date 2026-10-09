@@ -71,6 +71,15 @@ Use the project's managed development environment and reviewed locks. No test
 in the public default suite loads PF, changes launchd, starts a guest, registers
 Bonjour, triggers Local Network consent or plays audio.
 
+## Recorded native replay and per-test inventory
+
+Every PR runs the sanitized native corpus alongside synthetic and fault-injection
+tests. CI publishes recording-load provenance for each test and a source/function
+execution inventory. These reports explicitly retain unmapped tests and hardware
+gaps; they cannot turn mocked failures into production observations. See
+[recorded evidence](recorded-evidence.md) for commands, provenance, cleanup and
+remaining qualification gates.
+
 ## Tier 1: pure, property and model tests
 
 These tests need no network, root account, runtime or service. Use RFC 5737 address
@@ -199,7 +208,7 @@ truncated rules/states, source swaps, denied target validation and interrupted
 journals. The native Bash backend itself is executed by the host's `/bin/bash`
 against a fake `pfctl`: argument guards, rule-file checks, the drift and readback
 exits of a replacement, state invalidation and failed or warning listings. That
-is bash 5 on a Linux machine and the system's bash 3.2 on macOS; the
+is the system's bash 3.2 on the supported macOS host; the
 `NETORCH_TEST_BASH` environment variable names another shell binary for them.
 No fake PF result is presented as Darwin grammar or state semantics acceptance.
 

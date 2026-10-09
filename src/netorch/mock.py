@@ -81,6 +81,9 @@ class MockOwner:
         if action.operation == "activate":
             entry = self.admissions.get(profile.id)
             endpoint = self.snapshot.services[profile.service]
+            now = self.snapshot.observed_at
+            endpoint = endpoint.at(now, profile.safety.max_age_seconds)
+            current = current.at(now, profile.safety.max_age_seconds)
             expected_target = (
                 self.config.scope(profile.scope).host_ipv4
                 if profile.kind == "host-redirect"
@@ -88,14 +91,21 @@ class MockOwner:
             )
             if (
                 entry is None
+                or entry.profile != profile.id
                 or entry.digest != profile_digest(self.config, profile)
-                or (profile.safety.kind == "bounded" and not entry.risk_acknowledged)
+                or entry.approved_at > now
+                or (
+                    (profile.safety.kind == "bounded" or profile.source_scope != "lan")
+                    and not entry.risk_acknowledged
+                )
+                or self.snapshot.network_generation is None
                 or endpoint.state != "present"
                 or endpoint.generation != action.target_generation
                 or endpoint.data.get("contract_sha256")
                 != self.config.service(profile.service).contract_sha256
                 or action.target_ipv4 != expected_target
                 or current.state != "absent"
+                or not isinstance(current.data.get("states"), tuple)
                 or current.data.get("states")
             ):
                 raise OwnerFailure("mock owner independently rejected changed preconditions")

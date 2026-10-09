@@ -196,7 +196,11 @@ and [static-owner.env](../examples/static-owner.env). The importer never sources
 shell files, expands variables or evaluates code. Conflicting authors, executable
 fragments, duplicate keys and unsupported fields fail validation. So does a
 literal file with a carriage return or any other control character except tab
-and line feed: only a line feed ends a line.
+and line feed: only a line feed ends a line. JSON Pointer array indexes follow
+[RFC 6901 section 4](https://www.rfc-editor.org/rfc/rfc6901#section-4): ASCII decimal
+without leading zeros (`0` or a nonzero digit followed by digits), referring to
+an existing element. Padded indexes, Unicode digits, `-` and out-of-range indexes
+are refused; object keys retain their literal spelling.
 
 `derive --check --output ...` checks byte-for-byte canonical equivalence against
 the authored sources. Keep this check in the private installation's provisioning
@@ -251,3 +255,7 @@ runtime only with its optional member
 unsafe native prerequisites stay unknown/pending. Public CI proves model and
 mock contracts plus hosted PF grammar; consult the [deployment gates](deployment.md)
 for real packets, consent, boot/restore and application acceptance.
+
+JSON integers are exact integer tokens: schema versions, port bounds, safety
+bounds and discovery limits reject integral floats such as `8000.0`. They are
+never coerced before hashing or native argument construction.

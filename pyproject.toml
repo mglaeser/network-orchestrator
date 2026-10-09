@@ -63,7 +63,7 @@ packages = ["src/netorch"]
 "examples/network.json" = "netorch/example-network.json"
 
 [tool.hatch.build.targets.sdist]
-include = ["/src", "/platform", "/tests", "/examples", "/schemas", "/docs", "/pyproject.toml", "/README.md", "/CHANGELOG.md", "/LICENSE", "/CONTRIBUTING.md", "/SECURITY.md", "/requirements*.txt", "/.github", "/.gitignore"]
+include = ["/tools", "/src", "/platform", "/tests", "/examples", "/schemas", "/docs", "/pyproject.toml", "/README.md", "/CHANGELOG.md", "/LICENSE", "/CONTRIBUTING.md", "/SECURITY.md", "/requirements*.txt", "/.github", "/.gitignore"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

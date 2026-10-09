@@ -34,8 +34,10 @@ from .conformance import ByteComparison, InventoryCheck, compare_bytes
 from .derive import DeriveError
 from .instance import (
     _ADDRESS,
+    _ADDRESS6,
     _CONTROL,
     InstanceError,
+    _routed_ipv6,
     instance_digest,
     instance_to_dict,
     resolved_names,
@@ -606,7 +608,9 @@ class _Settings:
 
     def live_address(self, value: str) -> bool:
         """The instance's own rule for its data: no address but the declared LAN."""
-        return any(found not in self.addresses for found in _ADDRESS.findall(value))
+        return any(found not in self.addresses for found in _ADDRESS.findall(value)) or any(
+            _routed_ipv6(found) for found in _ADDRESS6.findall(value)
+        )
 
 
 def _settings(instance: Instance) -> _Settings:

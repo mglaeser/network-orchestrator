@@ -39,6 +39,15 @@ def _reject_constant(_value: str) -> None:
     raise CodecError("Nonfinite JSON numbers are forbidden")
 
 
+def _parse_integer(token: str) -> int:
+    # A 256-bit magnitude has at most 78 decimal digits. Refuse longer tokens
+    # before integer conversion, independently of Python's optional digit cap.
+    # The tree check still enforces the exact bit bound for a 78-digit value.
+    if len(token.removeprefix("-")) > 78:
+        raise CodecError("JSON integer exceeds the limit")
+    return int(token)
+
+
 def _scan_depth(text: str, maximum: int) -> None:
     """Bound structural depth before the recursive stdlib decoder runs."""
     depth = 0
@@ -99,8 +108,8 @@ def _validate_tree(value: Any, maximum_depth: int = MAX_JSON_DEPTH) -> None:
 def strict_loads(
     text: str | bytes, *, max_bytes: int = MAX_JSON_BYTES, max_depth: int = MAX_JSON_DEPTH
 ) -> Any:
-    if max_bytes < 1 or max_depth < 1:
-        raise CodecError("JSON limits must be positive")
+    if type(max_bytes) is not int or type(max_depth) is not int or max_bytes < 1 or max_depth < 1:
+        raise CodecError("JSON limits must be positive integers")
     if not isinstance(text, (str, bytes)):
         raise CodecError("JSON input must be text or bytes")
     try:
@@ -109,7 +118,12 @@ def strict_loads(
             raise CodecError("JSON input exceeds the byte limit")
         decoded = raw.decode("utf-8", "strict")
         _scan_depth(decoded, max_depth)
-        value = json.loads(decoded, object_pairs_hook=_pairs, parse_constant=_reject_constant)
+        value = json.loads(
+            decoded,
+            object_pairs_hook=_pairs,
+            parse_constant=_reject_constant,
+            parse_int=_parse_integer,
+        )
         _validate_tree(value, max_depth)
         return value
     except (UnicodeError, json.JSONDecodeError, RecursionError) as exc:

@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "id": "raop-00-txt",
+  "component": "dns-sd",
+  "source": {
+    "kind": "sanitized-native-capture",
+    "captured_on": "2026-10-09",
+    "capture_context": "interactive-user",
+    "os_version": "27.0.1",
+    "os_build": "26A434",
+    "architecture": "arm64",
+    "tool": "dns-sd",
+    "tool_version": null,
+    "original_stdout_sha256": "fc3bb878b41376ed2b1e9b3afc70162885aa2610ad651e30f7f46f429a6ebd0e",
+    "original_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "transformations": [
+      "Instance labels replaced consistently with neutral Unicode and multiword labels; escaped DNS fullnames and shell-friendly TXT display use matching substitutions.",
+      "Hostnames replaced consistently with endpoint-NN.local.; private IPv4 addresses replaced consistently with RFC 5737 documentation addresses.",
+      "Device identifiers, MAC-like values, pairing/public keys, group IDs and opaque TXT identifiers neutralized; TXT length octets and byte-count/hex display recomputed after substitutions.",
+      "Captured interface index, timestamps, flag bits, row order, table headings, ports and protocol/model/version fields retained."
+    ],
+    "limitations": [
+      "Interactive user read-only DNS-SD capture; does not establish LaunchAgent Local Network consent or qualification.",
+      "Native registration, expiry/renewal, guest-to-LAN projection, shared Home Assistant discovery, packet return traffic and audible playback were not exercised.",
+      "Two selected endpoint resolves per type do not represent every instance in the separate bounded browse; capture is a point-in-time sample, not a complete inventory."
+    ]
+  },
+  "result": {
+    "status": "exited",
+    "returncode": 0,
+    "stdout": "Using interface 10\nDATE: ---Fri 09 Oct 2026---\n20:17:31.410  ...STARTING...\nTimestamp     A/R  Flags         IF  Name                          Type   Class  Rdata\n20:17:31.411  Add  40000002      10  020000000001@MediaÄ01._raop._tcp.local. TXT    IN     203 bytes: 0A 63 6E 3D 30 2C 31 2C 32 2C 33 07 64 61 3D 74 72 75 65 08 65 74 3D 30 2C 33 2C 35 18 66 74 3D 30 78 34 41 37 46 43 41 30 30 2C 30 78 33 43 33 35 34 42 44 30 0A 73 66 3D 30 78 39 38 34 30 34 08 6D 64 3D 30 2C 31 2C 32 14 61 6D 3D 41 75 64 69 6F 41 63 63 65 73 73 6F 72 79 35 2C 31 43 70 6B 3D 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 06 74 70 3D 55 44 50 08 76 6E 3D 36 35 35 33 37 0B 76 73 3D 39 38 30 2E 37 37 2E 32 07 6F 76 3D 32 37 2E 30 04 76 76 3D 31\n",
+    "stderr": "",
+    "stdout_sha256": "dbd56ac142ecb8b1d7c3c4cd5cde07475286e34de188f8f24f634ce7c9830303",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}

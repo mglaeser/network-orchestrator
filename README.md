@@ -181,3 +181,7 @@ dependencies. The scheduled audit proposes no automatic deployment.
 - `platform/`: retained fixed native boundary and supervision documentation.
 
 See [CONTRIBUTING](CONTRIBUTING.md) and [SECURITY](SECURITY.md). MIT licensed.
+
+Recorded native parser fixtures and per-test evidence inventories are described
+in [recorded evidence](docs/recorded-evidence.md). They run in normal CI and
+explicitly retain the hardware qualification gaps before migration.

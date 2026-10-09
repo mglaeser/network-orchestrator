@@ -1,0 +1,32 @@
+{
+  "component": "macos-preflight",
+  "id": "network-extensions",
+  "result": {
+    "returncode": 0,
+    "status": "exited",
+    "stderr": "",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout": "2 extension(s)\n--- com.apple.system_extension.network_extension (Go to 'System Settings > General > Login Items & Extensions > Network Extensions' to modify these system extension(s))\nenabled\tactive\tteamID\tbundleID (version)\tname\t[state]\n\t\tEXAMPLE123 example.extension.1 (16.2.674/16.2.674) Example extension 1 [terminated waiting to uninstall on reboot]\n*\t*\tEXAMPLE123 example.extension.2 (17.9.700/17.9.700) Example extension 2 [activated enabled]\n",
+    "stdout_sha256": "cddb9b45423fade54f9d2f78a72417424d3e6efad498475f09688d73be295869"
+  },
+  "schema_version": 1,
+  "source": {
+    "architecture": "arm64",
+    "capture_context": "interactive-user",
+    "captured_on": "2026-10-09",
+    "kind": "sanitized-native-capture",
+    "limitations": [
+      "Read-only interactive command response, not a LaunchAgent or root observer qualification.",
+      "Offline replay does not establish current host state, runtime compatibility or service health."
+    ],
+    "original_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "original_stdout_sha256": "5b3dd4073095bae72ebd1144d347754b068a8f777f1353c54c89650fa457f57b",
+    "os_build": "26A434",
+    "os_version": "27.0.1",
+    "tool": "systemextensionsctl",
+    "tool_version": null,
+    "transformations": [
+      "Replaced extension team, bundle and display identities with invented examples; retained native categories, row count, state, order and version syntax."
+    ]
+  }
+}

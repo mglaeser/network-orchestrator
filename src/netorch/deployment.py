@@ -678,7 +678,11 @@ def _owner_busy_retry(
             return result
         deadline = clock() + OWNER_BUSY_WAIT_SECONDS
         while result.returncode == OWNER_BUSY and clock() < deadline:
-            sleep(OWNER_BUSY_RETRY_SECONDS)
+            sleep(min(OWNER_BUSY_RETRY_SECONDS, max(0.0, deadline - clock())))
+            # Waking can be delayed beyond the requested sleep. Preserve the
+            # last attempt exactly at the bound, but start none after it.
+            if clock() > deadline:
+                break
             result = runner(argv)
         return result
 
@@ -722,10 +726,13 @@ def _bootout(
     if not reloaded:
         return
     deadline = clock() + BOOTOUT_WAIT_SECONDS
-    while not _removed(runner, (launchctl, "print", target)):
-        if clock() >= deadline:
+    while clock() <= deadline:
+        if _removed(runner, (launchctl, "print", target)):
             return
-        sleep(BOOTOUT_POLL_SECONDS)
+        remaining = deadline - clock()
+        if remaining <= 0:
+            return
+        sleep(min(BOOTOUT_POLL_SECONDS, remaining))
 
 
 def _removed(runner: ToolRunner, argv: tuple[str, ...]) -> bool:
@@ -1162,16 +1169,22 @@ def install_bundle(
 
 
 def prepare_root_bundle(bundle: Path, output: Path) -> dict[str, Any]:
-    """Copy the captured root scope, without executing an installer or escalating."""
+    """Copy the complete captured inventory without executing an installer or escalating."""
     manifest = validate_bundle(bundle)
     if output.exists() or output.is_symlink():
         raise DeploymentError("prepared bundle output already exists")
+    captured: dict[str, bytes] = {}
+    for record in manifest["files"]:
+        payload = _read_file(bundle / record["path"], private=True)
+        if _sha(payload) != record["sha256"] or len(payload) != record["bytes"]:
+            raise DeploymentError("bundle changed between validation and preparation")
+        captured[record["path"]] = payload
     _check_tree(output.parent, os.geteuid())
     output.mkdir(mode=0o700)
-    # Preserve the entire signed inventory so an administrator verifies the exact
+    # Preserve the entire reviewed inventory so an administrator verifies the exact
     # same bundle, rather than implicitly admitting a different filtered document.
-    for record in manifest["files"]:
-        _write_new(output / record["path"], _read_file(bundle / record["path"], private=True))
+    for name, payload in captured.items():
+        _write_new(output / name, payload)
     _write_new(output / "manifest.json", canonical_bytes(manifest) + b"\n")
     return {
         "bundle": str(output),

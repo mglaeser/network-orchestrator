@@ -58,6 +58,7 @@ class NativeFleet:
                     )
             self.configurations[contract.name] = {
                 "id": contract.name,
+                "runtimeHandler": "container-runtime-linux",
                 "mounts": [],
                 "publishedPorts": pubs,
                 "resources": {"cpus": 2, "memoryInBytes": 4294967296},
@@ -136,7 +137,24 @@ class NativeFleet:
         if argv[0] == "/usr/sbin/sysctl":
             return Result(0, b"0A1B2C3D-4E5F-4A6B-8C7D-9E0F1A2B3C4D\n", b"")
         if argv[0] == "/bin/launchctl":
-            return Result(0, b"state = running\npid = 100\nprogram = /vendor/network-helper\n", b"")
+            if argv[2].endswith("/vendor.network-helper"):
+                return Result(
+                    0, b"state = running\npid = 100\nprogram = /vendor/network-helper\n", b""
+                )
+            if argv[2] in ("system", f"gui/{os.geteuid()}", f"user/{os.geteuid()}"):
+                domain = argv[2]
+                kind = domain.split("/")[0]
+                handle = "0" if kind == "system" else str(os.geteuid())
+                kind = "login" if kind == "gui" else kind
+                return Result(
+                    0,
+                    (
+                        f"{domain} = {{\n\ttype = {kind}\n\thandle = {handle}\n"
+                        "\tservice count = 0\n\tservices = {\n\t}\n}\n"
+                    ).encode(),
+                    b"",
+                )
+            return Result(113, b"", b"Could not find service\n")
         if argv[0] == "/bin/ps":
             return Result(0, b"0 Mon Jan  1 00:00:00 2000 /vendor/network-helper\n", b"")
         if argv[0] == "/sbin/ifconfig":

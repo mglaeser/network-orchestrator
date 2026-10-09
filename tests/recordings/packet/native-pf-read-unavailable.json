@@ -1,0 +1,31 @@
+{
+  "component": "pf",
+  "id": "native-pf-read-unavailable",
+  "result": {
+    "returncode": 1,
+    "status": "exited",
+    "stderr": "sudo: a password is required\n",
+    "stderr_sha256": "9b3a3b7a78f239c4473bb193476b1a860c91f1c2b4fab9c7639eceea414a60fb",
+    "stdout": "",
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "schema_version": 1,
+  "source": {
+    "architecture": "arm64",
+    "capture_context": "interactive-user",
+    "captured_on": "2026-10-09",
+    "kind": "native-capture",
+    "limitations": [
+      "The collector invoked sudo -n pfctl -s states; authentication failed before pfctl executed.",
+      "This is an observed unavailable diagnostic, not PF state-table grammar or empty-table evidence.",
+      "Replaying its nonzero Result at a backend read boundary is a synthetic fault injection, not execution of the backend shell script."
+    ],
+    "original_stderr_sha256": "9b3a3b7a78f239c4473bb193476b1a860c91f1c2b4fab9c7639eceea414a60fb",
+    "original_stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "os_build": "26A434",
+    "os_version": "27.0.1",
+    "tool": "sudo",
+    "tool_version": null,
+    "transformations": []
+  }
+}

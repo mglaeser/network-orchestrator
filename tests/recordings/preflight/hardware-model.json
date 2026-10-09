@@ -1,0 +1,32 @@
+{
+  "component": "macos-preflight",
+  "id": "hardware-model",
+  "result": {
+    "returncode": 0,
+    "status": "exited",
+    "stderr": "",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout": "MacExample1,1\n",
+    "stdout_sha256": "7e3bee07e95a155c446500b7db69fe0556b95c8671079a701bd2f91cdce5d7e9"
+  },
+  "schema_version": 1,
+  "source": {
+    "architecture": "arm64",
+    "capture_context": "interactive-user",
+    "captured_on": "2026-10-09",
+    "kind": "sanitized-native-capture",
+    "limitations": [
+      "Read-only interactive command response, not a LaunchAgent or root observer qualification.",
+      "Offline replay does not establish current host state, runtime compatibility or service health."
+    ],
+    "original_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "original_stdout_sha256": "de4d7ad7a978d56cac7643f139ab107c2e1b679cbeaa11fe44a9ede6e1b9e9f3",
+    "os_build": "26A434",
+    "os_version": "27.0.1",
+    "tool": "sysctl",
+    "tool_version": null,
+    "transformations": [
+      "Replaced the machine model with a grammar-valid invented model; hardware identity is not a fixture claim."
+    ]
+  }
+}

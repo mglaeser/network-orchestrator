@@ -626,6 +626,10 @@ JOB_REPORTS: dict[str, tuple[bytes, bool]] = {
     "three-lines": (f"state = running\npid = 7\nprogram = {API_PROGRAM}\n".encode(), True),
     "other-order-and-spacing": (
         f"  pid = 7  \n\tprogram = {API_PROGRAM}\t\n state = running \n".encode(),
+        False,  # Mixed levels cannot prove three fields belong to the same job.
+    ),
+    "other-order-native-indent": (
+        f"\tpid = 7\n\tprogram = {API_PROGRAM}\n\tstate = running\n".encode(),
         True,
     ),
     "not-running": (job_report(7, state="waiting"), False),

@@ -101,18 +101,19 @@ class NativePublicationMaintenance(RuntimeReadError):
     """A fixed vendor socket requires its existing application maintenance owner."""
 
 
-# One loaded job as the service manager prints it; `Reader.helper` reads the
-# network helper with the same three expressions.
+# One loaded job as the service manager prints it. Identity fields are unique,
+# and the job's state must be at the program's indentation, never a coalition's.
 _JOB_RUNNING = re.compile(r"^\s*state = running\s*$", re.MULTILINE)
-_JOB_PID = re.compile(r"^\s*pid = ([1-9]\d*)\s*$", re.MULTILINE)
-_JOB_PROGRAM = re.compile(r"^\s*program = (.+?)\s*$", re.MULTILINE)
+_JOB_PID = re.compile(r"^([\t ]*)pid = (.*)$", re.MULTILINE)
+_JOB_PROGRAM = re.compile(r"^([\t ]*)program = (.*)$", re.MULTILINE)
+_JOB_STATE = re.compile(r"^([\t ]*)state = (.*)$", re.MULTILINE)
 # The service manager's exit status for a label it has no job for.
 _JOB_NOT_LOADED = 113
 _RUNTIME_HANDLER = re.compile(r"[a-z0-9][a-z0-9-]{0,62}\Z")
-# What the start of the vendor runtime reads in addition. No production capture
-# backs these forms: a text that does not match is unknown, and never read as
-# an absent job, an idle job or an enabled label. Each line is read exactly:
-# the printer's indentation before it is not part of it, white space at its end is.
+# Additional runtime-start fields. Recorded running jobs retain their structure,
+# but redacted arguments/environment do not qualify a declared start or idle job.
+# Unexpected forms remain unknown. Each line is read exactly: indentation before
+# a field is structural; whitespace after its value is part of the value.
 _JOB_IDLE = re.compile(r"^[\t ]*state = not running$", re.MULTILINE)
 _JOB_PROCESS = re.compile(r"^[\t ]*pid = ", re.MULTILINE)
 _JOB_PATH = re.compile(r"^[\t ]*path = (.*)$", re.MULTILINE)
@@ -127,6 +128,24 @@ _INSTALL_ROOT = "CONTAINER_INSTALL_ROOT"
 _LAUNCH_FILE_BYTES = 65_536
 # The vendor's configuration is a short text of settings; a larger file is not read.
 _CONFIGURATION_BYTES = 1_048_576
+
+
+def _running_job_pid(report: str, executable: str) -> str:
+    """Read one running job identity, refusing duplicate or displaced scalars."""
+    programs, pids = _JOB_PROGRAM.findall(report), _JOB_PID.findall(report)
+    if len(programs) != 1 or len(pids) != 1:
+        raise RuntimeReadError("identity-mismatch")
+    indent, program = programs[0]
+    pid_indent, pid = pids[0]
+    states = [state for prefix, state in _JOB_STATE.findall(report) if prefix == indent]
+    if (
+        program != executable
+        or pid_indent != indent
+        or re.fullmatch(r"[1-9][0-9]*", pid) is None
+        or states != ["running"]
+    ):
+        raise RuntimeReadError("identity-mismatch")
+    return str(pid)
 
 
 def _job_block(report: str, name: str) -> list[str] | None:
@@ -347,17 +366,9 @@ class Reader:
         report = self.tool(
             ["/bin/launchctl", "print", f"{network.helper_domain}/{network.helper_label}"]
         )
-        pid = re.search(r"^\s*pid = ([1-9]\d*)\s*$", report, re.MULTILINE)
-        program = re.search(r"^\s*program = (.+?)\s*$", report, re.MULTILINE)
-        if (
-            re.search(r"^\s*state = running\s*$", report, re.MULTILINE) is None
-            or pid is None
-            or program is None
-            or program[1] != network.helper_executable
-        ):
-            raise RuntimeReadError("identity-mismatch")
+        pid = _running_job_pid(report, network.helper_executable)
         process = self.tool(
-            ["/bin/ps", "-p", pid[1], "-o", "uid=", "-o", "lstart=", "-o", "comm="]
+            ["/bin/ps", "-p", pid, "-o", "uid=", "-o", "lstart=", "-o", "comm="]
         ).strip()
         found = re.fullmatch(r"(\d+)\s+(.{24})\s+(.+)", process)
         if (
@@ -367,7 +378,7 @@ class Reader:
         ):
             raise RuntimeReadError("identity-mismatch")
         return {
-            "pid": int(pid[1]),
+            "pid": int(pid),
             "started": found[2],
             "uid": int(found[1]),
             "executable": found[3],
@@ -380,16 +391,9 @@ class Reader:
 
     def api_process(self, fleet: FleetStart, report: str) -> dict[str, Any]:
         """The process of a printed API job: running, the declared program, the enrolled account."""
-        pid, program = _JOB_PID.search(report), _JOB_PROGRAM.search(report)
-        if (
-            _JOB_RUNNING.search(report) is None
-            or pid is None
-            or program is None
-            or program[1] != fleet.api_executable
-        ):
-            raise RuntimeReadError("identity-mismatch")
+        pid = _running_job_pid(report, fleet.api_executable)
         process = self.tool(
-            ["/bin/ps", "-p", pid[1], "-o", "uid=", "-o", "lstart=", "-o", "comm="]
+            ["/bin/ps", "-p", pid, "-o", "uid=", "-o", "lstart=", "-o", "comm="]
         ).strip()
         found = re.fullmatch(r"(\d+)\s+(.{24})\s+(.+)", process)
         if (
@@ -399,7 +403,7 @@ class Reader:
         ):
             raise RuntimeReadError("identity-mismatch")
         return {
-            "pid": int(pid[1]),
+            "pid": int(pid),
             "started": found[2],
             "uid": int(found[1]),
             "executable": found[3],
@@ -492,11 +496,13 @@ class Reader:
         report = self.tool(["/bin/launchctl", "print", f"{domain}/{fleet.api_label}"])
         if not _started_as_declared(report, fleet, start):
             raise RuntimeReadError("identity-mismatch")
-        if (
-            _JOB_IDLE.search(report) is not None
-            and _JOB_RUNNING.search(report) is None
-            and _JOB_PROCESS.search(report) is None
-        ):
+        programs = _JOB_PROGRAM.findall(report)
+        states = [
+            state
+            for indent, state in _JOB_STATE.findall(report)
+            if len(programs) == 1 and indent == programs[0][0]
+        ]
+        if states == ["not running"] and _JOB_PROCESS.search(report) is None:
             return "idle"
         self.api_process(fleet, report)
         return "running"

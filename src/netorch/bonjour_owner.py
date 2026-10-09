@@ -629,13 +629,14 @@ _PASS_SLACK = 5  # process clean-up, the pass's writes and the publisher's next 
 
 
 def pass_budget(config: Config, settings: BonjourSettings) -> int:
-    """Seconds one scanner pass may take from its clock reading to its candidate in force.
+    """Configured read-budget allowance between a pass's clock and its candidate.
 
-    Every native read of a pass has a time limit of its own, so the pass takes
-    no longer than their sum: one report read for each other owner, two
-    interface checks for each scope and one scan for each batch of service
-    types of each owned policy. A report file is read well inside the limit of
-    an owner process unless every one of its permission checks nearly times out.
+    Add one report limit per other owner, two interface checks per scope and
+    one scan per batch of service types of each owned policy, plus cleanup
+    slack. This is not a hard wall-clock bound: scheduling, local filesystem
+    stalls and subprocess cleanup can exceed the allowance. Native acceptance
+    must measure actual pass duration; lease expiry remains an independent
+    limit even when that duration exceeds this estimate.
     """
     return (
         _OWNER_READ_LIMIT * (len(config.owners) - 1)
@@ -648,10 +649,10 @@ def pass_budget(config: Config, settings: BonjourSettings) -> int:
 def carry_horizon(config: Config, settings: BonjourSettings) -> int:
     """Seconds after a pass reads its clock until the next pass's candidate is in force.
 
-    The pass writes its candidate within one budget, the scanner rests, and the
-    next pass writes within another. lease_records refuses a whole candidate for
-    one expired record, so a record that a pass missed is carried only while its
-    lease lasts longer than this: it must not end between two candidates.
+    Allow a budget for each pass and the scanner's rest between them.
+    lease_records refuses a whole candidate for one expired record, so a missed
+    record is carried only when its lease extends beyond this allowance. The
+    allowance cannot override expiry if an actual pass takes longer.
     """
     return settings.pass_interval + 2 * pass_budget(config, settings)
 
@@ -1799,6 +1800,8 @@ def health(settings: BonjourSettings, store: Store) -> bool:
             or set(raw) != {"schema_version", "observed_at", "pid"}
             or type(raw["schema_version"]) is not int
             or raw["schema_version"] != 1
+            or type(raw["pid"]) is not int
+            or raw["pid"] <= 0
             or type(raw["observed_at"]) not in {float, int}
             or not raw["observed_at"] <= now <= raw["observed_at"] + max(60, interval * 3)
         ):
