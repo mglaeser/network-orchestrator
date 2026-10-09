@@ -132,10 +132,11 @@ def site(
     # Keep a genuinely independent direct path: the fallback setup below makes
     # the resolver address unverifiable. A direct rule to that same address
     # cannot truthfully remain ready alongside its fallback after loaded
-    # endpoint checks were added. A fourth synthetic guest also keeps the direct
-    # path independent of tests that stop the media guest or the web proxy.
+    # endpoint checks were added. The existing camera guest keeps this path
+    # independent of tests that stop the media guest or the web proxy and is
+    # already enrolled in the bundled observer's matching synthetic fixture.
     direct_index = next(index for index, profile in enumerate(profiles) if profile.id == DIRECT)
-    profiles[direct_index] = replace(profiles[direct_index], service="direct-controller")
+    profiles[direct_index] = replace(profiles[direct_index], service="camera")
     index = next(index for index, profile in enumerate(profiles) if profile.id == NAMES)
     profiles[index] = replace(profiles[index], fallback_publication=NATIVE)
     profiles.append(
@@ -156,14 +157,7 @@ def site(
         profiles[index] = replace(
             profiles[index], safety=replace(profiles[index].safety, max_age_seconds=seconds)
         )
-    config = replace(
-        config,
-        profiles=tuple(profiles),
-        services=(
-            *config.services,
-            replace(config.service("media-controller"), id="direct-controller"),
-        ),
-    )
+    config = replace(config, profiles=tuple(profiles))
     validate_config(config)
     root.write("policy.json", to_dict(config))
     current = snapshots[-1]
@@ -180,19 +174,7 @@ def site(
             "policy_digest": profile_digest(config, config.profile(NATIVE)),
         },
     )
-    snapshots.append(
-        replace(
-            current,
-            profiles=observed,
-            services={
-                **current.services,
-                "direct-controller": replace(
-                    current.services["media-controller"],
-                    data={**current.services["media-controller"].data, "ipv4": "198.51.100.13"},
-                ),
-            },
-        )
-    )
+    snapshots.append(replace(current, profiles=observed))
     if decision:
         settings = replace(settings, runtime_unknown=KEY)
         root.write("installation.json", settings.to_dict())
@@ -321,7 +303,7 @@ def test_without_the_decision_one_pass_without_evidence_retires_every_rule(
 # without evidence, a verified pass again), computed with this test body on the
 # current fixture with independently reachable direct and fallback guests and
 # fresh checks of loaded endpoints.
-BASE_PASSES = "4343dcb0ef2231588d4f4aa813a61ce0be965bd5e478f60e0466fea87621d372"
+BASE_PASSES = "0a900a6dcfefae46b33fd8373ee23695c7edb2eac0ca3f5850664cc0c4943fb9"
 
 
 def test_without_the_keep_decision_no_host_path_inventory_reads_and_stored_setting_unchanged(
@@ -2303,7 +2285,7 @@ def test_the_judgement_precedes_every_action_of_the_pass(environment: Any) -> No
     backend = Watching(environment[0])
     environment = loaded(site(environment, backend))
     direct, media = (
-        address(environment, "direct-controller"),
+        address(environment, "camera"),
         address(environment, "media-controller"),
     )
     root = environment[0]
@@ -2631,7 +2613,7 @@ def test_a_reference_lost_before_an_activation_retires_the_kept_rules_first(
 ) -> None:
     backend = Lossy()
     environment = loaded(site(environment, backend))
-    direct = address(environment, "direct-controller")
+    direct = address(environment, "camera")
     root = environment[0]
     verified = retired_pair(environment)
     # A LAN client's state of the guest rule that this pass retires, and a
@@ -2645,7 +2627,7 @@ def test_a_reference_lost_before_an_activation_retires_the_kept_rules_first(
     # The reference is held when the pass judges, and gone before the pair is loaded.
     LOST[how](backend)
 
-    environment[4].append(unknown(verified, "resolver", "web-proxy", "direct-controller"))
+    environment[4].append(unknown(verified, "resolver", "web-proxy", "camera"))
     result, report = observed_pass(environment)
 
     # Both host paths were kept at first. Before the reference is taken for the
