@@ -2898,11 +2898,11 @@ def test_a_pass_that_keeps_a_rule_does_not_take_the_reference_at_its_end(
     assert root.read("journal.json")["reason"] == "enable-reference-unverified"
     assert ready(report) == []
     # The next pass has that evidence from its start: nothing is kept, the two
-    # independent guest paths activate again. Each acquisition sees only rules
-    # loaded that this pass verified.
+    # independent guest paths activate again. The first takes the reference
+    # with only rules loaded that this pass verified; the second reuses it.
     result, report = observed_pass(environment, lambda config, settings: verified)
     assert "withheld" not in result
-    assert backend.taken == [sorted(HOST_PATHS), sorted([DIRECT, *HOST_PATHS])]
+    assert backend.taken == [sorted(HOST_PATHS)]
     assert result["changed"] == [f"{DIRECT}:activate", f"{PAIR}:activate"]
     assert set(HOST_PATHS) <= set(ready(report))
 
