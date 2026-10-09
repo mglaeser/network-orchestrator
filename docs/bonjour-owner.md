@@ -39,10 +39,43 @@ optimistic `active` flag alone cannot create a registration.
 Browse only configured service types on the named guest interface. Resolve the
 genuine instance, SRV port, IPv4 address and raw TXT bytes. The source host
 must currently hold the announcing service's inspected guest address. A guest
-may hold further addresses, an alias for example; its record is then read by
-the guest address, and the published address and port still come from the
-verified publication alone. The
-service generation is the independently inspected running instance generation.
+may hold further addresses, an alias for example. Its record is read by the
+guest address where the address answer holds it. Where an alias outside the
+guest network answers first, an instance on a published port is read a second
+time (below); an alias inside the guest network is read as it stands, as
+before, and an instance for whose second read there is no room is left out.
+The published address and port still come from the verified publication alone.
+The service generation is the independently inspected running instance generation.
+
+The address is read with `-m`, and with it the client can show one of a
+host's addresses alone ([below](#one-instance-and-the-scan-as-a-whole)). The
+runtime gives each guest exactly one address of the guest network (the scope's
+`guest_cidr`), the guest address among them, so an answer that holds an
+address of that network names a host of it and is read as it stands. An answer
+whose addresses all lie outside the guest network, an alias alone for example,
+may be the first part of the guest's own answer. Where the projection could
+export the instance, that is where its port is the guest port of exactly one
+verified publication of the policy for the type's protocol and the loop
+exclusion does not refuse it, its host is read once more without `-m`. That
+client shows every reply until its own `-t` timer: one more command of
+`scan_seconds` for such an instance. The instance is read by the guest address
+where the second answer holds it, as before where that answer holds another
+address of the guest network, and otherwise it is left out and counted in
+`skipped`, never dropped in silence. A record that an earlier pass exported is
+then withdrawn in this pass whatever the miss tolerance, as for every answer
+that cannot be used ([below](#supervision-leases-and-recovery)). The second
+read is made only where it can end, with one second to spare, before the
+earlier of the scan's own time and the scanner's wait for the scan (45
+seconds, or half the lease where that is less); without that room the instance
+is left out, and a scan whose own time is used up fails as before. In every
+other respect it is the first read: the same interface line, rows,
+diagnostics, failures and forms of a read that did not complete. No import
+makes a second command, and neither does an answer that holds the guest
+address or no address at all, an instance on any other port, which is read as
+it stands whatever its addresses, or an instance that the loop exclusion
+refuses (a record this owner projected into the guest network). An alias
+inside the guest network cannot be told from another guest's address and is
+read as it stands.
 
 A source record is exportable only when exactly one verified publication owned
 by that same service, generation, scope and protocol maps its guest port to the
@@ -130,7 +163,10 @@ duplicate, ambiguous, oversized, denied and timed-out output fails closed.
 
 Browse Add/Rmv rows preserve Unicode names and spaces without shell evaluation.
 SRV must resolve uniquely, and so must IPv4 for an import; an export accepts
-the inspected guest address among several. TXT is read with `-Q … TXT IN`, whose native
+the inspected guest address among several, and reads an answer that shows
+addresses outside the guest network alone a second time where the projection
+could export the instance
+([export](#export-guest-services-to-reachable-lan-endpoints)). TXT is read with `-Q … TXT IN`, whose native
 raw hexadecimal output preserves binary, empty and non-UTF-8 entries. Every
 TXT byte is passed back through Apple's `\xHH` registration grammar. No shell
 interpolation, string splitting or fabricated cache entry is used.
@@ -252,7 +288,7 @@ policy unless the settings count it as a miss
 | The time budget of the scan is used up | `scan` | the scan fails |
 | A fifth unusable instance in one scan | `scan` | the scan fails |
 | Resolve: no reply (a browse entry whose instance is gone), replies that differ, a port outside 1-65535, a target outside `.local.` or not UTF-8 | `resolve_endpoint` | the instance is left out |
-| Address: none, several for an import, several without the guest address for an export | `resolve_ipv4` | the instance is left out |
+| Address: none, several for an import, several without the guest address for an export; for an export also an answer outside the guest network, for an instance the projection could export, whose second read holds neither the guest address nor another address of that network, or for whose second read there is no room | `resolve_ipv4`, `scan` | the instance is left out |
 | TXT: no record, records that differ, a record shorter than one of its strings declares | `resolve_txt` | the instance is left out |
 | The answers form no valid record: a host name longer than 255 bytes | `scan` | the instance is left out |
 | Instances to leave out and no instance of the policy read in the same pass | `scan_policy` | the policy is withdrawn |
@@ -279,13 +315,23 @@ pass and with the time the pass began, and its heartbeat after that, so this
 time ages the candidate of every policy of the pass. This is part of
 discovery digest version 4.
 
+An export instance whose address is read a second time
+([export](#export-guest-services-to-reachable-lan-endpoints)) costs one more
+command, whether it is then published or left out. Each second read adds up to
+`scan_seconds`, the client's own `-t` timer, and is made only where it ends
+before the earlier of the scan's 45 seconds and the scanner's wait for the
+scan, so the bound of one scan and the budget of a pass are unchanged.
+
 Which of these cases the client can show is read from its source
 (`Clients/dns-sd.c` at the revision above), not captured from a host. The scan
 passes `-m` to the resolve, address and TXT commands, and with it the client
 leaves after the first reply that is not marked as followed by more (lines
 841-844, 1209-1212 and 1287-1290). A host with two IPv4 addresses therefore
-shows two rows only if both replies are delivered together; with one row that
-address is read and the instance is published. TXT records that differ are
+shows two rows only if both replies are delivered together; with one row an
+import reads that address, and so does an export, except that for an instance
+the projection could export an address outside the guest network is read a
+second time without `-m`
+([export](#export-guest-services-to-reachable-lan-endpoints)). TXT records that differ are
 likewise two records listed together; an `Add`, `Rmv`, `Add` sequence for a
 record that changed is read as its last value. The address command asks for
 intermediate results (line 2306) and prints a negative answer as

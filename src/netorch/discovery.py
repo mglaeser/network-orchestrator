@@ -24,8 +24,13 @@ def dns_name_key(value: str) -> str:
 
 def is_own_projection(record: Record, names: DiscoveryNames) -> bool:
     """Reserved projection prefixes cannot be reflected in either direction."""
+    return is_projected_name(names, record.name, record.hostname)
+
+
+def is_projected_name(names: DiscoveryNames, *values: str) -> bool:
+    """Whether a name or host name begins with a reserved projection prefix."""
     prefixes = (dns_name_key(names.export_prefix), dns_name_key(names.import_prefix))
-    return any(dns_name_key(value).startswith(prefixes) for value in (record.name, record.hostname))
+    return any(dns_name_key(value).startswith(prefixes) for value in values)
 
 
 @dataclass(frozen=True, slots=True)
