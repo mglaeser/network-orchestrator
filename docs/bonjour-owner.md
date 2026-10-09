@@ -645,6 +645,53 @@ policy. The affected policy withdraws or becomes unknown while sibling policies
 continue refreshing valid records. Global policy/intent corruption still
 invalidates all owned registrations.
 
+A registration-child failure also holds its record back. The failure still
+withdraws its policy in its own turn and reports its reason. The publisher then
+starts no client for that record until 1 second after the failure; each further
+failure of the same record doubles the hold-off, up to 300 seconds. The failure
+of a running client, of a replacement beside it and of a start that cannot be
+made all count; a client that ends on its own timer and a lease that ends do
+not. A client of the record that confirms ends its history, and so does a fresh
+activation request of its policy: an active request whose `requested_at` differs
+from that of the last one the publisher acted on, whether an inactive request
+came between or not. Either way the record's next failure holds it back 1 second
+again. A record that differs in any field (name, type, host, port, address, TXT,
+interface, or the service and generation it came from) is another record, with a
+history of its own; a newer sighting of the same record is the same record. The
+policy's other records are registered again at the next turn, as before. While a
+record is held back its policy reads `unknown` with the reason of the failure
+(of the latest one where several of its records are held back), and
+`present / verified` again once every record is registered and confirmed.
+
+A withdrawal of the policy keeps the history, whatever withdrew it: the failure
+itself, an inactive request, a hold, the pause or stale evidence. For a record
+without a client it is forgotten 300 seconds after the hold-off ended. Hold-offs
+run on the publisher's monotonic clock; a clock that reads earlier than a
+failure, while no client of the record runs, forgets that failure, and the
+record is registered again at once, as before hold-offs. The history is kept in
+the publisher process's memory only and never written: a publisher that starts
+again, and one whose turn fails as a whole, registers every record at once. The
+two values are constants of the publisher, not settings. A record whose client
+the daemon renames one second after its start, because another advertiser holds
+its name, is thus started 5 times in the first 20 seconds and 10 times in the
+first 10 minutes, then once every 301 seconds; before, it was started again a
+quarter of a second after each failure, 16 times in those 20 seconds. In
+exchange a transient failure costs 1 second before the record is registered
+again, and after repeated failures the wait reaches 300 seconds, also when the
+cause has gone, until a client of the record confirms or a fresh activation
+request arrives.
+
+The coordinator's endpoint waits seven seconds for an activation to be
+confirmed. Measured on the mock tier, with the endpoint, the publisher's turns
+and a client renamed one second after its start on one clock, for conflict
+lengths in steps of a quarter second: an activation that meets a name conflict
+of up to 5 seconds is confirmed within that wait, with the hold-off as before it
+(up to 5.25 seconds where the request arrives just after a turn). Where the
+daemon confirms a registration at once, the publisher before the hold-off also
+confirmed conflicts of 5.25 to 6.25 seconds (5.5 to 6.5), and this one does not;
+where a confirmation takes a second, neither confirms a longer conflict than 5
+seconds (5.25).
+
 One candidate file holds every policy's records. When a pass would exceed that
 file's size or structure bound, the bulkiest policy loses its records with the
 reason `incomplete` until the rest fits; the other policies keep their lease.
