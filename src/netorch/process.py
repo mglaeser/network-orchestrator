@@ -1,4 +1,4 @@
-"""Bounded POSIX subprocesses; no shell and no descendant left holding pipes."""
+"""Bounded POSIX subprocess groups; no shell and bounded inherited-pipe waits."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import re
 import selectors
 import signal
 import subprocess
+import sys
 import time
 from collections.abc import Mapping
 from contextlib import suppress
@@ -80,7 +81,10 @@ def run(
     """Capture a process group within explicit time/input/output bounds.
 
     A child's exit does not complete the operation while inherited pipes remain
-    open. Exceptions kill the entire owned group and reap the immediate child.
+    open. Cleanup attempts to kill the owned group and reap the immediate child.
+    A child that deliberately leaves that group is outside this runner's cleanup
+    authority; this is not a process-tree sandbox. Native owners need their own
+    lifecycle fence for daemons that detach or are registered with launchd.
     Error messages deliberately omit arguments, environment and captured output.
     `environment` names variables that one call adds to the closed environment.
     The time limit raises ProcessTimeout, which carries what the command had
@@ -93,8 +97,8 @@ def run(
         or not os.path.isabs(argv[0])
         or isinstance(timeout, bool)
         or not isinstance(timeout, (int, float))
+        or not 0 < timeout <= sys.float_info.max
         or not math.isfinite(timeout)
-        or timeout <= 0
         or type(max_output) is not int
         or max_output <= 0
         or not isinstance(input_data, bytes)

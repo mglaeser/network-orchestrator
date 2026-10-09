@@ -1,0 +1,33 @@
+{
+  "component": "pf",
+  "id": "native-guest-neighbour-missing",
+  "result": {
+    "returncode": 1,
+    "status": "exited",
+    "stderr": "",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout": "198.51.100.12 (198.51.100.12) -- no entry\n",
+    "stdout_sha256": "29db0d008a70b2c06bd1c94510c435a3a00d377e1e3cfc44082836a939d30138"
+  },
+  "schema_version": 1,
+  "source": {
+    "architecture": "arm64",
+    "capture_context": "interactive-user",
+    "captured_on": "2026-10-09",
+    "kind": "sanitized-native-capture",
+    "limitations": [
+      "Captured by an interactive user, not a root LaunchDaemon.",
+      "The route and neighbour captures are separate point-in-time reads; the missing neighbour proves no current target identity and was not seeded or repaired.",
+      "This is endpoint-reader evidence only, not a native PF rule, state or packet test."
+    ],
+    "original_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "original_stdout_sha256": "d3dc5d3ac18d213dcef20b4d8209138470320f4c7aab36c89f090dfc769a1a83",
+    "os_build": "26A434",
+    "os_version": "27.0.1",
+    "tool": "arp",
+    "tool_version": null,
+    "transformations": [
+      "Replaced the queried guest address with documentation address 198.51.100.12 consistently; preserved exit status, native field order, whitespace, route flags and missing-neighbour diagnostic."
+    ]
+  }
+}

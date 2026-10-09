@@ -1,0 +1,30 @@
+{
+  "component": "macos-preflight",
+  "id": "internet-sharing",
+  "result": {
+    "returncode": 0,
+    "status": "exited",
+    "stderr": "",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\">\n<dict/>\n</plist>\n",
+    "stdout_sha256": "97704a8960b4facceef54397a08fb5d0a456247c3627359215aa2a27df22656c"
+  },
+  "schema_version": 1,
+  "source": {
+    "architecture": "arm64",
+    "capture_context": "interactive-user",
+    "captured_on": "2026-10-09",
+    "kind": "native-capture",
+    "limitations": [
+      "Read-only interactive command response, not a LaunchAgent or root observer qualification.",
+      "Offline replay does not establish current host state, runtime compatibility or service health."
+    ],
+    "original_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "original_stdout_sha256": "97704a8960b4facceef54397a08fb5d0a456247c3627359215aa2a27df22656c",
+    "os_build": "26A434",
+    "os_version": "27.0.1",
+    "tool": "defaults",
+    "tool_version": null,
+    "transformations": []
+  }
+}

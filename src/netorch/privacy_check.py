@@ -21,6 +21,10 @@ def git_candidates(root: Path, *, runner: Callable[[list[str]], Result] | None =
     Ignored files and tool state never enter the inventory. Tracked ignored files
     remain tracked and therefore must still be checked.
     """
+    try:
+        directory = root.resolve(strict=True)
+    except (OSError, RuntimeError) as exc:
+        raise PrivacyError("Git candidate root is unavailable") from exc
     argv = [
         "/usr/bin/git",
         "--no-pager",
@@ -29,7 +33,7 @@ def git_candidates(root: Path, *, runner: Callable[[list[str]], Result] | None =
         "-c",
         "core.hooksPath=/dev/null",
         "-C",
-        str(root.resolve()),
+        str(directory),
         "ls-files",
         "--cached",
         "--others",

@@ -262,7 +262,13 @@ def scan_framework(
     walk excludes only tool/build state. Symlinks, oversized or non-UTF8 inputs
     are refusal, not a successful privacy check.
     """
-    directory = Path(root).resolve()
+    try:
+        directory = Path(root).resolve(strict=True)
+    except (OSError, RuntimeError) as error:
+        # pathlib reports symlink loops differently across supported Python versions.
+        raise PrivacyError("Privacy root is unavailable") from error
+    if not directory.is_dir():
+        raise PrivacyError("Privacy root must be an existing directory")
     exc = tuple(exceptions)
     allowed: set[tuple[str, str, str | None]] = set()
     for item in exc:
@@ -281,8 +287,13 @@ def scan_framework(
     validated = _validate_literals(literals)
     if files is None:
         names: list[str] = []
+
+        def walk_error(error: OSError) -> None:
+            # os.walk otherwise silently omits inaccessible subtrees.
+            raise PrivacyError("Privacy tree cannot be completely inspected") from error
+
         for visited, (current, directories, filenames) in enumerate(
-            os.walk(directory, followlinks=False), 1
+            os.walk(directory, followlinks=False, onerror=walk_error), 1
         ):
             directories[:] = [name for name in directories if name not in _SKIP]
             if visited > 10000 or len(names) + len(filenames) > 10000:
@@ -306,6 +317,14 @@ def scan_framework(
             or relative.as_posix() != name
         ):
             raise PrivacyError("Privacy inventory needs exact relative paths")
+        # Explicit inventories have the same no-symlink contract as the walk.
+        # read_static already refuses a symlink at the final component. This is
+        # a static path check, not isolation from hostile concurrent writers.
+        parent = directory
+        for part in relative.parts[:-1]:
+            parent = parent / part
+            if parent.is_symlink():
+                raise PrivacyError("Privacy inventory contains a directory symlink")
         try:
             raw = read_static(directory / relative)
             total_bytes += len(raw)

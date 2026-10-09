@@ -1,0 +1,35 @@
+{
+  "component": "pf",
+  "id": "native-lan-interface",
+  "result": {
+    "returncode": 0,
+    "status": "exited",
+    "stderr": "",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout": "en0: flags=8863<UP,BROADCAST,SMART,RUNNING,SIMPLEX,MULTICAST> mtu 1500\n\toptions=404<VLAN_MTU,CHANNEL_IO>\n\tether 02:00:00:00:00:10\n\tinet6 fe80::10%en0 prefixlen 64 secured scopeid 0xa \n\tinet6 2001:db8::2 prefixlen 64 autoconf secured \n\tinet6 2001:db8::3 prefixlen 64 deprecated autoconf temporary \n\tinet6 2001:db8::4 prefixlen 64 autoconf secured \n\tinet 192.0.2.10 netmask 0xffffff00 broadcast 192.0.2.255\n\tinet6 2001:db8::5 prefixlen 64 deprecated autoconf temporary \n\tinet6 2001:db8::6 prefixlen 64 autoconf temporary \n\tnd6 options=201<PERFORMNUD,DAD>\n\tmedia: autoselect (1000baseT <full-duplex>)\n\tstatus: active\n",
+    "stdout_sha256": "ca66c0c03024ad42f914fcc9053c17c848d0cea2aa69f9987418a543497f953d"
+  },
+  "schema_version": 1,
+  "source": {
+    "architecture": "arm64",
+    "capture_context": "interactive-user",
+    "captured_on": "2026-10-09",
+    "kind": "sanitized-native-capture",
+    "limitations": [
+      "An interactive-user ifconfig -a excerpt is not a root LaunchDaemon-context capture.",
+      "Replayed only as an interface parser boundary; no route, neighbour, socket, PF hook, packet or service health qualification.",
+      "Original hashes identify the complete private capture; sanitized stdout is an explicitly selected excerpt."
+    ],
+    "original_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "original_stdout_sha256": "5a0933fb3d3477a61321dd38016ad11dfbcd229bf3b222c17b3e24df49c0e266",
+    "os_build": "26A434",
+    "os_version": "27.0.1",
+    "tool": "ifconfig",
+    "tool_version": null,
+    "transformations": [
+      "Extracted one complete active Ethernet interface block from ifconfig -a; other interface blocks omitted.",
+      "Replaced interface name with en0 consistently, including IPv6 zone identifiers.",
+      "Replaced hardware address and IPv4/IPv6 addresses with documentation values; preserved native field order, whitespace, masks, flags, media and status."
+    ]
+  }
+}

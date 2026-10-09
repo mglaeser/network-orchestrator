@@ -14,7 +14,11 @@ environment:
 python3 -m venv .venv
 .venv/bin/python -m pip install --require-hashes -r requirements-dev-lock.txt
 .venv/bin/python -m pip install --no-deps --no-build-isolation -e .
-.venv/bin/python -m pytest -m 'not acceptance' --cov=netorch --cov-branch --cov-report=term-missing
+.venv/bin/python -m pytest -m 'not acceptance' --cov=netorch --cov-branch \
+  --cov-context=test --cov-report=term-missing --cov-report=xml \
+  --junitxml=junit.xml --evidence-report=test-evidence.json --evidence-coverage=.coverage
+.venv/bin/python tools/test_inventory.py --evidence test-evidence.json \
+  --coverage .coverage --output test-inventory.json
 .venv/bin/ruff check .
 .venv/bin/ruff format --check .
 .venv/bin/mypy
@@ -46,7 +50,10 @@ property test when operation order can affect safety.
 - Unknown state does not authorize recovery or imply absence.
 - A historical receipt cannot imply current applied state.
 - Stale instance or network generations cannot be treated as current ownership.
-- Public examples and fixtures contain synthetic installation data only.
+- Public examples contain synthetic installation data. Native recordings must
+  remove private installation identities, retain reviewed provenance and disclose
+  transformations and limits; synthetic cases stay labelled synthetic. See
+  [recorded evidence](docs/recorded-evidence.md).
 
 Schema changes require an explicit version/migration decision. Reject unknown
 fields and duplicate JSON keys. Keep emitted JSON deterministic and offline.

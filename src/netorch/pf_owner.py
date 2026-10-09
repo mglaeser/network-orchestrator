@@ -276,7 +276,7 @@ class Installation:
                 raise PFError("owner paths must be absolute")
         if not isinstance(self.observer, Mapping):
             raise PFError("invalid independent observer configuration")
-        # Freeze nested settings by strict serialization, not caller references.
+        # Detach nested settings by strict serialization, not caller references.
         object.__setattr__(self, "observer", strict_loads(canonical_bytes(dict(self.observer))))
 
     @classmethod
@@ -1070,7 +1070,8 @@ class ShellBackend:
             if (
                 not isinstance(saved, dict)
                 or set(saved) != {"token"}
-                or not re.fullmatch(r"[0-9]{1,20}", str(saved["token"]))
+                or not isinstance(saved["token"], str)
+                or not re.fullmatch(r"[0-9]{1,20}", saved["token"])
             ):
                 raise PFError("owned PF reference record is damaged")
             token = saved["token"]
@@ -1433,7 +1434,12 @@ def _records(raw: Any) -> dict[str, dict[str, Any]]:
             or not isinstance(value, dict)
             or set(value) != required
             or type(value["active"]) is not bool
+            or not isinstance(value["kind"], str)
             or value["kind"] not in {"host-redirect", "guest-direct", "udp-return"}
+            or (
+                value["effective_strategy"] is not None
+                and not isinstance(value["effective_strategy"], str)
+            )
             or value["effective_strategy"] not in {None, "degraded-fallback"}
             or not isinstance(value["rules"], str)
             or len(value["rules"]) > 16384

@@ -104,6 +104,7 @@ def execute(
                 not isinstance(previous, dict)
                 or type(previous.get("schema_version")) is not int
                 or previous.get("schema_version") != 1
+                or not isinstance(previous.get("phase"), str)
                 or previous.get("phase")
                 not in {
                     "planned",
@@ -211,6 +212,7 @@ def execute(
                     or readback.data.get("target_ipv4") != action.target_ipv4
                     or readback.data.get("target_generation") != action.target_generation
                     or readback.data.get("network_generation") != current.network_generation
+                    or readback.data.get("effective_strategy") != action.effective_strategy
                 ):
                     raise OwnerFailure("owner failed exact activation readback")
                 if action.operation == "withdraw" and observed.state != "absent":

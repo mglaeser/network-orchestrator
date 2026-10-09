@@ -149,7 +149,11 @@ state is not proof of audible playback.
 ## Testing
 
 ```sh
-.venv/bin/python -m pytest -m 'not acceptance' --cov=netorch --cov-branch
+.venv/bin/python -m pytest -m 'not acceptance' --cov=netorch --cov-branch \
+  --cov-context=test --cov-report=term-missing --cov-report=xml \
+  --junitxml=junit.xml --evidence-report=test-evidence.json --evidence-coverage=.coverage
+.venv/bin/python tools/test_inventory.py --evidence test-evidence.json \
+  --coverage .coverage --output test-inventory.json
 .venv/bin/ruff check .
 .venv/bin/ruff format --check .
 .venv/bin/mypy
@@ -163,7 +167,7 @@ coverage gate. The `netorch.privacy_check` line is the public host-data guard
 that CI runs: it reports private addresses, interface names, home paths and
 site-like namespaces in tracked and not yet committed files, and an exception
 must name the exact path, kind and value hash in `schemas/privacy-exceptions.json`.
-Tests use synthetic fixtures, temporary roots and fake effects;
+Tests use synthetic cases, reviewed native recordings, temporary roots and fake effects;
 installed-wheel checks run outside the checkout. Native PF checks compile only
 and never load rules. No CI job runs guests, plays audio or qualifies a production
 host. Workflows have read-only permissions, SHA-pinned actions and hash-locked
@@ -181,3 +185,7 @@ dependencies. The scheduled audit proposes no automatic deployment.
 - `platform/`: retained fixed native boundary and supervision documentation.
 
 See [CONTRIBUTING](CONTRIBUTING.md) and [SECURITY](SECURITY.md). MIT licensed.
+
+Recorded native parser fixtures and per-test evidence inventories are described
+in [recorded evidence](docs/recorded-evidence.md). They run in normal CI and
+explicitly retain the hardware qualification gaps before migration.

@@ -208,6 +208,7 @@ def _intent_operation(args: argparse.Namespace) -> int:
                 or type(previous.get("schema_version")) is not int
                 or previous.get("schema_version") != 1
                 or previous.get("plan_digest") != args.plan_digest
+                or not isinstance(previous.get("phase"), str)
                 or previous.get("phase") not in {"planned", "applying", "failed"}
             ):
                 raise ValueError(

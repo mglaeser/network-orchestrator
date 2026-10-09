@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "id": "runtime-network-default",
+  "component": "apple-container",
+  "source": {
+    "kind": "sanitized-native-capture",
+    "captured_on": "2026-10-09",
+    "capture_context": "interactive-user",
+    "os_version": "27.0.1",
+    "os_build": "26A434",
+    "architecture": "arm64",
+    "tool": "container",
+    "tool_version": "1.2.0",
+    "original_stdout_sha256": "85d2ddb500324e9cc4bf706a7d0191643dbb0116abba78cc7bb45f660c8e6b38",
+    "original_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "transformations": [
+      "Source capture identifier: runtime-network-default.",
+      "redact-environment-arguments-and-credential-named-fields",
+      "Projected network identity, mode and plugin; omitted private creation metadata, labels and options.",
+      "Replaced network name and subnet/gateway with synthetic identities and documentation IPv4s."
+    ],
+    "limitations": [
+      "Sanitized projection of an interactive read; not unmodified native bytes and not launchd/root execution evidence.",
+      "IPv6 and original site-specific address selection are not represented.",
+      "Only the retained CLI envelope is replayed; host-interface evidence must be supplied separately."
+    ]
+  },
+  "result": {
+    "status": "exited",
+    "returncode": 0,
+    "stdout": "[\n  {\n    \"id\": \"default\",\n    \"configuration\": {\n      \"mode\": \"nat\",\n      \"plugin\": \"container-network-vmnet\",\n      \"name\": \"default\"\n    },\n    \"status\": {\n      \"ipv4Gateway\": \"198.51.100.1\",\n      \"ipv4Subnet\": \"198.51.100.0/24\"\n    }\n  }\n]\n",
+    "stderr": "",
+    "stdout_sha256": "a313e2d8e39d2722ca7ac77c1404eef7c38f79e46e717c458b556cabef902131",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}

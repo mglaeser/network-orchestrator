@@ -3,8 +3,8 @@
 Without `fleet_start` the all-stopped guard is unchanged. With it, a guest that
 the API lists as stopped is absent only while the vendor API job is the declared
 one before and after the pass and the service manager has no runtime job for
-that guest. Everything native is faked here; the last six tests are contract
-checks of the real service manager and run only on a hosted macOS runner.
+that guest. Native calls are faked except for the marked contract checks of the
+real service manager. Offline replays also exercise those checks' harness.
 """
 
 from __future__ import annotations
@@ -34,6 +34,7 @@ from netorch.runtime_settings import (
 )
 from netorch.safety_contract import recovery_exit_code
 from netorch.state import Intent, Observation, Snapshot, intent_to_dict
+from tests.recorded import load_recording
 from tests.test_apple_runtime import FakeRunner, domain_report, enrolled
 from tests.test_runtime_settings import authored
 
@@ -626,6 +627,10 @@ JOB_REPORTS: dict[str, tuple[bytes, bool]] = {
     "three-lines": (f"state = running\npid = 7\nprogram = {API_PROGRAM}\n".encode(), True),
     "other-order-and-spacing": (
         f"  pid = 7  \n\tprogram = {API_PROGRAM}\t\n state = running \n".encode(),
+        False,  # Mixed levels cannot prove three fields belong to the same job.
+    ),
+    "other-order-native-indent": (
+        f"\tpid = 7\n\tprogram = {API_PROGRAM}\n\tstate = running\n".encode(),
         True,
     ),
     "not-running": (job_report(7, state="waiting"), False),
@@ -861,11 +866,11 @@ def test_hosted_loaded_job_is_printed_in_the_grammar_the_reader_uses(capsys: Any
         recorded(capsys, "loaded job did not print cleanly", answer(hosted.seen[0][1]))
         pytest.fail(f"a loaded job did not print cleanly: {hosted.seen}")
     recorded(capsys, "loaded job", f"{len(services)} running; {label}: {job_lines(report)}")
-    assert runtime._JOB_RUNNING.search(report) is not None, report
-    found = runtime._JOB_PID.search(report)
-    assert found is not None and int(found[1]) == pid, (pid, report)
-    program = runtime._JOB_PROGRAM.search(report)
-    assert program is not None and program[1].startswith("/"), report
+    programs = runtime._JOB_PROGRAM.findall(report)
+    assert len(programs) == 1 and programs[0][1].startswith("/"), report
+    # The parser owns the indentation, duplicate-field and state checks; the
+    # domain inventory independently supplies the expected process identifier.
+    assert runtime._running_job_pid(report, programs[0][1]) == str(pid), (pid, report)
 
 
 @pytest.mark.darwin
@@ -893,18 +898,19 @@ def test_hosted_running_job_passes_the_reader_of_the_api_job(capsys: Any) -> Non
     for label, _pid in sorted(services.items(), key=lambda row: row[1])[:8]:
         hosted = Hosted()
         printed = hosted(["/bin/launchctl", "print", f"{domain}/{label}"])
-        program = runtime._JOB_PROGRAM.search(printed.stdout.decode("utf-8", "replace"))
-        if printed.returncode or program is None or not program[1].startswith("/"):
+        programs = runtime._JOB_PROGRAM.findall(printed.stdout.decode("utf-8", "replace"))
+        if printed.returncode or len(programs) != 1 or not programs[0][1].startswith("/"):
             refused.append(f"{label}: {answer(printed)}")
             continue
-        fleet = FleetStart(label, program[1], "example.")
+        program = programs[0][1]
+        fleet = FleetStart(label, program, "example.")
         try:
             found = runtime.Reader(settings, hosted).api(fleet, domain)
         except runtime.RuntimeReadError as exc:
             process = hosted.seen[-1][1]
-            refused.append(f"{label}: {exc.reason}, program {program[1]}, last {answer(process)}")
+            refused.append(f"{label}: {exc.reason}, program {program}, last {answer(process)}")
             continue
-        assert found["uid"] == os.getuid() and found["executable"] == program[1]
+        assert found["uid"] == os.getuid() and found["executable"] == program
         assert len(found["started"]) == 24, found
         accepted.append(f"{label} started {found['started']!r}")
     recorded(
@@ -914,3 +920,58 @@ def test_hosted_running_job_passes_the_reader_of_the_api_job(capsys: Any) -> Non
         + "; ".join([*accepted[:2], *refused[:3]]),
     )
     assert accepted, refused
+
+
+@pytest.mark.parametrize("api_reader,bad_process", [(False, False), (True, False), (True, True)])
+def test_hosted_job_harness_replays_native_grammar_without_native_calls(
+    monkeypatch: pytest.MonkeyPatch, capsys: Any, api_reader: bool, bad_process: bool
+) -> None:
+    """Exercise the hosted assertions themselves, including the real Reader.api.
+
+    The one-job domain is synthetic. The recorded job/process projections are
+    adapted to that domain and the current test account; this is offline replay,
+    not another observed native capture or native qualification.
+    """
+    job = load_recording("runtime", "job-api")
+    process = load_recording("runtime", "process-api")
+    domain = f"user/{os.getuid()}"
+    job_bytes = job.stdout.replace(b"gui/1001", domain.encode())
+    receipt = process.stdout.decode().split(maxsplit=1)
+    process_uid = os.getuid() + int(bad_process)
+    process_bytes = f"{process_uid} {receipt[1]}".encode()
+    commands = [
+        ["/bin/launchctl", "print", domain],
+        ["/bin/launchctl", "print", f"{domain}/{API_LABEL}"],
+    ]
+    if api_reader:
+        commands.extend(
+            [
+                commands[1],
+                ["/bin/ps", "-p", "21001", "-o", "uid=", "-o", "lstart=", "-o", "comm="],
+            ]
+        )
+    replies = [
+        f"{domain} = {{\n\tservices = {{\n\t\t21001 - {API_LABEL}\n\t}}\n}}\n".encode(),
+        job_bytes,
+    ]
+    if api_reader:
+        replies.extend([job_bytes, process_bytes])
+    observed: list[list[str]] = []
+
+    def replay(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[bytes]:
+        index = len(observed)
+        assert index < len(commands) and argv == commands[index]
+        assert kwargs == {"capture_output": True, "timeout": 10, "check": False}
+        observed.append(argv)
+        return subprocess.CompletedProcess(argv, 0, replies[index], b"")
+
+    monkeypatch.setattr(subprocess, "run", replay)
+    if api_reader:
+        if bad_process:
+            with pytest.raises(AssertionError, match="identity-mismatch"):
+                test_hosted_running_job_passes_the_reader_of_the_api_job(capsys)
+        else:
+            test_hosted_running_job_passes_the_reader_of_the_api_job(capsys)
+    else:
+        test_hosted_loaded_job_is_printed_in_the_grammar_the_reader_uses(capsys)
+    assert observed == commands

@@ -1,0 +1,32 @@
+{
+  "component": "macos-preflight",
+  "id": "automatic-login",
+  "result": {
+    "returncode": 0,
+    "status": "exited",
+    "stderr": "",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout": "example\n",
+    "stdout_sha256": "13550350a8681c84c861aac2e5b440161c2b33a3e4f302ac680ca5b686de48de"
+  },
+  "schema_version": 1,
+  "source": {
+    "architecture": "arm64",
+    "capture_context": "interactive-user",
+    "captured_on": "2026-10-09",
+    "kind": "sanitized-native-capture",
+    "limitations": [
+      "Read-only interactive command response, not a LaunchAgent or root observer qualification.",
+      "Offline replay does not establish current host state, runtime compatibility or service health."
+    ],
+    "original_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "original_stdout_sha256": "6e7a66aaf96f82f08c29585cd9ee7d7deb33b5bd2f5df271d9434377e5e837f1",
+    "os_build": "26A434",
+    "os_version": "27.0.1",
+    "tool": "defaults",
+    "tool_version": null,
+    "transformations": [
+      "Replaced account name with an invented example account; retained success status and newline."
+    ]
+  }
+}

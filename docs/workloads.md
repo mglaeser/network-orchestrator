@@ -134,7 +134,15 @@ first verifies the entire plan, actual vendor version/network/helper and all
 persistent identities. It takes its own holder-owned suspension and journal.
 Every write has a fresh target/inventory/identity check. Missing names are
 created stopped; `--start-initial` deliberately starts these or validated
-existing stopped names even when initial fleet state is all stopped. Monit
+existing stopped names even when initial fleet state is all stopped. Before
+each start, a fresh inspection must still show the expected configuration and
+stopped state. The same current-handler and historical-handler launchd absence
+proof used by recovery must succeed across system, GUI and user domains, then
+complete domain inventories are reread immediately before the vendor start.
+A surviving idle job, unknown inventory or job that reappears at that fence
+blocks the start and preserves the failure journal and suspension. These reads
+bound a race; they do not make an external service manager transaction atomic.
+Monit
 cannot invoke this bootstrap path; its own start rule reaches a fully stopped
 fleet only where the runtime settings declare
 [`fleet_start`](apple-runtime.md#starting-a-fully-stopped-fleet).

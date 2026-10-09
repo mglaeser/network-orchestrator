@@ -58,7 +58,11 @@ correctness. The test intent and rejected unsafe behavior matter more than a hig
 number. Add regressions at the smallest tier that proves each reported failure.
 
 ```sh
-python -m pytest -m 'not acceptance' --cov=netorch --cov-branch --cov-report=term-missing
+python -m pytest -m 'not acceptance' --cov=netorch --cov-branch \
+  --cov-context=test --cov-report=term-missing --cov-report=xml \
+  --junitxml=junit.xml --evidence-report=test-evidence.json --evidence-coverage=.coverage
+python tools/test_inventory.py --evidence test-evidence.json \
+  --coverage .coverage --output test-inventory.json
 ruff check .
 ruff format --check .
 mypy
@@ -70,6 +74,15 @@ pip-audit -r requirements-dev-lock.txt --strict
 Use the project's managed development environment and reviewed locks. No test
 in the public default suite loads PF, changes launchd, starts a guest, registers
 Bonjour, triggers Local Network consent or plays audio.
+
+## Recorded native replay and per-test inventory
+
+Every PR runs the sanitized native corpus alongside synthetic and fault-injection
+tests. CI publishes recording-load provenance for each test and a source/function
+execution inventory. These reports explicitly retain unmapped tests and hardware
+gaps; they cannot turn mocked failures into production observations. See
+[recorded evidence](recorded-evidence.md) for commands, provenance, cleanup and
+remaining qualification gates.
 
 ## Tier 1: pure, property and model tests
 
@@ -199,7 +212,7 @@ truncated rules/states, source swaps, denied target validation and interrupted
 journals. The native Bash backend itself is executed by the host's `/bin/bash`
 against a fake `pfctl`: argument guards, rule-file checks, the drift and readback
 exits of a replacement, state invalidation and failed or warning listings. That
-is bash 5 on a Linux machine and the system's bash 3.2 on macOS; the
+is the system's bash 3.2 on the supported macOS host; the
 `NETORCH_TEST_BASH` environment variable names another shell binary for them.
 No fake PF result is presented as Darwin grammar or state semantics acceptance.
 

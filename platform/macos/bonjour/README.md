@@ -16,7 +16,9 @@ python -m netorch.bonjour_owner --settings /absolute/private/bonjour.json health
 
 `serve` is the launchd-managed process. `endpoint` is the fixed stdin/stdout
 owner protocol executable. `health` returns zero for fresh scanner and publisher
-heartbeats; failures never authorize a container restart. The internal
+heartbeats with positive integer PIDs; this checks heartbeat structure and
+freshness, not process existence, native discovery or application connectivity.
+Failures never authorize a container restart. The internal
 `publisher` subcommand requires the actual scanner parent PID and a separate
 non-stealable publisher lock.
 

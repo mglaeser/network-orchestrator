@@ -104,8 +104,10 @@ netorch deploy prepare-root --bundle /operator/staging/bundle \
   --output /operator/staging/root-reviewed-bundle
 ```
 
-Preparation only copies the captured reviewed bundle and returns its exact
-digest. It never invokes root, `sudo`, a privileged RPC or a packet filter.
+Preparation captures every file again and verifies it against the reviewed
+inventory before creating the output directory, then copies the complete bundle
+and returns its exact digest. It never invokes root, `sudo`, a privileged RPC or
+a packet filter.
 An administrator then invokes a **root-owned installed** Python/package directly:
 
 ```sh

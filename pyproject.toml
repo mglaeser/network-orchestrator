@@ -63,7 +63,7 @@ packages = ["src/netorch"]
 "examples/network.json" = "netorch/example-network.json"
 
 [tool.hatch.build.targets.sdist]
-include = ["/src", "/platform", "/tests", "/examples", "/schemas", "/docs", "/pyproject.toml", "/README.md", "/CHANGELOG.md", "/LICENSE", "/CONTRIBUTING.md", "/SECURITY.md", "/requirements*.txt", "/.github", "/.gitignore"]
+include = ["/tools", "/src", "/platform", "/tests", "/examples", "/schemas", "/docs", "/pyproject.toml", "/README.md", "/CHANGELOG.md", "/LICENSE", "/CONTRIBUTING.md", "/SECURITY.md", "/requirements*.txt", "/.github", "/.gitignore"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -76,6 +76,11 @@ markers = [
 [tool.coverage.run]
 branch = true
 source = ["netorch"]
+# Python 3.14 defaults to sysmon, which lacks the per-test dynamic contexts
+# required by our evidence index. ctrace also resumes correctly after the
+# inventory tests' nested collectors; no coverage exclusions or gate changes.
+# https://coverage.readthedocs.io/en/7.16.2/config.html#run-core
+core = "ctrace"
 
 [tool.coverage.report]
 show_missing = true

@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "id": "homekit-01-resolve",
+  "component": "dns-sd",
+  "source": {
+    "kind": "sanitized-native-capture",
+    "captured_on": "2026-10-09",
+    "capture_context": "interactive-user",
+    "os_version": "27.0.1",
+    "os_build": "26A434",
+    "architecture": "arm64",
+    "tool": "dns-sd",
+    "tool_version": null,
+    "original_stdout_sha256": "80d10137645651a6fdc2bc95b454fdf422024273226f4eaf3ee811a31f483a52",
+    "original_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "transformations": [
+      "Instance labels replaced consistently with neutral Unicode and multiword labels; escaped DNS fullnames and shell-friendly TXT display use matching substitutions.",
+      "Hostnames replaced consistently with endpoint-NN.local.; private IPv4 addresses replaced consistently with RFC 5737 documentation addresses.",
+      "Device identifiers, MAC-like values, pairing/public keys, group IDs and opaque TXT identifiers neutralized; TXT length octets and byte-count/hex display recomputed after substitutions.",
+      "Captured interface index, timestamps, flag bits, row order, table headings, ports and protocol/model/version fields retained."
+    ],
+    "limitations": [
+      "Interactive user read-only DNS-SD capture; does not establish LaunchAgent Local Network consent or qualification.",
+      "Native registration, expiry/renewal, guest-to-LAN projection, shared Home Assistant discovery, packet return traffic and audible playback were not exercised.",
+      "Two selected endpoint resolves per type do not represent every instance in the separate bounded browse; capture is a point-in-time sample, not a complete inventory."
+    ]
+  },
+  "result": {
+    "status": "exited",
+    "returncode": 0,
+    "stdout": "Using interface 10\nLookup Bridge Unit 02 ABCDEF._hap._tcp.local.\nDATE: ---Fri 09 Oct 2026---\n20:17:31.491  ...STARTING...\n20:17:31.492  Bridge\\032Unit\\03202\\032ABCDEF._hap._tcp.local. can be reached at endpoint-04.local.:21066 (interface 10)\n md=XXXX\\ XXXXXX\\ XX pv=1.1 id=00:00:00:00:00:00 c#=73 s#=1 ff=0 ci=2 sf=0 sh=000000==\n",
+    "stderr": "",
+    "stdout_sha256": "cee7246b5ef8b35aa82336a1d867453fe6b6d70f499cdbd5cf846d1c4255cb77",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}

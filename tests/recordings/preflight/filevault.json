@@ -1,0 +1,30 @@
+{
+  "component": "macos-preflight",
+  "id": "filevault",
+  "result": {
+    "returncode": 0,
+    "status": "exited",
+    "stderr": "",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout": "FileVault is Off.\n",
+    "stdout_sha256": "442cb0a2068562a35f9fc3a189b02430669bdad5bb4e0b492228c95be372073a"
+  },
+  "schema_version": 1,
+  "source": {
+    "architecture": "arm64",
+    "capture_context": "interactive-user",
+    "captured_on": "2026-10-09",
+    "kind": "native-capture",
+    "limitations": [
+      "Read-only interactive command response, not a LaunchAgent or root observer qualification.",
+      "Offline replay does not establish current host state, runtime compatibility or service health."
+    ],
+    "original_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "original_stdout_sha256": "442cb0a2068562a35f9fc3a189b02430669bdad5bb4e0b492228c95be372073a",
+    "os_build": "26A434",
+    "os_version": "27.0.1",
+    "tool": "fdesetup",
+    "tool_version": null,
+    "transformations": []
+  }
+}

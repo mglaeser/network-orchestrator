@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased — recorded evidence and boundary audit
+
+- Add sanitized native macOS, DNS-SD, container, launchd, route and socket
+  recordings with checked provenance and payload hashes. Replay them on every
+  PR and publish source-bound function/test evidence inventories.
+- Fix strictness and failure boundaries in workload startup, native job identity,
+  PF references/readback, deployment preparation/retry deadlines, journal parsing,
+  discovery resource cleanup, JSON limits, privacy traversal and IPv6 rendering.
+- Strengthen mock activation preconditions and regression tests; independently
+  test the evidence reporter against stale sources, missing contexts and
+  ambiguous function lines.
+- Replay the hosted launchd test harness against recorded jobs and use a
+  context-capable coverage engine. Verify that nested evidence collectors do
+  not hide later execution from the enclosing suite.
+- Document exactly what recorded inputs do and do not prove. Preserve empty
+  native qualification, all mutation guards and current production services.
+
 ## 0.4.3 — adversarial readiness integration
 
 - Read export aliases with a bounded second address query; back off failed

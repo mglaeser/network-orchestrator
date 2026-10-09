@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "id": "airplay-00-resolve",
+  "component": "dns-sd",
+  "source": {
+    "kind": "sanitized-native-capture",
+    "captured_on": "2026-10-09",
+    "capture_context": "interactive-user",
+    "os_version": "27.0.1",
+    "os_build": "26A434",
+    "architecture": "arm64",
+    "tool": "dns-sd",
+    "tool_version": null,
+    "original_stdout_sha256": "e4f5c2b196ae39970692534548306c8a75a65d8945610f53e4725644abdeca33",
+    "original_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "transformations": [
+      "Instance labels replaced consistently with neutral Unicode and multiword labels; escaped DNS fullnames and shell-friendly TXT display use matching substitutions.",
+      "Hostnames replaced consistently with endpoint-NN.local.; private IPv4 addresses replaced consistently with RFC 5737 documentation addresses.",
+      "Device identifiers, MAC-like values, pairing/public keys, group IDs and opaque TXT identifiers neutralized; TXT length octets and byte-count/hex display recomputed after substitutions.",
+      "Captured interface index, timestamps, flag bits, row order, table headings, ports and protocol/model/version fields retained."
+    ],
+    "limitations": [
+      "Interactive user read-only DNS-SD capture; does not establish LaunchAgent Local Network consent or qualification.",
+      "Native registration, expiry/renewal, guest-to-LAN projection, shared Home Assistant discovery, packet return traffic and audible playback were not exercised.",
+      "Two selected endpoint resolves per type do not represent every instance in the separate bounded browse; capture is a point-in-time sample, not a complete inventory."
+    ]
+  },
+  "result": {
+    "status": "exited",
+    "returncode": 0,
+    "stdout": "Using interface 10\nLookup MediaÄ01._airplay._tcp.local.\nDATE: ---Fri 09 Oct 2026---\n20:17:31.311  ...STARTING...\n20:17:31.312  MediaÄ01._airplay._tcp.local. can be reached at endpoint-01.local.:7000 (interface 10)\n acl=0 btaddr=00:00:00:00:00:00 deviceid=00:00:00:00:00:00 c=2 fex=000/00000000000000 features=0x4A7FCA00,0x3C356BD0 flags=0x98404 gid=00000000-0000-0000-0000-000000000000+00000000-0000-0000-0000-000000000000 igl=1 gcgl=1 model=AudioAccessory1,1 protovers=1.1 pi=00000000-0000-0000-0000-000000000000 psi=00000000-0000-0000-0000-000000000000 pk=0000000000000000000000000000000000000000000000000000000000000000 srcvers=980.77.2 osvers=27.0 vv=1\n",
+    "stderr": "",
+    "stdout_sha256": "ab13d1cb403c07218401b3caa415ed22cf1014b643b1f24dda6ec8ff5347e5c1",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}

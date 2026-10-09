@@ -1,0 +1,30 @@
+{
+  "component": "macos-preflight",
+  "id": "proxies",
+  "result": {
+    "returncode": 0,
+    "status": "exited",
+    "stderr": "",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout": "<dictionary> {\n  ExceptionsList : <array> {\n    0 : *.local\n    1 : 169.254/16\n  }\n  FTPPassive : 1\n}\n",
+    "stdout_sha256": "07127fc2dd861e8f49d521909edcb06e899995b7fb17599e753a150718727293"
+  },
+  "schema_version": 1,
+  "source": {
+    "architecture": "arm64",
+    "capture_context": "interactive-user",
+    "captured_on": "2026-10-09",
+    "kind": "native-capture",
+    "limitations": [
+      "Read-only interactive command response, not a LaunchAgent or root observer qualification.",
+      "Offline replay does not establish current host state, runtime compatibility or service health."
+    ],
+    "original_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "original_stdout_sha256": "07127fc2dd861e8f49d521909edcb06e899995b7fb17599e753a150718727293",
+    "os_build": "26A434",
+    "os_version": "27.0.1",
+    "tool": "scutil",
+    "tool_version": null,
+    "transformations": []
+  }
+}

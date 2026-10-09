@@ -1,0 +1,30 @@
+{
+  "component": "pf",
+  "id": "native-ipv4-forwarding",
+  "result": {
+    "returncode": 0,
+    "status": "exited",
+    "stderr": "",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout": "1\n",
+    "stdout_sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+  },
+  "schema_version": 1,
+  "source": {
+    "architecture": "arm64",
+    "capture_context": "interactive-user",
+    "captured_on": "2026-10-09",
+    "kind": "native-capture",
+    "limitations": [
+      "Read-only interactive-user observation of net.inet.ip.forwarding at capture time; no setting was changed.",
+      "This global forwarding flag alone proves no route, neighbour identity, PF state, packet delivery or root LaunchDaemon qualification."
+    ],
+    "original_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "original_stdout_sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+    "os_build": "26A434",
+    "os_version": "27.0.1",
+    "tool": "sysctl",
+    "tool_version": null,
+    "transformations": []
+  }
+}

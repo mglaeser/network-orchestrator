@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "id": "container-inspect-03",
+  "component": "apple-container",
+  "source": {
+    "kind": "sanitized-native-capture",
+    "captured_on": "2026-10-09",
+    "capture_context": "interactive-user",
+    "os_version": "27.0.1",
+    "os_build": "26A434",
+    "architecture": "arm64",
+    "tool": "container",
+    "tool_version": "1.2.0",
+    "original_stdout_sha256": "4941653d75c85984729385a77a6cc8938b7c7c79481c4f97f05c420da06375c9",
+    "original_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "transformations": [
+      "Source capture identifier: container-inspect-03.",
+      "redact-environment-arguments-and-credential-named-fields",
+      "Projected only id, runtimeHandler, resources, platform and status; omitted image, environment, commands, mounts, DNS, labels and application data.",
+      "Replaced workload name and all network identities with synthetic names and documentation IPv4s.",
+      "Omitted published ports; this fixture makes no publication claim."
+    ],
+    "limitations": [
+      "Sanitized projection of an interactive read; not unmodified native bytes and not launchd/root execution evidence.",
+      "The reduced configuration cannot prove full runtime enrollment, application configuration, provisioning parity or create/start effects.",
+      "Only the actual CLI 1.2.0 nested envelope and retained status fields are replayed."
+    ]
+  },
+  "result": {
+    "status": "exited",
+    "returncode": 0,
+    "stdout": "[\n  {\n    \"id\": \"workload-a\",\n    \"configuration\": {\n      \"id\": \"workload-a\",\n      \"runtimeHandler\": \"container-runtime-linux\",\n      \"resources\": {\n        \"cpuOverhead\": 1,\n        \"cpus\": 2,\n        \"memoryInBytes\": 4294967296\n      },\n      \"platform\": {\n        \"architecture\": \"arm64\",\n        \"os\": \"linux\"\n      },\n      \"publishedPorts\": []\n    },\n    \"status\": {\n      \"state\": \"running\",\n      \"startedDate\": \"2026-10-08T08:21:07Z\",\n      \"networks\": [\n        {\n          \"network\": \"default\",\n          \"ipv4Address\": \"198.51.100.5/24\",\n          \"ipv4Gateway\": \"198.51.100.1\"\n        }\n      ]\n    }\n  }\n]\n",
+    "stderr": "",
+    "stdout_sha256": "471e707131b7d26b385dcc35a7a86894366ee969720f58e85f50d0003e94c9a5",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}

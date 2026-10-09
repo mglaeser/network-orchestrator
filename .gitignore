@@ -24,3 +24,7 @@ state/
 .env
 .env.*
 .requirements*-resolved.txt
+
+# Offline CI traceability reports (generated, never native qualification).
+test-evidence.json
+test-inventory.json

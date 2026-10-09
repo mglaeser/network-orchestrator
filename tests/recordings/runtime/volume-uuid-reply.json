@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "id": "volume-uuid-reply",
+  "component": "darwin-volume",
+  "source": {
+    "kind": "sanitized-native-capture",
+    "captured_on": "2026-10-09",
+    "capture_context": "interactive-user",
+    "os_version": "27.0.1",
+    "os_build": "26A434",
+    "architecture": "arm64",
+    "tool": "fgetattrlist",
+    "tool_version": null,
+    "original_stdout_sha256": "aa66f5b954b5de122e2408db1dcbc6a9f914b03e5cdd757bfe94d8a5cdf24993",
+    "original_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "transformations": [
+      "Source capture identifier: volume-uuid-reply.",
+      "Encoded the native 40-byte syscall reply as hexadecimal plus newline.",
+      "Replaced only the last 16 bytes, the private volume UUID, with a synthetic UUID; retained the native length and returned attribute words.",
+      "Original stdout hash binds the raw 40 bytes before hexadecimal encoding."
+    ],
+    "limitations": [
+      "Single successful interactive read from an existing directory descriptor; not recovery across a reboot or replacement volume.",
+      "The synthetic UUID proves decoder placement, never the original volume identity.",
+      "The captured request hex was 050000000000008000000480000000000000000000000000 and flags were 12."
+    ]
+  },
+  "result": {
+    "status": "exited",
+    "returncode": 0,
+    "stdout": "28000000000000800000040000000000000000000000000000112233445566778899aabbccddeeff\n",
+    "stderr": "",
+    "stdout_sha256": "d7ee2aa36e52b9f443a6a26bd1eb13cbf0de2a5ed2cfdf3d8914c062f578af5b",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "id": "job-api",
+  "component": "launchd-job",
+  "source": {
+    "kind": "sanitized-native-capture",
+    "captured_on": "2026-10-09",
+    "capture_context": "interactive-user",
+    "os_version": "27.0.1",
+    "os_build": "26A434",
+    "architecture": "arm64",
+    "tool": "launchctl",
+    "tool_version": null,
+    "original_stdout_sha256": "7aeedd60b6a957e59a8434991ab3dc9620e98ff7cdffd5caba4725a45b1648fc",
+    "original_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "transformations": [
+      "Source capture identifier: job-api.",
+      "redact-launchd-environment-and-arguments",
+      "Replaced account/domain identity, process identifiers, program/launch-file paths and workload label with matching synthetic identities.",
+      "Preserved top-level process fields, native nested coalition states, structural blocks and already-redacted argument/environment positions; replaced other scalar values."
+    ],
+    "limitations": [
+      "Sanitized projection of an interactive read; not unmodified native bytes and not launchd/root execution evidence.",
+      "Arguments and environment were redacted at collection and cannot prove declared start flags or environment.",
+      "Successful job/process identity replay is not proof of executable provenance, job absence, root execution or safe start."
+    ]
+  },
+  "result": {
+    "status": "exited",
+    "returncode": 0,
+    "stdout": "gui/1001/com.apple.container.apiserver = {\n\tactive count = redacted\n\tpath = /example/home/Library/Application Support/vendor/api/service.plist\n\ttype = LaunchAgent\n\tstate = running\n\n\tprogram = /opt/example/libexec/container-apiserver\n\targuments = {\n\t\t<redacted>\n\t\t<redacted>\n\t}\n\n\tinherited environment = {\n\t\t<redacted>\n\t}\n\n\tdefault environment = {\n\t\t<redacted>\n\t}\n\n\tenvironment = {\n\t\t<redacted>\n\t\t<redacted>\n\t\t<redacted>\n\t\t<redacted>\n\t}\n\n\tdomain = gui/1001 [900001]\n\tasid = redacted\n\tminimum runtime = redacted\n\tbase minimum runtime = redacted\n\texit timeout = redacted\n\truns = redacted\n\tpid = 21001\n\timmediate reason = redacted\n\tforks = redacted\n\texecs = redacted\n\tinitialized = redacted\n\ttrampolined = redacted\n\tstarted suspended = redacted\n\tproxy started suspended = redacted\n\tchecked allocations = redacted\n\tchecked allocations reason = redacted\n\tchecked allocations flags = redacted\n\tlast exit code = redacted\n\n\tendpoints = {\n\t\t\"com.apple.container.apiserver\" = {\n\t\t\tport = redacted\n\t\t\tactive = redacted\n\t\t\tmanaged = redacted\n\t\t\treset = redacted\n\t\t\thide = redacted\n\t\t\twatching = redacted\n\t\t}\n\t}\n\n\tresource coalition = {\n\t\tID = redacted\n\t\ttype = resource\n\t\tstate = active\n\t\tactive count = redacted\n\t\tname = com.apple.container.apiserver\n\t}\n\n\tjetsam coalition = {\n\t\tID = redacted\n\t\ttype = jetsam\n\t\tstate = active\n\t\tactive count = redacted\n\t\tname = com.apple.container.apiserver\n\t}\n\n\tspawn type = redacted\n\tjetsam priority = redacted\n\tjetsam memory limit (active) = redacted\n\tjetsam memory limit (inactive) = redacted\n\tjetsamproperties category = redacted\n\tjetsam thread limit = redacted\n\tcpumon = redacted\n\texponential throttling grace limit = redacted\n\tsanitizer flags = redacted\n\n\tproperties = redacted\n}\n",
+    "stderr": "",
+    "stdout_sha256": "ef6f1c39c2f477252f05367c7d004bc79c6dd84510b0976635a55fada6724c35",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}

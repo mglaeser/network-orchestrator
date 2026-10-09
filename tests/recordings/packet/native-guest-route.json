@@ -1,0 +1,34 @@
+{
+  "component": "pf",
+  "id": "native-guest-route",
+  "result": {
+    "returncode": 0,
+    "status": "exited",
+    "stderr": "",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout": "   route to: 198.51.100.12\ndestination: 198.51.100.12\n  interface: bridge0\n      flags: <UP,HOST,DONE,LLINFO,WASCLONED,IFSCOPE,IFREF>\n recvpipe  sendpipe  ssthresh  rtt,msec    rttvar  hopcount      mtu     expire\n       0         0         0         1         1         0      1500      1198 \n",
+    "stdout_sha256": "b17b471edfefb2f2986c07ed015fedaf721429350f5afd7a2efff516b9614500"
+  },
+  "schema_version": 1,
+  "source": {
+    "architecture": "arm64",
+    "capture_context": "interactive-user",
+    "captured_on": "2026-10-09",
+    "kind": "sanitized-native-capture",
+    "limitations": [
+      "Captured by an interactive user, not a root LaunchDaemon.",
+      "The route and neighbour captures are separate point-in-time reads; the missing neighbour proves no current target identity and was not seeded or repaired.",
+      "This is endpoint-reader evidence only, not a native PF rule, state or packet test."
+    ],
+    "original_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "original_stdout_sha256": "ee5dd2e79cd41e3e92401d7f773bc71f990f09fe04b938a6865c57286b50fa25",
+    "os_build": "26A434",
+    "os_version": "27.0.1",
+    "tool": "route",
+    "tool_version": null,
+    "transformations": [
+      "Replaced the queried guest address with documentation address 198.51.100.12 consistently; preserved exit status, native field order, whitespace, route flags and missing-neighbour diagnostic.",
+      "Replaced the native bridge index with an invented bridge0 alias; route-interface grammar is retained without an instance interface name."
+    ]
+  }
+}

@@ -142,11 +142,17 @@ def backing_publication(config: Config, profile: Profile) -> Profile:
 
 
 def _check_range(ports: PortRange | None, label: str) -> None:
+    if ports is not None and (type(ports.first) is not int or type(ports.last) is not int):
+        raise ConfigError(f"{label}: port bounds must be integers")
     if ports is not None and ports.first > ports.last:
         raise ConfigError(f"{label}: port range is reversed")
 
 
 def _check_references(config: Config) -> None:
+    # JSON Schema accepts an integral float as an integer. The native command
+    # and digest contracts use actual integer values, without coercion.
+    if type(config.schema_version) is not int:
+        raise ConfigError("Schema version must be an integer")
     if re.fullmatch(r"[a-z][a-z0-9-]*", config.site) is None:
         raise ConfigError("Invalid site identifier")
     for kind, items in (
@@ -233,6 +239,11 @@ def _check_profiles(config: Config) -> None:
     for profile in config.profiles:
         _check_range(profile.ports, profile.id)
         _check_range(profile.target_ports, profile.id)
+        if (
+            type(profile.safety.max_age_seconds) is not int
+            or type(profile.safety.unknown_limit) is not int
+        ):
+            raise ConfigError(f"Profile {profile.id}: safety bounds must be integers")
         service = config.service(profile.service)
         owner = config.profile_owner(profile)
         if profile.kind not in owner.capabilities:
@@ -307,6 +318,8 @@ def _check_profiles(config: Config) -> None:
 
 def _check_discovery(config: Config) -> None:
     for item in config.discovery:
+        if type(item.max_age_seconds) is not int or type(item.max_records) is not int:
+            raise ConfigError(f"Discovery {item.id}: discovery bounds must be integers")
         if any(
             re.fullmatch(r"_[A-Za-z0-9][A-Za-z0-9-]{0,62}\._(?:tcp|udp)", service_type) is None
             for service_type in item.types
