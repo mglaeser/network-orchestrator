@@ -5444,6 +5444,23 @@
           ],
           "source_reviewed": true,
           "symbol": "executor.execute"
+        },
+        {
+          "associated_test_modules": [
+            "tests/test_discovery_executor.py",
+            "tests/test_executor.py",
+            "tests/test_mock.py",
+            "tests/test_orchestration_evidence_audit.py"
+          ],
+          "contract_note": "Normalize snapshot timestamps only for the reviewed-action rederivation comparison; content and complete action equality remain required.",
+          "end_line": 88,
+          "line": 82,
+          "remaining_evidence": [
+            "Execution contexts show that the function ran; they do not establish every semantic assertion or native behavior.",
+            "Providers must independently revalidate mutation preconditions; this executor cannot confer privilege or establish native packet delivery."
+          ],
+          "source_reviewed": true,
+          "symbol": "netorch.executor.execute.<locals>.evidence_digest"
         }
       ],
       "path": "src/netorch/executor.py",
@@ -6791,6 +6808,17 @@
         },
         {
           "associated_test_modules": [
+            "tests/test_macos_preflight.py"
+          ],
+          "contract_note": "Compare descriptor device/inode, length and modification/change timestamps around the bounded read; a changed source remains unknown.",
+          "end_line": 374,
+          "line": 367,
+          "remaining_evidence": "Parser tests use bounded synthetic results; actual selected host fixtures are collected by root in a separate corpus. Interactive success cannot prove launchd/root Local Network identity.",
+          "source_reviewed": true,
+          "symbol": "netorch.macos_preflight._file_digest.<locals>.identity"
+        },
+        {
+          "associated_test_modules": [
             "tests/test_macos_preflight.py",
             "tests/test_runtime_evidence_audit.py"
           ],
@@ -7061,6 +7089,20 @@
           ],
           "source_reviewed": true,
           "symbol": "mock.simulate"
+        },
+        {
+          "associated_test_modules": [
+            "tests/test_mock.py"
+          ],
+          "contract_note": "Run one model demonstration cycle through the real planner/executor and persist its model intent/results; never treat simulated owner success as native evidence.",
+          "end_line": 214,
+          "line": 193,
+          "remaining_evidence": [
+            "Execution contexts show that the function ran; they do not establish every semantic assertion or native behavior.",
+            "Synthetic model only: this does not emulate PF/kernel/runtime/discovery completely and never qualifies native networking or audible output."
+          ],
+          "source_reviewed": true,
+          "symbol": "netorch.mock.simulate.<locals>.cycle"
         }
       ],
       "path": "src/netorch/mock.py",
@@ -7483,6 +7525,20 @@
           ],
           "source_reviewed": true,
           "symbol": "owners._root_report"
+        },
+        {
+          "associated_test_modules": [
+            "tests/test_root_reports.py"
+          ],
+          "contract_note": "Fence root-report bytes with descriptor/path ownership, mode, link count, identity and timestamp comparisons; stale or changed report metadata cannot imply readiness.",
+          "end_line": 246,
+          "line": 235,
+          "remaining_evidence": [
+            "Execution contexts show that the function ran; they do not establish every semantic assertion or native behavior.",
+            "Root metadata is simulated in disposable-file tests except tests of actual unprivileged refusal; no authenticated protected production report establishes ready state here."
+          ],
+          "source_reviewed": true,
+          "symbol": "netorch.owners._root_report.<locals>.captured"
         },
         {
           "associated_test_modules": [

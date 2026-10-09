@@ -58,7 +58,11 @@ correctness. The test intent and rejected unsafe behavior matter more than a hig
 number. Add regressions at the smallest tier that proves each reported failure.
 
 ```sh
-python -m pytest -m 'not acceptance' --cov=netorch --cov-branch --cov-report=term-missing
+python -m pytest -m 'not acceptance' --cov=netorch --cov-branch \
+  --cov-context=test --cov-report=term-missing --cov-report=xml \
+  --junitxml=junit.xml --evidence-report=test-evidence.json --evidence-coverage=.coverage
+python tools/test_inventory.py --evidence test-evidence.json \
+  --coverage .coverage --output test-inventory.json
 ruff check .
 ruff format --check .
 mypy

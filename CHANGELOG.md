@@ -11,6 +11,9 @@
 - Strengthen mock activation preconditions and regression tests; independently
   test the evidence reporter against stale sources, missing contexts and
   ambiguous function lines.
+- Replay the hosted launchd test harness against recorded jobs and use a
+  context-capable coverage engine. Verify that nested evidence collectors do
+  not hide later execution from the enclosing suite.
 - Document exactly what recorded inputs do and do not prove. Preserve empty
   native qualification, all mutation guards and current production services.
 

@@ -125,7 +125,7 @@ an installed debug service, running probe, fake accessory, widened firewall rule
 or extra production logging behind.
 
 The [source review ledger](reviews/2026-10-09-recorded-evidence-audit.json) records
-47 production source/backend files and 703 reviewed named symbols with source
+47 production source/backend files and 707 reviewed named symbols with source
 hashes, boundary notes, associated test modules and remaining evidence. It is
 a review record, not a universal assertion-correctness certificate. CI supplies
 the finer execution inventory for the revision actually tested.

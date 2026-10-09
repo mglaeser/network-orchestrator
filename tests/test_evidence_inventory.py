@@ -7,6 +7,8 @@ import json
 import os
 import subprocess
 import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import coverage
@@ -19,6 +21,90 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def git(root: Path, *args: str) -> None:
     subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True, timeout=10)
+
+
+@contextmanager
+def sample_coverage(path: Path) -> Iterator[coverage.Coverage]:
+    """Collect sample files with contexts and always resume the surrounding run."""
+    cov = coverage.Coverage(data_file=str(path), config_file=False)
+    # The samples intentionally do not inherit production source selection,
+    # but need the same context-capable core as the surrounding pytest run.
+    cov.set_option("run:core", "ctrace")
+    cov.start()
+    try:
+        yield cov
+    finally:
+        cov.stop()
+        cov.save()
+
+
+def test_sample_collection_restores_outer_collector_after_failure(tmp_path: Path) -> None:
+    outer = coverage.Coverage.current()
+    with (
+        pytest.raises(RuntimeError, match="deliberate sample failure"),
+        sample_coverage(tmp_path / "failed-sample") as inner,
+    ):
+        assert coverage.Coverage.current() is inner
+        raise RuntimeError("deliberate sample failure")
+    assert coverage.Coverage.current() is outer
+
+
+def test_nested_sample_collection_preserves_outer_branches_and_test_contexts(
+    tmp_path: Path,
+) -> None:
+    """Real collectors in a child process cannot disrupt pytest's own collector.
+
+    On Python 3.14, coverage 7.16.2's default sysmon collector loses subsequent
+    execution of an already measured function after a nested collector stops.
+    The project's configured core must preserve both branches and their labels.
+    """
+    script = r"""
+import json
+import sys
+from pathlib import Path
+import coverage
+
+root = Path(sys.argv[1]).resolve()
+source = root / "probe.py"
+source.write_text("def probe(flag):\n    if flag:\n        return 3\n    return 4\n")
+scope = {}
+exec(compile(source.read_text(), str(source), "exec"), scope)
+outer = coverage.Coverage(
+    config_file=sys.argv[2], data_file=str(root / "outer"), source=[str(root)]
+)
+outer.start()
+outer.switch_context("tests/probe.py::before|run")
+assert scope["probe"](True) == 3
+inner = coverage.Coverage(config_file=False, data_file=str(root / "inner"))
+inner.set_option("run:core", "ctrace")
+inner.start()
+assert scope["probe"](False) == 4
+inner.stop()
+inner.save()
+outer.switch_context("tests/probe.py::after|run")
+assert scope["probe"](False) == 4
+outer.stop()
+outer.save()
+data = outer.get_data()
+print(json.dumps({
+    "lines": sorted(data.lines(str(source)) or []),
+    "arcs": sorted(data.arcs(str(source)) or []),
+    "contexts": data.contexts_by_lineno(str(source)),
+}))
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(tmp_path), str(ROOT / "pyproject.toml")],
+        cwd=ROOT,
+        capture_output=True,
+        timeout=20,
+    )
+    assert result.returncode == 0, result.stderr.decode()
+    measured = json.loads(result.stdout)
+    assert measured["lines"] == [2, 3, 4]
+    assert [2, 3] in measured["arcs"] and [2, 4] in measured["arcs"]
+    assert measured["contexts"]["3"] == ["tests/probe.py::before|run"]
+    assert measured["contexts"]["4"] == ["tests/probe.py::after|run"]
+    assert "no-sysmon-context" not in result.stderr.decode()
 
 
 def test_inventory_includes_untracked_and_deleted_but_excludes_ignored(tmp_path: Path) -> None:
@@ -78,16 +164,13 @@ def test_execution_contexts_are_attached_to_owned_body_not_nested_bodies(tmp_pat
         "def outer():\n    def inner():\n        return 3\n    return inner\n"
         "def unused():\n    return 99\n"
     )
-    cov = coverage.Coverage(data_file=str(tmp_path / "data"), config_file=False)
-    cov.start()
-    cov.switch_context("tests/test_sample.py::test_outer|run")
-    scope: dict = {}
-    exec(compile(source.read_text(), str(source), "exec"), scope)
-    inner = scope["outer"]()
-    cov.switch_context("tests/test_sample.py::test_inner|run")
-    assert inner() == 3
-    cov.stop()
-    cov.save()
+    with sample_coverage(tmp_path / "data") as cov:
+        cov.switch_context("tests/test_sample.py::test_outer|run")
+        scope: dict = {}
+        exec(compile(source.read_text(), str(source), "exec"), scope)
+        inner = scope["outer"]()
+        cov.switch_context("tests/test_sample.py::test_inner|run")
+        assert inner() == 3
     source_hash = hashlib.sha256(source.read_bytes()).hexdigest()
     evidence = {
         "sources_start": {"sample.py": source_hash},
@@ -184,16 +267,13 @@ def test_shared_line_contexts_are_not_claimed_for_either_function(
     git(tmp_path, "init", "-q")
     source = tmp_path / "sample.py"
     source.write_text("def outer():\n" + child)
-    cov = coverage.Coverage(data_file=str(tmp_path / "data"), config_file=False)
-    cov.start()
-    scope: dict = {}
-    cov.switch_context("tests/probe.py::parent|run")
-    exec(compile(source.read_text(), str(source), "exec"), scope)
-    inner = scope["outer"]()
-    cov.switch_context("tests/probe.py::child|run")
-    assert inner() == 3
-    cov.stop()
-    cov.save()
+    with sample_coverage(tmp_path / "data") as cov:
+        scope: dict = {}
+        cov.switch_context("tests/probe.py::parent|run")
+        exec(compile(source.read_text(), str(source), "exec"), scope)
+        inner = scope["outer"]()
+        cov.switch_context("tests/probe.py::child|run")
+        assert inner() == 3
     digest = hashlib.sha256(source.read_bytes()).hexdigest()
     evidence = {
         "schema_version": 1,
@@ -228,13 +308,10 @@ def test_cli_cannot_pass_bound_but_unmapped_coverage(tmp_path: Path, foreign_onl
     source = (tmp_path if foreign_only else root) / "sample.py"
     source.write_text("def probe():\n    return 3\n")
     covpath = tmp_path / "coverage-data"
-    cov = coverage.Coverage(data_file=str(covpath), config_file=False)
-    cov.start()
-    scope: dict = {}
-    exec(compile(source.read_text(), str(source), "exec"), scope)
-    assert scope["probe"]() == 3
-    cov.stop()
-    cov.save()
+    with sample_coverage(covpath):
+        scope: dict = {}
+        exec(compile(source.read_text(), str(source), "exec"), scope)
+        assert scope["probe"]() == 3
     digest = hashlib.sha256(source.read_bytes()).hexdigest()
     evidence = {
         "schema_version": 1,
@@ -295,12 +372,9 @@ def test_import_execution_never_claims_an_uncalled_one_line_body(tmp_path: Path)
     git(tmp_path, "init", "-q")
     source = tmp_path / "sample.py"
     source.write_text("def unused(): return 99\nvalue = lambda: 42\n")
-    cov = coverage.Coverage(data_file=str(tmp_path / "data"), config_file=False)
-    cov.start()
-    cov.switch_context("tests/probe.py::import_only|run")
-    exec(compile(source.read_text(), str(source), "exec"), {})
-    cov.stop()
-    cov.save()
+    with sample_coverage(tmp_path / "data") as cov:
+        cov.switch_context("tests/probe.py::import_only|run")
+        exec(compile(source.read_text(), str(source), "exec"), {})
     digest = hashlib.sha256(source.read_bytes()).hexdigest()
     evidence = {
         "schema_version": 1,
@@ -321,16 +395,13 @@ def test_later_generator_iteration_is_not_attributed_to_its_factory(tmp_path: Pa
     git(tmp_path, "init", "-q")
     source = tmp_path / "sample.py"
     source.write_text("def make():\n    return (x + 1 for x in (1, 2))\n")
-    cov = coverage.Coverage(data_file=str(tmp_path / "data"), config_file=False)
-    cov.start()
-    cov.switch_context("tests/probe.py::create|run")
-    scope: dict = {}
-    exec(compile(source.read_text(), str(source), "exec"), scope)
-    generator = scope["make"]()
-    cov.switch_context("tests/probe.py::iterate|run")
-    assert list(generator) == [2, 3]
-    cov.stop()
-    cov.save()
+    with sample_coverage(tmp_path / "data") as cov:
+        cov.switch_context("tests/probe.py::create|run")
+        scope: dict = {}
+        exec(compile(source.read_text(), str(source), "exec"), scope)
+        generator = scope["make"]()
+        cov.switch_context("tests/probe.py::iterate|run")
+        assert list(generator) == [2, 3]
     digest = hashlib.sha256(source.read_bytes()).hexdigest()
     evidence = {
         "schema_version": 1,
