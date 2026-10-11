@@ -32,6 +32,9 @@ framework package does not replace protected or user-installed owner copies.
   same-policy adapter changes, fresh proof consistency and incompatible artifacts.
 - `test_auto_wired_preflight.py`: fixed packaged command, bounded deadlines,
   unknown/refusal states, no literal-token invocation, no raw-output leakage.
+- `test_auto_wired_import_render.py`: actual import, projection, reimport and
+  byte-identical owner rendering; address-only changes preserve the selector
+  policy and a resolved device name cannot become the durable policy.
 - `test_wired_recorded_evidence.py`: paired sanitized native hardware/link
   recordings; pure selector replay; explicit synthetic corruption/replacement;
   failed-child cleanup and package resource contract.
