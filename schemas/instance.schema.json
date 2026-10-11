@@ -119,37 +119,73 @@
           }
         },
         "lan": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "hardware_id",
-            "link",
-            "ipv4",
-            "cidr"
-          ],
-          "properties": {
-            "hardware_id": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 128
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "hardware_id",
+                "link",
+                "ipv4",
+                "cidr"
+              ],
+              "properties": {
+                "hardware_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "link": {
+                  "enum": [
+                    "wired",
+                    "wifi"
+                  ]
+                },
+                "ipv4": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 15
+                },
+                "cidr": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 18
+                }
+              }
             },
-            "link": {
-              "enum": [
-                "wired",
-                "wifi"
-              ]
-            },
-            "ipv4": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 15
-            },
-            "cidr": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 18
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "hardware_id",
+                "link",
+                "ipv4",
+                "cidr",
+                "selection"
+              ],
+              "properties": {
+                "hardware_id": {
+                  "type": "null"
+                },
+                "link": {
+                  "const": "wired"
+                },
+                "ipv4": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 15
+                },
+                "cidr": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 18
+                },
+                "selection": {
+                  "const": "auto-wired"
+                }
+              }
             }
-          }
+          ]
         },
         "runtime": {
           "type": "object",

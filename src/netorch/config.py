@@ -209,6 +209,12 @@ def _check_references(config: Config) -> None:
 
 def _check_scopes(config: Config) -> None:
     for scope in config.scopes:
+        # This retained policy names a literal interface. The extraction path
+        # may render the selector to an existing owner that implements it, but
+        # these PF/runtime/Bonjour owners would pass it to native tools as a
+        # device name. Refuse before observation, rendering or admission.
+        if scope.interface == "auto-wired":
+            raise ConfigError("auto-wired is not a literal interface in retained network policy")
         if re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]*", scope.interface) is None:
             raise ConfigError(f"Scope {scope.id}: invalid interface identity")
         try:

@@ -1,6 +1,15 @@
 # Changelog
 
-## Unreleased — recorded evidence and boundary audit
+## 0.4.4 — recorded evidence and wired selection
+
+- Add explicit read-only `auto-wired` instance selection using the extracted
+  bounded native helper; preserve legacy instance serialization and reject the
+  selection token in the retained owners' literal interface field.
+- Record adapter replacement, admission-preserving adoption, source refresh and
+  physical-LAN DNS/client-identity gates across migration checkpoints. Keep
+  production owners unchanged and all native qualification gates in force.
+- Align runtime/CLI and distribution versions, with a regression check. A
+  distribution's version must not claim a different release from its running code.
 
 - Add sanitized native macOS, DNS-SD, container, launchd, route and socket
   recordings with checked provenance and payload hashes. Replay them on every

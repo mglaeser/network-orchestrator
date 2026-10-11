@@ -88,6 +88,14 @@ part of the private evidence history.
 
 ## Known extraction gaps must close before their owner moves
 
+After a physical adapter change, re-establish the
+[dynamic wired selection contract](wired-interface-selection.md), current
+protected helper parity and each consumer's behavior. A cached interface name,
+old MAC pin or green high-port resolver check cannot establish LAN reachability.
+Preserve admission-aware adoption semantics; ordinary installation may enable
+additional services. Do not deploy an older checkout over newer integrated
+application/lifecycle safeguards.
+
 The retained implementation is narrower than the existing-instance vocabulary
 in several areas. The release closure record is authoritative for the current
 list; these are concrete preparation tasks, not permission to work around it:

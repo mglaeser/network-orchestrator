@@ -64,6 +64,25 @@ permission to waive it or to reinterpret an attestation as a safety certificate.
 
 ## Execution status and limits
 
+### Adapter replacement across existing gates
+
+For `LAN-IDENTITY` (the existing tier-2 `darwin-cli` method), record the current
+shared selector result, policy address, complete hardware/link evidence and
+helper version in each relevant job context. Distinguish this read-only proof
+from the separately authorized cable/replacement/reboot stimulus. The selector
+must reject absent/ambiguous/wireless/virtual or invalid-link ownership without
+default-route fallback; a new eligible device name may resolve the same durable
+policy. See [the selection contract](wired-interface-selection.md).
+
+After that stimulus, repeat applicable `ROOT-HARD-BOUNDS`, `DNS-CLIENT-IDENTITY`,
+`DISCOVERY-PUBLICATION`, `DISCOVERY-IMPORT`, `DISCOVERY-LEASES` and `BOOT-RECOVERY`
+procedures. Demonstrate withdrawal on the old interface and convergence on the
+new one, preserving admissions, negative intent, unrelated assets and workloads.
+Keep ordinary published-port health separate from UDP/TCP port 53 queries made
+by physical LAN clients and correlated resolver query logs. A successful helper
+check or a local query does not establish the latter. No acceptance schema or
+method is added by this cross-reference; the existing profile-specific gates apply.
+
 No native procedure above was run by the October 9 repository review. The
 `acceptance` pytest marker is reserved for future explicitly authorized hardware
 harnesses; an empty set of marked tests is not acceptance coverage. Public CI

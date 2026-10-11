@@ -61,6 +61,7 @@
               "lan_interface",
               "lan_hardware_id",
               "lan_ipv4",
+              "lan_selection",
               "pf_baseline_sha256",
               "pf_anchors",
               "local_network_identity",
@@ -111,36 +112,92 @@
             "minimum": 0,
             "maximum": 32503680000
           },
-          "value": {
-            "anyOf": [
-              {
-                "type": "null"
-              },
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 2147483647
-              },
-              {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 1024
-              },
-              {
-                "type": "array",
-                "maxItems": 256,
-                "items": {
-                  "type": "string",
-                  "minLength": 1,
-                  "maxLength": 512
+          "value": {}
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "key": {
+                  "const": "lan_selection"
                 }
               }
-            ]
+            },
+            "then": {
+              "properties": {
+                "value": {
+                  "anyOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "mode",
+                        "interface",
+                        "ipv4",
+                        "selector_sha256"
+                      ],
+                      "properties": {
+                        "mode": {
+                          "const": "auto-wired"
+                        },
+                        "interface": {
+                          "type": "string",
+                          "pattern": "^en[0-9]+$",
+                          "maxLength": 32
+                        },
+                        "ipv4": {
+                          "type": "string",
+                          "minLength": 7,
+                          "maxLength": 15
+                        },
+                        "selector_sha256": {
+                          "type": "string",
+                          "pattern": "^[0-9a-f]{64}$"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "value": {
+                  "anyOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 2147483647
+                    },
+                    {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 1024
+                    },
+                    {
+                      "type": "array",
+                      "maxItems": 256,
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 512
+                      }
+                    }
+                  ]
+                }
+              }
+            }
           }
-        }
+        ]
       }
     },
     "profiles": {

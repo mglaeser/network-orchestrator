@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "netorch"
-version = "0.4.3"
+version = "0.4.4"
 description = "Typed network policy orchestration over independent platform owners"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -60,6 +60,7 @@ packages = ["src/netorch"]
 "schemas/workload-contract.schema.json" = "netorch/workload-contract.schema.json"
 "schemas/acceptance-evidence.schema.json" = "netorch/acceptance-evidence.schema.json"
 "platform/macos/pf/backend.sh" = "netorch/platform/macos/pf/backend.sh"
+"platform/macos/network/wired-interface.pl" = "netorch/platform/macos/network/wired-interface.pl"
 "examples/network.json" = "netorch/example-network.json"
 
 [tool.hatch.build.targets.sdist]

@@ -98,6 +98,13 @@ artifact retention and the existing acceptance ledger remain separate gates.
 
 ## What a green dashboard cannot prove
 
+The wired-adapter incident is a concrete counterexample: the resolver's published
+high port can answer while incoming physical-LAN port 53 is still bound to an
+obsolete interface. Require independent physical-LAN UDP and TCP DNS replies and
+original-client query-log identity alongside **every** step's pre/post, rollback
+and soak checkpoints. Host/container-originated queries cannot substitute for
+that path. See [wired selection and its evidence boundary](wired-interface-selection.md).
+
 Keep the independent checks in the [readiness gates](migration-readiness.md):
 native PF rule and state retirement, the first packet from the intended origin,
 original DNS client identity, genuine cold application discovery, multiple

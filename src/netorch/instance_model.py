@@ -23,10 +23,12 @@ class Account:
 
 @dataclass(frozen=True, slots=True)
 class LAN:
-    hardware_id: str
+    hardware_id: str | None
     link: str
     ipv4: str
     cidr: str
+    # Absent preserves legacy adapter pinning and canonical bytes.
+    selection: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
