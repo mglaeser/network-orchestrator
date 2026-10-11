@@ -46,6 +46,12 @@ These prepare a future reviewed window; they neither start a migration nor
 implement a privileged session runner. The offline checkpoint tool cannot
 authenticate evidence or open the existing activation gate.
 
+[Wired adapter replacement](docs/wired-interface-selection.md) is covered by an
+explicit instance selection policy, the shared native selector and refusal
+tests. Resolver high-port health remains separate from physical-LAN DNS evidence.
+The [incident compatibility review](docs/reviews/2026-10-12-wired-incident.md)
+records corrections, regression proofs and remaining native gates for 0.4.4.
+
 ## Goals and hard gates
 
 1. **Robust:** preserve identity, negative intent and independently admitted scope;

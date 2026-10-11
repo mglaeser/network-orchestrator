@@ -22,6 +22,13 @@ and new receiver pairing are not bundled into an extraction transaction.
 
 ## Phase A: prepare without changing production
 
+If hardware or installed source changed since the dossier was captured, first
+reconcile [wired interface selection](wired-interface-selection.md), helper and
+consumer hashes, admissions and physical-LAN DNS evidence. Retain old captures
+as history; never relabel them current. A dynamic interface policy is durable
+intent, while its resolved device is current host state. Adoption must preserve
+service enable/disable decisions and the regular-file operation lock.
+
 1. Read the current source and installed-owner contracts. Pin exact versions and
    hashes, inventory each authority and record all unresolved differences.
    Preserve unrelated working-tree and application changes.

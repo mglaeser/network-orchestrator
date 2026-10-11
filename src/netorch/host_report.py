@@ -14,6 +14,7 @@ from typing import Any
 
 from jsonschema import Draft202012Validator
 
+from . import wired_interface
 from .codec import canonical_bytes, strict_loads
 from .instance import (
     InstanceError,
@@ -70,6 +71,7 @@ FACT_KEYS = (
     "lan_interface",
     "lan_hardware_id",
     "lan_ipv4",
+    "lan_selection",
     "pf_baseline_sha256",
     "pf_anchors",
     "local_network_identity",
@@ -254,6 +256,8 @@ def parse_host_evidence(raw: bytes | str | dict[str, Any]) -> HostEvidence:
                 not isinstance(item.value, str) or not item.value.strip()
             ):
                 raise InstanceError("Local Network identity must be nonblank text")
+            if item.key == "lan_selection" and not wired_interface.valid_proof(item.value):
+                raise InstanceError("wired LAN selection proof has an invalid closed shape")
     return HostEvidence(
         data["schema_version"],
         data["observed_at"],
@@ -800,10 +804,30 @@ def _base_assessment(
     ):
         return "not-fulfilled", "Real LaunchAgent Local Network identity has not been observed."
     if identifier == "LAN-IDENTITY":
-        for key, declared in (
-            ("lan_hardware_id", instance.host.lan.hardware_id),
-            ("lan_ipv4", instance.host.lan.ipv4),
-        ):
+        identity: list[tuple[str, str | None]] = [("lan_ipv4", instance.host.lan.ipv4)]
+        if instance.host.lan.selection == wired_interface.MODE:
+            selection = fact_view(evidence, "lan_selection", now)
+            interface = fact_view(evidence, "lan_interface", now)
+            proof = selection["value"]
+            try:
+                digest = wired_interface.selector_digest()
+            except (OSError, ValueError):
+                digest = None
+            if (
+                selection["state"] != "present"
+                or interface["state"] != "present"
+                or not wired_interface.valid_proof(proof)
+                or proof["ipv4"] != instance.host.lan.ipv4
+                or proof["interface"] != interface["value"]
+                or proof["selector_sha256"] != digest
+            ):
+                return (
+                    "not-fulfilled",
+                    "Current physical wired-interface selection proof is missing or differs.",
+                )
+        else:
+            identity.append(("lan_hardware_id", instance.host.lan.hardware_id))
+        for key, declared in identity:
             view = fact_view(evidence, key, now)
             if view["state"] != "present" or view["value"] != declared:
                 return (
@@ -1176,7 +1200,11 @@ def build_report(
         "ipv6": "outside the custom policy, not blocked",
         "names": resolved_names(instance),
         "contracts": contracts,
-        "facts": [fact_view(evidence, key, now) for key in FACT_KEYS],
+        "facts": [
+            fact_view(evidence, key, now)
+            for key in FACT_KEYS
+            if key != "lan_selection" or instance.host.lan.selection is not None
+        ],
         "profiles": profiles,
         "discovery_profiles": discovery_rows,
         "workloads": workload_rows,

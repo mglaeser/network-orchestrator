@@ -240,8 +240,14 @@ def _stated(data: dict[str, Any], optional: tuple[str, ...]) -> dict[str, Any]:
     return {key: value for key, value in data.items() if value is not None or key not in optional}
 
 
+def lan_to_dict(lan: LAN) -> dict[str, Any]:
+    """Omit the unstated policy so legacy contracts retain their exact digests."""
+    return _stated(asdict(lan), ("selection",))
+
+
 def instance_to_dict(instance: Instance) -> dict[str, Any]:
     data = cast(dict[str, Any], strict_loads(canonical_bytes(asdict(instance))))
+    data["host"]["lan"] = lan_to_dict(instance.host.lan)
     data["supervision"] = _stated(data["supervision"], _OPTIONAL_SUPERVISION)
     for item in data["workloads"]:
         if item["deadlines"] is None:
@@ -349,7 +355,7 @@ def resolved_profile(instance: Instance, profile: Transport) -> dict[str, Any]:
         "fallback_publication": profile.fallback_publication,
         # Bound only where declared, so every resolved digest without it is unchanged.
         **({} if profile.source_scope == "lan" else {"source_scope": profile.source_scope}),
-        "lan": asdict(instance.host.lan),
+        "lan": lan_to_dict(instance.host.lan),
         "workload": {
             "id": workload.id,
             "name": workload.name,
@@ -403,7 +409,7 @@ def resolved_discovery_digest(instance: Instance, selection: DiscoverySelection)
         {
             "resolved_discovery_version": 2,
             "selection": _selection_data(asdict(selection)),
-            "lan": asdict(instance.host.lan),
+            "lan": lan_to_dict(instance.host.lan),
             "names": resolved_names(instance),
             "workload_contract": instance.workload(selection.service).contract.sha256,
             "dependencies": {
@@ -536,6 +542,18 @@ def _timestamp(value: str | None) -> None:
             raise InstanceError("invalid UTC record timestamp") from exc
 
 
+def valid_wired_address(value: object) -> bool:
+    """The extracted native selector's canonical unicast address contract."""
+    if not isinstance(value, str):
+        return False
+    try:
+        address = IPv4Address(value)
+    except ValueError:
+        return False
+    first = int(address) >> 24
+    return str(address) == value and first not in {0, 127} and first < 224
+
+
 def validate_instance(instance: Instance) -> None:
     data = instance_to_dict(instance)
     errors = list(instance_validator().iter_errors(data))
@@ -556,6 +574,10 @@ def validate_instance(instance: Instance) -> None:
         or (lan.prefixlen < 31 and address in (lan.network_address, lan.broadcast_address))
     ):
         raise InstanceError("instance LAN address must be usable in its declared prefix")
+    if instance.host.lan.selection == "auto-wired" and not valid_wired_address(
+        instance.host.lan.ipv4
+    ):
+        raise InstanceError("auto-wired requires a canonical unicast IPv4 address")
     _check_data_strings(data, {instance.host.lan.ipv4, instance.host.lan.cidr})
     resolved = resolved_names(instance)
     if any(len(value) > 128 for key, value in resolved.items() if key.endswith("label")) or any(

@@ -19,6 +19,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from . import wired_interface
 from .legacy_import import _decode
 from .process import OutputLimit, ProcessTimeout, Result, run
 
@@ -354,6 +355,12 @@ def _expected_address(instance: object) -> str | None:
     return None
 
 
+def _lan_selection(instance: object) -> object:
+    host = instance.get("host") if isinstance(instance, dict) else getattr(instance, "host", None)
+    lan = host.get("lan") if isinstance(host, dict) else getattr(host, "lan", None)
+    return lan.get("selection") if isinstance(lan, dict) else getattr(lan, "selection", None)
+
+
 def _file_digest(path: Path) -> str:
     descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     try:
@@ -419,6 +426,20 @@ def collect_preflight(
             emit(destination, reason="timed-out")
             continue
         try:
+            if key == "interfaces" and _lan_selection(instance) is not None:
+                address = _expected_address(instance)
+                if _lan_selection(instance) != wired_interface.MODE or address is None:
+                    raise ValueError("unknown or incomplete wired LAN policy")
+                proof = wired_interface.observe(
+                    address, runner=runner, timeout=min(COMMAND_TIMEOUT, remaining)
+                )
+                emit("lan_selection", proof)
+                emit("lan_interface", proof["interface"])
+                emit("lan_ipv4", proof["ipv4"])
+                # The selector verifies physical identity internally but emits only
+                # the interface. Do not invent a MAC from an unrelated older read.
+                emit("lan_hardware_id", reason="not-checked")
+                continue
             result = runner(argv, min(COMMAND_TIMEOUT, remaining))
             if result.returncode != 0:
                 # A preference may be missing or denied; exit status alone
@@ -495,6 +516,8 @@ def collect_preflight(
     for key in ("lan_interface", "lan_hardware_id", "lan_ipv4"):
         if key not in present:
             emit(key, reason=interface_reason)
+    if "lan_selection" not in present and _lan_selection(instance) is not None:
+        emit("lan_selection", reason=interface_reason)
     # The intermediate inventory is not a fact in the closed host envelope.
     facts = [item for item in facts if item["key"] != "interfaces"]
     return {
