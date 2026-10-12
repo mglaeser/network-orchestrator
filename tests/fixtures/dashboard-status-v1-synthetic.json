@@ -1,0 +1,184 @@
+{
+  "schema_version": "1",
+  "generated_at": "2027-01-15T08:01:39.000Z",
+  "page": {
+    "id": "example-dashboard",
+    "name": "Example dashboard"
+  },
+  "status": {
+    "state": "operational",
+    "highest_affected_severity": null,
+    "counts": {
+      "total": 4,
+      "operational": 4,
+      "degraded": 0,
+      "unknown": 0
+    }
+  },
+  "observation": {
+    "source": "dashboard_checks",
+    "interval_seconds": 3600,
+    "max_age_seconds": 300,
+    "refreshing": false
+  },
+  "components": [
+    {
+      "id": "console",
+      "name": "Console",
+      "description": "Synthetic protocol fixture, not production evidence",
+      "category": "services",
+      "host_id": null,
+      "url": "https://example.test/console",
+      "public_url": null,
+      "icon": "service.svg",
+      "access": "local",
+      "severity": 1,
+      "status": "operational",
+      "status_reason": "checks_passed",
+      "checked_at": "2027-01-15T08:01:30.000Z",
+      "age_seconds": 9,
+      "expires_at": "2027-01-15T08:06:30.000Z",
+      "refreshing": false,
+      "checks": [
+        {
+          "name": "Login",
+          "status": "pass",
+          "message": "Synthetic successful check"
+        },
+        {
+          "name": "Functional outcome",
+          "status": "pass",
+          "message": "Synthetic successful check"
+        }
+      ]
+    },
+    {
+      "id": "resolver",
+      "name": "Resolver",
+      "description": "Synthetic protocol fixture, not production evidence",
+      "category": "services",
+      "host_id": null,
+      "url": "https://example.test/resolver",
+      "public_url": null,
+      "icon": "service.svg",
+      "access": "local",
+      "severity": 3,
+      "status": "operational",
+      "status_reason": "checks_passed",
+      "checked_at": "2027-01-15T08:01:30.000Z",
+      "age_seconds": 9,
+      "expires_at": "2027-01-15T08:06:30.000Z",
+      "refreshing": false,
+      "checks": [
+        {
+          "name": "Login",
+          "status": "pass",
+          "message": "Synthetic successful check"
+        },
+        {
+          "name": "Functional outcome",
+          "status": "pass",
+          "message": "Synthetic successful check"
+        }
+      ]
+    },
+    {
+      "id": "remote-sentinel",
+      "name": "Remote-Sentinel",
+      "description": "Synthetic protocol fixture, not production evidence",
+      "category": "webpages",
+      "host_id": null,
+      "url": "https://example.test/remote-sentinel",
+      "public_url": null,
+      "icon": "service.svg",
+      "access": "local",
+      "severity": 4,
+      "status": "operational",
+      "status_reason": "checks_passed",
+      "checked_at": "2027-01-15T08:01:30.000Z",
+      "age_seconds": 9,
+      "expires_at": "2027-01-15T08:06:30.000Z",
+      "refreshing": false,
+      "checks": [
+        {
+          "name": "Login",
+          "status": "pass",
+          "message": "Synthetic successful check"
+        },
+        {
+          "name": "Functional outcome",
+          "status": "pass",
+          "message": "Synthetic successful check"
+        }
+      ]
+    },
+    {
+      "id": "sensor",
+      "name": "Sensor",
+      "description": "Synthetic protocol fixture, not production evidence",
+      "category": "devices",
+      "host_id": null,
+      "url": "https://example.test/sensor",
+      "public_url": null,
+      "icon": "service.svg",
+      "access": "local",
+      "severity": 5,
+      "status": "operational",
+      "status_reason": "checks_passed",
+      "checked_at": "2027-01-15T08:01:30.000Z",
+      "age_seconds": 9,
+      "expires_at": "2027-01-15T08:06:30.000Z",
+      "refreshing": false,
+      "checks": [
+        {
+          "name": "Login",
+          "status": "pass",
+          "message": "Synthetic successful check"
+        },
+        {
+          "name": "Functional outcome",
+          "status": "pass",
+          "message": "Synthetic successful check"
+        }
+      ]
+    }
+  ],
+  "hosts": [],
+  "severity_levels": [
+    {
+      "level": 1,
+      "label": "Critical",
+      "definition": "Synthetic policy fixture",
+      "response_target": "Reviewed policy",
+      "notify_roles": []
+    },
+    {
+      "level": 2,
+      "label": "High",
+      "definition": "Synthetic policy fixture",
+      "response_target": "Reviewed policy",
+      "notify_roles": []
+    },
+    {
+      "level": 3,
+      "label": "Medium",
+      "definition": "Synthetic policy fixture",
+      "response_target": "Reviewed policy",
+      "notify_roles": []
+    },
+    {
+      "level": 4,
+      "label": "Low",
+      "definition": "Synthetic policy fixture",
+      "response_target": "Reviewed policy",
+      "notify_roles": []
+    },
+    {
+      "level": 5,
+      "label": "Plan",
+      "definition": "Synthetic policy fixture",
+      "response_target": "Reviewed policy",
+      "notify_roles": []
+    }
+  ]
+}

@@ -20,6 +20,72 @@ intentional difference is a separate declared change with its own evidence.
 Runtime upgrades, kernel changes, application upgrades, new helpers/automations
 and new receiver pairing are not bundled into an extraction transaction.
 
+## Stage alongside, hand off, verify, then retire globally
+
+For every component, prepare the candidate alongside the still-active predecessor.
+This is bounded **passive comparison**, not parallel production ownership. Use
+the existing read-only import/render/check paths and captured observations to
+compare inputs and decisions. Where current native observation is needed, use
+only the already reviewed read-only entrypoint in its established context. A
+generic dry-run flag does not prove that arbitrary owner code has no effects.
+There is no new shadow daemon or executable migration coordinator in this release.
+
+The candidate must not write PF or control state, register Bonjour records,
+enroll a second recovery loop, bind production listeners or mutate live
+application data. Do not run a duplicate workload against the same writable
+volume, database or pairing state. Most workload extraction replaces its input
+author/manager while preserving the existing application container; it does not
+require a duplicate application or a container recreation.
+
+| Stage | Predecessor | Candidate | Exit condition |
+|---|---|---|---|
+| Compare alongside | Sole active owner | Staged, passive comparison only | Complete current input/consumer parity and applicable qualification; differences block handoff |
+| Precheck | Sole active owner | Still passive | Fresh complete health and independent path evidence; exact rollback material ready |
+| Handoff | Relinquishes authority under its existing gates | Inactive until predecessor withdrawal is verified | One writer; loaded jobs/recovery paths cannot revive the old writer; scoped state drainage where required |
+| Verify | Inactive, retained for rollback | Sole active owner | Fresh readback, full health/native checks and repeat-provision no-op |
+| Advance | Remains inactive and retained | Accepted for this transition | Only then start the next component's transition |
+| Final retirement | Deletion considered separately per artifact | All intended successors accepted | Global acceptance plus each artifact's reference and retention checks |
+
+```mermaid
+flowchart LR
+    A[Old owner active; new candidate passive] --> B[Compare inputs and decisions]
+    B --> C[Fresh baseline and native gates]
+    C --> D[Withdraw old authority; verify exclusive handoff]
+    D --> E[New owner active; old retained inactive]
+    E --> F[Fresh API health, native checks and soak]
+    F -->|Pass| G[Next component]
+    F -->|Fail or unknown| H[Stop; reviewed scoped recovery]
+    G --> A
+    G -->|All components accepted| I[Global acceptance and reference checks]
+    I --> J[Retire eligible predecessor artifacts]
+```
+
+At each health checkpoint, use the [versioned dashboard status contract](migration-health.md)
+for `GET /api/v1/status?max_age_seconds=300`. SEV1–3 are explicit crucial gates
+before advancing after every step; the existing stricter all-entry requirement
+also remains. Freeze severity with the complete private roster rather than
+letting a live downgrade redefine the gate. A status read does not request a
+fresh check, and HTTP 200 is not health acceptance. The offline evaluator is
+implemented; the collector, privileged session and automated migration runner
+are not. This diagram describes the reviewed human process, not executable work.
+
+A comparison pass does not establish native behavior. A failed transition stops
+the remaining sequence. A permitted rollback first proves the candidate has
+relinquished authority, then restores only the exact predecessor under the same
+gates; never reactivate both. If either writer's inactivity is uncertain, keep
+the protective hold and stop. Disabling a process without checking its launcher
+and recovery paths is not proof of exclusive handoff.
+
+Keep **all migration predecessors** inactive but retained until every intended
+component has passed its transition and the whole-system acceptance gates are
+complete, including the required soak, cold/reboot/restore and application
+evidence. This global barrier is additional to each artifact's retirement checks
+in Phase D; it does not make every old file disposable. Native/third-party owners
+retained by the design, shared state and still-required recovery material remain.
+Bounded comparison scratch files can be removed once proven unreferenced; they
+are not predecessor rollback material. None of these human workflow stages grants
+new runtime authority or changes the current activation gate.
+
 ## Phase A: prepare without changing production
 
 If hardware or installed source changed since the dossier was captured, first
@@ -106,7 +172,7 @@ its own input migration is last.
 | 2 | Existing recovery adapter and Monit configuration | Same launcher/process type/throttle, one startup/recovery owner, reserved statuses, component-only repair and complete-action bounds. Unknown, timeout and historical job uncertainty must start nothing. Preserve operator pause and every other holder. Full health post-check and safe no-op/rollback evidence. |
 | 3 | Workload inputs, one workload per transaction | Exact image/init/kernel/resources/mounts/arguments/publications, immutable persistent identities and application state. Start with the least critical eligible workload and leave the resolver until last. Prefer an input-only no-op when recreation is unnecessary; a required recreation is explicitly planned and uses the existing withdrawal gate. |
 | 4 | Existing root owner's inputs | Data-only parsing, identical admitted rule meaning, anchor/order/reference/lock identity, protected paths and exact content-bound admission. No root rewrite, new planner call, broad pass rule, global flush or stale-state replay. Real readback must establish the owned result while unrelated state is unchanged. |
-| 5 | Final lifecycle acceptance and retirement | Full service and external-client health, repeated provisioning no-op, applicable cold/reboot/restore evidence and a clean reference inventory for each predecessor. Retire only the owner whose individual criteria have passed. |
+| 5 | Final lifecycle acceptance and retirement | Full service and external-client health, repeated provisioning no-op, applicable cold/reboot/restore evidence and a clean reference inventory for each predecessor. After all intended components pass the global barrier, retire only artifacts whose individual criteria also pass. |
 
 When an existing owner needs functionality the retained framework cannot yet
 express, its transaction stays blocked. Examples include dynamic discovery,
@@ -182,7 +248,9 @@ audio tests, broader rules or guessed application fixes.
 An artifact progresses from active to inactive-but-retained to deletion-eligible.
 The private retirement ledger records its hash, former owner, replacement,
 retention reason, reference checks and final disposition. No time-based expiry
-or directory-name match makes it eligible automatically.
+or directory-name match makes it eligible automatically. Migration predecessors
+cannot become deletion-eligible until the global acceptance barrier above passes;
+per-owner success alone does not allow early deletion.
 
 Before deleting an old owner file or temporary diagnostic artifact, establish:
 
