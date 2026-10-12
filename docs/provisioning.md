@@ -1,6 +1,6 @@
 # Complete deployment bundles and independent installation domains
 
-> **0.3 stage boundary:** this guide describes retained owner mechanisms and mock
+> **Current release boundary:** this guide describes retained owner mechanisms and mock
 > contracts. Native authority expansion is unavailable while the accepted support
 > matrix is empty. Existing installed owners stay in place; see
 > [read-only workflow](getting-started.md) and [migration gates](site-migration.md).
@@ -79,15 +79,23 @@ hashes and new label absence, stops only owned jobs, installs generated plists,
 loads them and reads launchd back. Its own suspension is released only after the
 entire operation succeeds. It does not resume the operator or create admissions.
 
-`launchctl bootout` can return before launchd has removed the job, and loading
-the same label again can fail until it has. In either scope, installation,
-rollback and failed-upgrade recovery therefore wait after stopping a loaded job
-that they load again: they read the job with `launchctl print` at once and then
-every 0.25 seconds until launchd reports it absent, and load it only then. No
-further read is started once 20 seconds have passed for that job; the operation
-then goes on and loads the job as it did before this wait existed. The wait
-never fails an operation. A job that was not loaded, or that is stopped and not
-loaded again, is not waited for.
+`launchctl bootout` can return before launchd has removed the job. In either
+scope, installation, rollback and recovery therefore require a fresh exact-label
+`launchctl print` absence result after every accepted stop, including jobs being
+dropped and stops that reported the label already absent. They read immediately
+and then every 0.25 seconds for at most a 20-second polling window per job. An
+absence result received after that window cannot qualify removal. Each individual
+tool invocation also has its own timeout; the polling window is not a bound on
+the whole operation or on an already running tool call.
+
+Persistent presence, denied/unknown readback or timeout fails the operation
+before deleting managed plists, loading replacements or committing a receipt.
+The installation suspension and failure journal remain for explicit inspected
+retry or recovery; no speculative rollback runs. First-install recovery proves
+all managed labels absent before deleting any managed plist. A successful
+launchd absence fence establishes that label's removal only: migration still
+requires the independent authority, process, health and native qualification
+gates in the [migration runbook](migration-runbook.md).
 
 Existing root jobs, application state, image pins, mounts, kernel arguments,
 container resources and Apple runtime configuration are untouched. A caller

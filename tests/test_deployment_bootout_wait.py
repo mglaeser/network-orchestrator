@@ -1,4 +1,4 @@
-"""A job that is loaded again is awaited after its `bootout`, bounded and never fatal.
+"""Every managed removal requires bounded absence before reload or cleanup.
 
 No test here sleeps and none calls a native tool: the clock and the sleep are
 injected (or the pause is set to zero), and launchd is a fake that keeps a job's
@@ -38,6 +38,7 @@ ABSENT = (3, 113)
 # Reads that fit into the bound: one at once, then one after every pause.
 READS_AT_BOUND = int(BOUND / POLL) + 1
 FAILED = "managed tool operation failed; inspect installation journal"
+UNCONFIRMED = "managed job removal is not confirmed; inspect installation journal"
 
 
 class Clock:
@@ -265,7 +266,7 @@ def test_a_job_that_is_gone_at_once_costs_one_read_and_no_pause(
 
 @pytest.mark.parametrize("scope", ["user", "root"])
 @pytest.mark.parametrize("operation", OPERATIONS)
-def test_at_the_bound_the_operation_goes_on_and_bootstrap_decides(
+def test_at_the_bound_no_bootstrap_is_attempted_and_the_operation_stays_held(
     tmp_path: Path,
     manifest: dict[str, Any],
     config: Any,
@@ -276,30 +277,34 @@ def test_at_the_bound_the_operation_goes_on_and_bootstrap_decides(
     tools, clock, run = loaded_job(tmp_path, manifest, config, scope, operation)
     label = label_of(manifest, scope)
     tools.linger = None
-    # Exactly the outcome of the code without a wait: the reload is attempted,
-    # launchd refuses it, and the operation fails where it failed before.
-    with pytest.raises(DeploymentError, match=FAILED):
+    # No bootstrap or file replacement is authorized by an expired wait.
+    with pytest.raises(DeploymentError, match=UNCONFIRMED):
         run()
     assert sum(clock.slept) == BOUND == 20.0
     assert clock.slept == [POLL] * (READS_AT_BOUND - 1)
-    assert tools.about(label) == ["bootout", *["print"] * READS_AT_BOUND, "bootstrap"]
+    assert tools.about(label) == ["bootout", *["print"] * READS_AT_BOUND]
     failed = journal(manifest, scope)
     assert failed["phase"] == "failed"
     # A failed recovery keeps the phase of the installation it tried to recover.
-    expected = "rolling-back" if operation == "rollback" else "starting-jobs"
+    expected = (
+        "rolling-back"
+        if operation == "rollback"
+        else ("stopping-jobs" if operation == "upgrade" else "starting-jobs")
+    )
     assert failed["failed_phase"] == expected
 
 
 @pytest.mark.parametrize("operation", OPERATIONS)
-def test_at_the_bound_a_reload_that_launchd_accepts_still_succeeds(
+def test_possible_successful_bootstrap_cannot_replace_absence_evidence(
     tmp_path: Path, manifest: dict[str, Any], config: Any, fake_platform: None, operation: str
 ) -> None:
     tools, clock, run = loaded_job(tmp_path, manifest, config, "user", operation)
     tools.linger = None
     tools.early_reload = True
-    assert run()["phase"] == FINISHED[operation]
+    with pytest.raises(DeploymentError, match=UNCONFIRMED):
+        run()
     assert sum(clock.slept) == BOUND
-    assert tools.loaded == {label_of(manifest, "user")}
+    assert "bootstrap" not in tools.about(label_of(manifest, "user"))
 
 
 def test_one_read_past_the_bound_is_never_made(
@@ -309,7 +314,7 @@ def test_one_read_past_the_bound_is_never_made(
     label = label_of(manifest, "user")
     # The record would go with the read after the last one the bound allows.
     tools.linger = READS_AT_BOUND
-    with pytest.raises(DeploymentError, match=FAILED):
+    with pytest.raises(DeploymentError, match=UNCONFIRMED):
         run()
     assert sum(clock.slept) == BOUND
     assert tools.about(label).count("print") == READS_AT_BOUND
@@ -318,7 +323,7 @@ def test_one_read_past_the_bound_is_never_made(
 
 @pytest.mark.parametrize("absent", ABSENT)
 @pytest.mark.parametrize("operation", OPERATIONS)
-def test_no_wait_and_no_read_when_bootout_reports_nothing_loaded(
+def test_already_absent_bootout_still_requires_fresh_removal_readback(
     tmp_path: Path,
     manifest: dict[str, Any],
     config: Any,
@@ -328,17 +333,15 @@ def test_no_wait_and_no_read_when_bootout_reports_nothing_loaded(
 ) -> None:
     tools, _, run = loaded_job(tmp_path, manifest, config, "user", operation, inject=False)
     label = label_of(manifest, "user")
-    # Someone unloaded the job by hand. Its record would linger for ever if it
-    # were asked for, but `bootout` already said that there is none.
+    # Someone unloaded the job by hand; its actual absence is rechecked.
     tools.loaded.clear()
     tools.linger = None
     tools.absent = absent
     assert run()["phase"] == FINISHED[operation]
-    # No read between the two, and a pause only ever follows a read.
-    assert tools.about(label) == ["bootout", "bootstrap", "print"]
+    assert tools.about(label) == ["bootout", "print", "bootstrap", "print"]
 
 
-def test_first_installation_reads_each_label_once_before_and_once_after(
+def test_first_installation_reads_each_label_before_bootout_after_it_and_after_load(
     tmp_path: Path, manifest: dict[str, Any], config: Any, fake_platform: None
 ) -> None:
     tools = Launchd()
@@ -346,8 +349,13 @@ def test_first_installation_reads_each_label_once_before_and_once_after(
     bundle, metadata = make_bundle(tmp_path, manifest, config)
     result = install_bundle(bundle, "user", expected_digest=metadata["bundle_digest"], runner=tools)
     assert result["phase"] == "committed"
-    # Preflight read, bootout of nothing, load, readback.
-    assert tools.about(label_of(manifest, "user")) == ["print", "bootout", "bootstrap", "print"]
+    assert tools.about(label_of(manifest, "user")) == [
+        "print",
+        "bootout",
+        "print",
+        "bootstrap",
+        "print",
+    ]
 
 
 @pytest.mark.parametrize("found", [0, 1, 36, -9])
@@ -373,7 +381,7 @@ def test_only_the_two_absent_statuses_end_the_wait(
     "error", [ProcessTimeout("read did not complete"), OSError("read could not start")]
 )
 @pytest.mark.parametrize("linger", [2, None])
-def test_a_read_that_cannot_complete_never_fails_the_operation(
+def test_unreadable_removal_needs_later_absence_before_the_bound(
     tmp_path: Path,
     manifest: dict[str, Any],
     config: Any,
@@ -385,9 +393,14 @@ def test_a_read_that_cannot_complete_never_fails_the_operation(
     tools.linger = linger
     tools.read_error = error
     tools.early_reload = True
-    assert run()["phase"] == "committed"
+    if linger is None:
+        with pytest.raises(DeploymentError, match=UNCONFIRMED):
+            run()
+        assert journal(manifest, "user")["failed_phase"] == "stopping-jobs"
+        assert "bootstrap" not in tools.about(label_of(manifest, "user"))
+    else:
+        assert run()["phase"] == "committed"
     assert clock.slept == [POLL] * (2 if linger == 2 else READS_AT_BOUND - 1)
-    assert journal(manifest, "user")["phase"] == "committed"
 
 
 def test_a_failed_bootout_still_fails_at_once_without_a_wait(
@@ -401,7 +414,7 @@ def test_a_failed_bootout_still_fails_at_once_without_a_wait(
     assert journal(manifest, "user")["failed_phase"] == "stopping-jobs"
 
 
-def test_upgrade_does_not_wait_for_a_job_the_new_release_drops(
+def test_upgrade_waits_for_a_job_the_new_release_drops(
     tmp_path: Path, manifest: dict[str, Any], config: Any, fake_platform: None
 ) -> None:
     tools, clock = Launchd(), Clock()
@@ -422,14 +435,13 @@ def test_upgrade_does_not_wait_for_a_job_the_new_release_drops(
         sleep=clock.sleep,
     )
     assert result["phase"] == "committed"
-    # Only the job that is loaded again was read and waited for.
-    assert tools.about(dropped) == ["bootout"]
+    assert tools.about(dropped) == ["bootout", "print", "print", "print"]
     assert tools.about(kept) == ["bootout", "print", "print", "print", "bootstrap", "print"]
-    assert clock.slept == [POLL, POLL]
-    assert tools.loaded == {kept} and tools.leaving == {dropped: 2}
+    assert clock.slept == [POLL] * 4
+    assert tools.loaded == {kept} and not tools.leaving
 
 
-def test_rollback_does_not_wait_for_a_job_the_predecessor_lacks(
+def test_rollback_waits_for_a_job_the_predecessor_lacks(
     tmp_path: Path, manifest: dict[str, Any], config: Any, fake_platform: None
 ) -> None:
     tools, clock = Launchd(), Clock()
@@ -452,13 +464,13 @@ def test_rollback_does_not_wait_for_a_job_the_predecessor_lacks(
         sleep=clock.sleep,
     )
     assert result["phase"] == "rolled-back"
-    assert tools.about(added) == ["bootout"]
+    assert tools.about(added) == ["bootout", "print", "print"]
     assert tools.about(kept) == ["bootout", "print", "print", "bootstrap", "print"]
-    assert clock.slept == [POLL]
+    assert clock.slept == [POLL] * 2
     assert tools.loaded == {kept}
 
 
-def test_recovery_does_not_wait_for_a_job_only_the_failed_release_has(
+def test_recovery_waits_for_a_job_only_the_failed_release_has(
     tmp_path: Path, manifest: dict[str, Any], config: Any, fake_platform: None
 ) -> None:
     tools = Launchd()
@@ -477,22 +489,23 @@ def test_recovery_does_not_wait_for_a_job_only_the_failed_release_has(
     tools.fail = None
     assert tools.loaded == {added}
     tools.calls.clear()
-    tools.linger = None
+    tools.linger = 2
+    clock = Clock()
     result = recover_install(
         Path(manifest["user"]["state_directory"]),
         "user",
         expected_failed_digest=new["bundle_digest"],
         runner=tools,
+        clock=clock,
+        sleep=clock.sleep,
     )
     assert result["phase"] == "rolled-back"
-    # The loaded job is only removed and the job that is restored was not loaded:
-    # neither is read before the reload.
-    assert tools.about(added) == ["bootout"]
-    assert tools.about(kept) == ["bootout", "bootstrap", "print"]
+    assert tools.about(added) == ["bootout", "print", "print", "print"]
+    assert tools.about(kept) == ["bootout", "print", "bootstrap", "print"]
     assert not (agents / f"{added}.plist").exists()
 
 
-def test_recovery_of_a_first_installation_only_unloads_and_never_waits(
+def test_recovery_of_a_first_installation_waits_before_cleanup(
     tmp_path: Path, manifest: dict[str, Any], config: Any, fake_platform: None
 ) -> None:
     tools = Launchd()
@@ -506,16 +519,18 @@ def test_recovery_of_a_first_installation_only_unloads_and_never_waits(
     tools.fail = None
     assert tools.loaded == {label}
     tools.calls.clear()
-    tools.linger = None
+    tools.linger = 2
+    clock = Clock()
     result = recover_install(
         Path(manifest["user"]["state_directory"]),
         "user",
         expected_failed_digest=metadata["bundle_digest"],
         runner=tools,
+        clock=clock,
+        sleep=clock.sleep,
     )
     assert result["phase"] == "rolled-back"
-    # Nothing is loaded again, so the lingering record is never asked for.
-    assert tools.about(label) == ["bootout"]
+    assert tools.about(label) == ["bootout", "print", "print", "print"]
     assert not tools.loaded and not (agents / f"{label}.plist").exists()
     state = Store(Path(manifest["user"]["state_directory"]))
     assert not intent_from_dict(state.read("intent.json")).suspensions

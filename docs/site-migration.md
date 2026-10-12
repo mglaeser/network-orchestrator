@@ -1,6 +1,6 @@
 # Existing-host migration and stop conditions
 
-Version 0.4 implements the read-only extraction stage. No owner is promoted by
+The current release implements the read-only extraction stage. No owner is promoted by
 this release. Retained 0.2 owner internals and mock installation tests document
 future mechanics; native authority-expanding entrypoints are gated. Never replace
 a working installed owner merely because a source checkout has a newer version.

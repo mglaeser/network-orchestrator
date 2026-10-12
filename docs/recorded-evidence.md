@@ -20,8 +20,9 @@ fixtures contain no executable instructions and never trigger native collection.
 | `runtime/` | Complete launchd inventory grammar, selected job/process records, projected container/network JSON and volume response decoding | Current process identity, root observer access, guest lifecycle, crash recovery or reboot |
 | `packet/` | Interface/route/socket parsing, missing neighbour and denied privileged-read behavior | Kernel hook order, PF state removal, packet translation, return traffic or real owner activation |
 | `preflight/` | Native macOS fact parsers, collection serialization and conservative host-report interpretation | Current security posture, unattended recovery, candidate-runtime compatibility or platform acceptance |
+| `wired/` (2026-10-12) | Sanitized physical-interface and hardware-port inventories; replacement and refusal cases use explicit synthetic mutations | Physical-LAN DNS replies, original-client identity, cable/reboot acceptance or owner promotion |
 
-The collection observed macOS 27.0.1 build 26A434 on ARM64 and Container CLI
+The 2026-10-09 collection observed macOS 27.0.1 build 26A434 on ARM64 and Container CLI
 1.2.0. A recording from that runtime is not a qualification of the declared 1.5.0
 candidate. Hosted macOS CI is a third context and does not remove this mismatch.
 

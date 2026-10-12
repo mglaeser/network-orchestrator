@@ -173,7 +173,12 @@ class Launchd:
     def __call__(self, argv: tuple[str, ...]) -> Result:
         index = len(self.calls)
         self.calls.append(argv)
-        if not self.failed and self.fail in {index, argv[1]}:
+        loaded_print = (
+            self.fail == "loaded-print"
+            and argv[1] == "print"
+            and argv[-1].rsplit("/", 1)[-1] in self.loaded
+        )
+        if not self.failed and (self.fail in {index, argv[1]} or loaded_print):
             self.failed = True
             return Result(1, b"", b"")
         if argv[1] == "bootstrap":
@@ -566,7 +571,9 @@ def test_recovery_that_fails_leaves_the_journal_for_its_next_attempt(lab: Lab, f
     assert run_command(lab, "install", new, launchd.arm("bootstrap")) is None
     journal = (lab.state_dir / JOURNAL).read_bytes()
     assert strict_loads(journal)["phase"] == "failed"
-    for verb in ("bootout",) if first else ("bootout", "bootstrap", "print"):
+    # Target post-bootstrap readback, not a transient unknown during the newly
+    # required removal fence, which can obtain fresh absence on its next read.
+    for verb in ("bootout",) if first else ("bootout", "bootstrap", "loaded-print"):
         assert run_command(lab, "recover", new, launchd.arm(verb)) is None
         assert launchd.failed
         assert (lab.state_dir / JOURNAL).read_bytes() == journal

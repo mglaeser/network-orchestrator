@@ -1,6 +1,6 @@
 # Deployment and owner integration
 
-> **0.3 stage boundary:** this guide describes retained owner mechanisms and mock
+> **Current release boundary:** this guide describes retained owner mechanisms and mock
 > contracts. Native authority expansion is unavailable while the accepted support
 > matrix is empty. Existing installed owners stay in place; see
 > [read-only workflow](getting-started.md) and [migration gates](site-migration.md).

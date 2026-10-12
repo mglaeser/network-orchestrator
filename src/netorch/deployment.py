@@ -696,9 +696,10 @@ def _tool(runner: ToolRunner, argv: tuple[str, ...], *, absent_ok: bool = False)
 
 
 # `launchctl bootout` can return before launchd has removed the job, and a
-# `bootstrap` of the same label can fail until it has. A job that is about to be
-# loaded again is therefore read after its `bootout` until launchd reports it
-# absent: at most this long for one job, at this interval.
+# `bootstrap` of the same label can fail until it has. Every removed job must
+# report absent before its plist is replaced/deleted or a successor is loaded.
+# This bounds the polling window, not the whole installation or an in-flight
+# tool call, which retains the runner's own bound.
 BOOTOUT_WAIT_SECONDS = 20.0
 BOOTOUT_POLL_SECONDS = 0.25
 
@@ -708,38 +709,36 @@ def _bootout(
     launchctl: str,
     target: str,
     *,
-    reloaded: bool,
     clock: Callable[[], float],
     sleep: Callable[[float], None],
 ) -> None:
-    """Unload one managed job; if its label is loaded again, let launchd finish first.
+    """Unload one managed job and require fresh absence before changing authority.
 
-    The wait can only help. It ends with the first read that reports the job
-    absent. When its time is used up the caller goes on exactly as it did before
-    the wait existed, and the following `bootstrap` succeeds or fails by itself.
+    A successful or already-absent bootout is not removal readback. This also
+    fences explicit recovery after an earlier wait timed out. Uncertainty leaves
+    the caller's operation hold and journal intact; it grants no cleanup/reload.
     """
     result = runner((launchctl, "bootout", target))
-    if result.returncode in _JOB_ABSENT:
-        return  # Nothing was loaded, so there is no removal to wait for.
-    if result.returncode != 0:
+    if result.returncode != 0 and result.returncode not in _JOB_ABSENT:
         raise DeploymentError("managed tool operation failed; inspect installation journal")
-    if not reloaded:
-        return
     deadline = clock() + BOOTOUT_WAIT_SECONDS
     while clock() <= deadline:
-        if _removed(runner, (launchctl, "print", target)):
+        absent = _removed(runner, (launchctl, "print", target))
+        if absent and clock() <= deadline:
             return
         remaining = deadline - clock()
         if remaining <= 0:
-            return
+            break
         sleep(min(BOOTOUT_POLL_SECONDS, remaining))
+    raise DeploymentError("managed job removal is not confirmed; inspect installation journal")
 
 
 def _removed(runner: ToolRunner, argv: tuple[str, ...]) -> bool:
     try:
         return runner(argv).returncode in _JOB_ABSENT
     except (OSError, ProcessError):
-        # A read that could not complete proves nothing and fails nothing.
+        # A read that could not complete proves nothing. Only a subsequent
+        # confirmed absence within the same polling window permits continuation.
         return False
 
 
@@ -1107,7 +1106,6 @@ def install_bundle(
                     runner,
                     deployment.launchctl,
                     f"{installation.domain}/{label}",
-                    reloaded=any(job.label == label for job in jobs),
                     clock=clock,
                     sleep=sleep,
                 )
@@ -1344,7 +1342,6 @@ def rollback_install(
                     runner,
                     deployment.launchctl,
                     f"{installation.domain}/{record['label']}",
-                    reloaded=any(item["label"] == record["label"] for item in previous["jobs"]),
                     clock=clock,
                     sleep=sleep,
                 )
@@ -1355,7 +1352,6 @@ def rollback_install(
                         runner,
                         deployment.launchctl,
                         f"{installation.domain}/{label}",
-                        reloaded=True,
                         clock=clock,
                         sleep=sleep,
                     )
@@ -1553,7 +1549,9 @@ def recover_install(
             raise DeploymentError("failed journal lacks a valid release identity")
         previous = journal.get("previous")
         if previous is None:
-            return _recover_first(store, journal, scope, expected_failed_digest, runner)
+            return _recover_first(
+                store, journal, scope, expected_failed_digest, runner, clock, sleep
+            )
         previous = _receipt(previous, scope)
         deployment = parse_deployment(canonical_bytes(previous["deployment"]))
         uid = _require_platform(scope, deployment)
@@ -1636,7 +1634,6 @@ def recover_install(
                     runner,
                     deployment.launchctl,
                     f"{installation.domain}/{label}",
-                    reloaded=label in old_labels,
                     clock=clock,
                     sleep=sleep,
                 )
@@ -1743,6 +1740,8 @@ def _recover_first(
     scope: str,
     failed_digest: str,
     runner: ToolRunner,
+    clock: Callable[[], float],
+    sleep: Callable[[float], None],
 ) -> dict[str, Any]:
     deployment = parse_deployment(canonical_bytes(journal["deployment"]))
     uid = _require_platform(scope, deployment)
@@ -1789,11 +1788,15 @@ def _recover_first(
         if scope == "root":
             root_held = _root_hold(deployment, failed_digest, runner)
         for label in expected:
-            _tool(
+            _bootout(
                 runner,
-                (deployment.launchctl, "bootout", f"{installation.domain}/{label}"),
-                absent_ok=True,
+                deployment.launchctl,
+                f"{installation.domain}/{label}",
+                clock=clock,
+                sleep=sleep,
             )
+        # Do not delete an earlier job's file if a later job remains uncertain.
+        for label in expected:
             installed = Path(installation.launchd_directory) / f"{label}.plist"
             if installed.exists():
                 installed.unlink()

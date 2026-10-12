@@ -1,6 +1,6 @@
 # Private instances and the read-only host entrypoint
 
-Version 0.3 adds a canonical, bounded **data model and read-only reporting stage**. It does not activate a new instance, parameterize existing owners, install services, admit PF rules, recover a workload, or qualify a native host. The independently gated 0.2 owner utilities remain compatibility components; they are not an automatic apply path from this model.
+The framework supplies a canonical, bounded **data model and read-only reporting stage**. It does not activate a new instance, parameterize existing owners, install services, admit PF rules, recover a workload, or qualify a native host. The independently gated 0.2 owner utilities remain compatibility components; they are not an automatic apply path from this model.
 
 The public repository contains the schemas, named strategy and application profiles, source-backed platform facts, requirements registry, tests and synthetic examples. A private instance repository contains chosen host values, names, content references, decisions and acceptance records. Local runtime state contains observations, admissions, journals, pause/suspensions, immutable receipts and preflight results. Application secrets and configuration stay with their applications. None of that runtime state becomes instance desired state.
 
@@ -94,16 +94,17 @@ excluded from that digest; version 1 receipts require renewed evidence.
 
 `framework` names one release. Its values are copied in by the author of the instance; no command fetches or derives them. `schema_version` is the version of the instance schema. The other four come from the release:
 
-- `version` is the release's version: the tag without its `v`, `0.4.0` for the tag `v0.4.0`.
-- `artifact_sha256` is the SHA-256 of that release's wheel, `netorch-0.4.0-py3-none-any.whl`. The release page of the tag in the public repository lists the wheel, the source archive and a file `SHA256SUMS`; the wheel's line in that file is the published digest.
-- `revision` is the full commit the tag names, which `git rev-parse 'v0.4.0^{commit}'` prints in a clone of the public repository.
+- `version` is the selected, reviewed release tag without its leading `v`.
+- `artifact_sha256` is the SHA-256 of that release's wheel, `netorch-<version>-py3-none-any.whl`. The release page of the tag in the public repository lists the wheel, the source archive and a file `SHA256SUMS`; the wheel's line in that file is the published digest.
+- `revision` is the full commit the selected tag names, printed by the `git rev-parse` command below in a clone of the public repository.
 - `dependency_lock_sha256` is the SHA-256 of `requirements-lock.txt` as that commit has it. That file is the runtime lock: the wheel's dependencies are installed from it with `pip install --require-hashes -r requirements-lock.txt`. It is not `requirements-dev-lock.txt`, which locks the development and build tools, and it is not inside the wheel. Take it from the source archive or from an export of the tag and hash it yourself.
 
 A published digest says what was uploaded, not what the commit builds. To check the wheel against the commit, export the tag into a new directory and build it with the hash-locked build tools, the way CI builds it:
 
 ```sh
 # In a clone of the public repository. /private/build/source must be new and empty.
-version=0.4.0
+# Replace this placeholder with the exact reviewed version, without its leading v.
+version=REVIEWED_RELEASE_VERSION
 git rev-parse "v$version^{commit}"
 mkdir -p /private/build/source
 git archive --format=tar "v$version" | tar -x -C /private/build/source
@@ -113,7 +114,15 @@ python3 -m venv /private/build/venv
 shasum -a 256 "/private/build/source/dist/netorch-$version-py3-none-any.whl" /private/build/source/requirements-lock.txt
 ```
 
-The first output is the `revision`; the last command prints the artifact digest and the lock digest. The artifact digest must equal the wheel's line in `SHA256SUMS`. When this section was written, release 0.3.2 was rebuilt this way on Linux with Python 3.12 and with Python 3.13: the wheel and the source archive had the published digests, also when the exported files had other permissions and timestamps. A rebuild on macOS has not been compared. If your wheel differs, pin neither digest until you know why.
+The first output is the `revision`; the last command prints the artifact digest
+and the lock digest. The artifact digest must equal the wheel's line in
+`SHA256SUMS`. Record the selected revision, build platform, Python version and
+comparison results with the instance's release evidence. A successful rebuild
+of an earlier version proves nothing about the current artifact. Historical
+0.3.2 experiments on Linux with Python 3.12 and 3.13 reproduced its published
+wheel and source archive despite changed source permissions and timestamps;
+those historical results do not establish macOS host support or qualify a later
+release. If your wheel differs, pin neither digest until you know why.
 
 `--framework-artifact` and `--dependency-lock` compare two files on disk with the pin. `release_verified` in the output of `validate` is true exactly when the artifact file has the pinned `artifact_sha256`, the lock file has the pinned `dependency_lock_sha256`, and the pinned `version` equals the version of the package that runs the command. Both options are needed; with one of them alone the result is false. Both must name ordinary single-link files of at most 1 MiB, as every other local input must; a symbolic link or a larger file ends the command with status 65. With that result the `FRAMEWORK-PIN` requirement is `fulfilled-verified`, unless host evidence reports another installed artifact or a deviation is recorded for it; without that result `check` cannot pass.
 
