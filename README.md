@@ -46,6 +46,13 @@ These prepare a future reviewed window; they neither start a migration nor
 implement a privileged session runner. The offline checkpoint tool cannot
 authenticate evidence or open the existing activation gate.
 
+The health evaluator accepts the dashboard's versioned status summary through a
+closed version 2 contract. Crucial SEV1–3 entries must pass after every component
+handoff; the stricter all-entry gate is retained. The runbook explicitly stages
+the new candidate passively beside its predecessor, transfers authority once,
+verifies the successor, and retains predecessors until global acceptance.
+Neither the API adapter nor this staged plan implements a live migration runner.
+
 [Wired adapter replacement](docs/wired-interface-selection.md) is covered by an
 explicit instance selection policy, the shared native selector and refusal
 tests. Resolver high-port health remains separate from physical-LAN DNS evidence.

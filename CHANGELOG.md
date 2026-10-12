@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.4.5 — status API checkpoints and staged handoff
+
+- Consume saved version 1 dashboard summaries under an explicit version 2 offline
+  health contract. Pin each entry's severity and require crucial SEV1–3 health
+  after every transition while preserving the stricter complete-roster gate.
+- Refuse severity drift, stale or contradictory timing, in-flight refresh,
+  incomplete observations and inconsistent summary counts. Preserve legacy
+  checkpoint behavior and unverified provenance; add no network collector.
+- Publish the staged passive comparison, exclusive authority handoff, successor
+  verification and global predecessor-retirement barrier in the migration plan.
+  Keep all native qualification, admission and recovery gates unchanged.
+- This is preparation and offline validation only. No privileged session or
+  automated migration runner is implemented; production owners remain unchanged.
+
 ## 0.4.4 — recorded evidence and wired selection
 
 - Add explicit read-only `auto-wired` instance selection using the extracted

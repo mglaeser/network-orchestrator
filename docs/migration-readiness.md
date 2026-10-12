@@ -44,6 +44,10 @@ evidence store, as appropriate. Public examples contain only synthetic data.
   records and the exact unresolved requirements. Do not replace them with a
   hand-authored `qualified: true` assertion.
 - Freeze the complete reviewed dashboard roster and its functional checks.
+  Include each installed template's SEV1–5 value and the version 2
+  [status API contract](migration-health.md). SEV1–3 must pass every step's
+  fresh pre/post, rollback and soak gate; lower severity does not waive the
+  existing complete-roster requirement or any native dependency evidence.
   Keep independent external/client acceptance checks alongside that contract,
   with a baseline, the required pre/post checkpoints for every step, finite
   deadlines and the reaction to failure.
