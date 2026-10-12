@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.4.6 — managed job removal fence and documentation alignment
+
+- Require fresh exact-label launchd absence after every accepted managed-job
+  stop, including dropped jobs and already-absent bootout responses. Reject
+  persistent presence, unknown readback and late absence before plist deletion,
+  replacement bootstrap or receipt commit in installation, rollback and recovery.
+- Preserve the operation's suspension, prior receipt and managed files on an
+  unconfirmed removal. Prove all first-install recovery removals before deleting
+  files; require explicit inspected retry or recovery after failure.
+- Add failure and recovery proofs across upgrade, rollback and both recovery
+  paths, including unrelated pause/hold preservation. These are synthetic
+  lifecycle tests, not native authority-handoff qualification.
+- Make current stage and release-pin instructions version-neutral, and separate
+  historical collection/build observations from release-specific evidence.
+  Native qualification and public mutation gates remain unchanged; no migration
+  runner or production owner change is introduced.
+
 ## 0.4.5 — status API checkpoints and staged handoff
 
 - Consume saved version 1 dashboard summaries under an explicit version 2 offline

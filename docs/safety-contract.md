@@ -140,7 +140,7 @@ gate, protect qualification evidence, preserve pause/withdraw/drain paths on an
 unsupported target, and retain the existing packet behavior. This stage does
 not rewrite an installed owner or deploy onto a host.
 
-## Public capability boundary in 0.3
+## Current public capability boundary
 
 `netorch.workflow_gate` makes the empty accepted matrix mechanically effective
 at the public entrypoints. Native activation, admission, installation, recovery,

@@ -198,6 +198,11 @@ convenient approximation and label it conformance.
    retire the predecessor's active authority before enabling the successor.
    Keep current state locations and names. Install only the owner input/code
    already within the reviewed transaction. Do not edit application storage.
+   Retained installer code requires fresh launchd absence after an accepted
+   managed-job stop, even for a dropped label. This is only a label-removal
+   fence: separately prove that no other scheduler, process or recovery path
+   retains the predecessor's authority. It does not implement this migration
+   runner or satisfy the native sole-writer qualification gate.
 5. **Observe the actual result.** Obtain fresh runtime/network generations and
    independent owner readback. Preserve currently admitted content; changed
    content stays pending the separate administrative admission. Discovery uses

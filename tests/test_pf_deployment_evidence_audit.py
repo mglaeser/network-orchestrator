@@ -204,14 +204,14 @@ def test_delayed_wakeup_does_not_start_another_tool_after_the_wait_deadline(
         assert result.returncode == 75
         assert len(calls) == 1
     else:
-        deployment._bootout(
-            runner,
-            "/bin/launchctl",
-            "system/example.owner",
-            reloaded=True,
-            clock=clock,
-            sleep=delayed_sleep,
-        )
+        with pytest.raises(deployment.DeploymentError, match="removal is not confirmed"):
+            deployment._bootout(
+                runner,
+                "/bin/launchctl",
+                "system/example.owner",
+                clock=clock,
+                sleep=delayed_sleep,
+            )
         assert [argv[1] for _, argv in calls] == ["bootout", "print"]
     assert len(slept) == 1
     assert all(started == 100.0 for started, _ in calls)

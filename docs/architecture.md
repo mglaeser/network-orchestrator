@@ -1,6 +1,6 @@
 # Architecture
 
-Version 0.3 is a macOS-only, read-only extraction stage. It supplies a closed
+The current release is a macOS-only, read-only extraction stage. It supplies a closed
 instance model, static legacy import, byte conformance checks, a requirements
 registry and a seven-verb host view. It preserves existing installed networking
 owners. It does not migrate a host, grant admission, upgrade the runtime or

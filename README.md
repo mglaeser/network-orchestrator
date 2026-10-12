@@ -9,7 +9,7 @@ static importers, conformance checks and truthful read-only reports.
 
 ## Current release boundary
 
-Version **0.4** implements the reviewed extraction stage. The recommended
+The current release implements the reviewed extraction stage. The recommended
 `netorch-host` workflow has exactly seven read-only operations: `validate`,
 `preflight`, `status`, `plan`, `check`, `report` and `supervision-gaps`. It
 never opens a LAN socket, uses Bonjour, executes an owner, admits policy,
@@ -31,7 +31,7 @@ second writer. Explicit scoped withdrawal remains a safety operation.
 See [the instance guide](docs/instances.md), [review traceability](docs/review-traceability.md)
 and [migration rules](docs/site-migration.md). No production qualification,
 application acceptance or unattended recovery is implied by installing a wheel.
-The [latest adversarial review](docs/reviews/2026-10-09-readiness-review.md)
+The [2026-10-09 adversarial review](docs/reviews/2026-10-09-readiness-review.md)
 records the 0.4.3 corrections and all readiness proposal dispositions. The
 [earlier integrated review](docs/reviews/2026-10-08-site-requirements-review.md)
 records the 0.4.0 baseline. The

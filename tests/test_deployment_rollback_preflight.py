@@ -482,10 +482,10 @@ def test_repeated_rollback_refuses_a_file_that_is_not_the_predecessors(
     assert path.read_bytes() == reviewed(lab, label)
 
 
-# The wait after a `bootout`: a job the upgrade dropped is stopped and not waited for.
+# A dropped job is fenced during upgrade, before a later rollback may use its label.
 
 
-def test_job_the_upgrade_just_stopped_refuses_the_rollback_until_launchd_reports_it_gone(
+def test_upgrade_proves_dropped_job_absent_before_rollback_can_reload_it(
     tmp_path: Path,
     manifest: dict[str, Any],
     config: Any,
@@ -501,11 +501,9 @@ def test_job_the_upgrade_just_stopped_refuses_the_rollback_until_launchd_reports
     # From here a stopped job is still reported by the next two reads of it.
     launchd.linger = 2
     lab.install("new")
-    # The upgrade does not load this job again, so it did not wait for it.
-    assert launchd.leaving == {label: 2} and label not in launchd.loaded
-    for _attempt in range(2):
-        refused_after_reading(lab, lab.rollback, NOT_ABSENT, label)
-        assert lab.read(JOURNAL)["phase"] == "committed"
+    assert not launchd.leaving and label not in launchd.loaded
+    assert launchd.about(label)[-4:] == ["bootout", "print", "print", "print"]
+    assert lab.read(JOURNAL)["phase"] == "committed"
     assert lab.rollback()["release_id"] == lab.old["release_id"]
     assert (lab.jobs / f"{label}.plist").read_bytes() == reviewed(lab, label)
     assert label in launchd.loaded and not launchd.leaving

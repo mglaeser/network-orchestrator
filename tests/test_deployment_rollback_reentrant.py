@@ -220,7 +220,20 @@ def test_rollback_failed_at_any_tool_call_is_repeated_to_the_same_result(
     expected = uninterrupted(lab)
     counting, calls = failing(lab.prepare(), -1)
     lab.rollback(counting)
-    assert len(calls) == 8
+    expected_calls = [
+        "print",
+        "bootout",
+        "print",
+        "bootout",
+        "print",
+        "bootstrap",
+        "print",
+        "bootstrap",
+        "print",
+    ]
+    if scope == "root":
+        expected_calls = ["print", "-I", "-I", "bootout", "print", "-I", "bootstrap", "print", "-I"]
+    assert [call[1] for call in calls] == expected_calls
     journals: list[dict[str, Any]] = []
     for index, call in enumerate(calls):
         runner = lab.prepare()
@@ -238,7 +251,8 @@ def test_rollback_failed_at_any_tool_call_is_repeated_to_the_same_result(
             assert lab.state() == expected, call
             continue
         if call[1] == "print" and calls[index - 1][1:] == ("bootout", call[2]):
-            # The read that waits for launchd after a `bootout` fails nothing.
+            # One unknown removal read cannot authorize progress, but a later
+            # fresh absence in the same bounded polling window can.
             assert lab.rollback(broken)["phase"] == "rolled-back", call
             assert lab.state() == expected, call
             continue
@@ -270,7 +284,7 @@ def test_rollback_killed_before_any_step_is_repeated_to_the_same_result(
     steps = Steps()
     with stepped(monkeypatch, steps, lab.state_dir, lab.prepare()) as counted:
         lab.rollback(counted)
-    assert steps.count == (15 if scope == "user" else 12)
+    assert steps.count == (16 if scope == "user" else 13)
     for stop_before in range(steps.count):
         runner = lab.prepare()
         with (
