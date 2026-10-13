@@ -8,6 +8,8 @@
 - A missed deadline blocks both complete-roster and crucial SEV1–3 health.
   Keep version 1 recording-duration behavior and evaluation-time freshness
   unchanged. Add exact-boundary, late-start, phase and CLI regression proofs.
+- Clarify the architecture's distinction between legacy adapter pinning and
+  auto-wired policy, whose selected adapter identity is an observation.
 - This remains an offline evaluator. Native qualification, deployment authority,
   installed owners and the separate authorized migration-operation budget are
   unchanged.
