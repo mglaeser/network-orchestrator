@@ -409,7 +409,11 @@ def evaluate(
     if record["source"] != source:
         blockers.append("dashboard-api-recording-required")
     start, end = _clock(record["started_at"]), _clock(record["completed_at"])
-    if not since <= start <= end <= now or end - start > 300:
+    # Status-v2 collection starts at the independent refresh boundary. A later
+    # self-reported capture start cannot renew that original collection budget.
+    # Keep version 1's pre-existing recording-duration contract unchanged.
+    budget_start = since if contract["schema_version"] == 2 else start
+    if not since <= start <= end <= now or end - budget_start > 300:
         blockers.append("checkpoint-window-invalid")
     if contract["schema_version"] == 2:
         blockers.extend(_status_checkpoint(contract, record["dashboard"], start, end, now))
