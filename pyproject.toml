@@ -37,14 +37,14 @@ netorch-host = "netorch.host_cli:main"
 [dependency-groups]
 dev = [
   "pytest==9.1.1",
-  "hypothesis==6.168.4",
+  "hypothesis==6.168.5",
   "pytest-cov==7.1.0",
-  "ruff==0.16.10",
+  "ruff==0.17.0",
   "mypy==2.4.0",
   "types-jsonschema==4.26.0.20260518",
   "build==1.6.1",
   "pip-audit==2.10.1",
-  "pip-tools==7.6.1",
+  "pip-tools==7.6.2",
   "hatchling==1.32.4",
   "editables==0.6",
 ]
