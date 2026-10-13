@@ -123,8 +123,12 @@ python -m netorch.migration_health \
   --since 1800000000
 ```
 
-Replace the illustrative time with the independently recorded boundary. Allowed
-phases are `pre`, `post`, `rollback`, and `soak`. Capture must fit within 300 seconds;
+Replace the illustrative time with the independently recorded refresh boundary.
+Allowed phases are `pre`, `post`, `rollback`, and `soak`. Under a version 2 contract,
+capture must finish within 300 seconds of that external `--since` boundary;
+a later `started_at` in the recording cannot restart the collection budget.
+Version 1 retains its original 300-second recording-duration limit.
+Collection duration and evaluation freshness are separate checks:
 all required check completions must fall within that recording and remain fresh
 at evaluation. Generated time cannot precede checks or exceed capture completion.
 The API age/expiry fields must agree with its actual timestamps and requested

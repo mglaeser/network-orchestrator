@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.4.7 — status checkpoint collection deadline
+
+- Enforce the status-v2 collection deadline from the independently supplied
+  refresh boundary. A fresh, short recording can no longer pass after the
+  original 300-second budget expired merely by reporting a later capture start.
+- A missed deadline blocks both complete-roster and crucial SEV1–3 health.
+  Keep version 1 recording-duration behavior and evaluation-time freshness
+  unchanged. Add exact-boundary, late-start, phase and CLI regression proofs.
+- Clarify the architecture's distinction between legacy adapter pinning and
+  auto-wired policy, whose selected adapter identity is an observation.
+- This remains an offline evaluator. Native qualification, deployment authority,
+  installed owners and the separate authorized migration-operation budget are
+  unchanged.
+
 ## 0.4.6 — managed job removal fence and documentation alignment
 
 - Require fresh exact-label launchd absence after every accepted managed-job

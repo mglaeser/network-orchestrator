@@ -63,8 +63,12 @@ native authority expansion before the retained owner entrypoints touch state.
 
 ## Configuration versus runtime observations
 
-One IPv4 LAN is declared by stable adapter identity, expected address and scope.
-Its current interface name is observed. The runtime network name is a choice;
+One IPv4 LAN is declared by expected address and scope, with either legacy
+hardware-identity pinning or explicit `auto-wired` selection. In auto-wired mode,
+the physical adapter identity and current interface name are observed and
+validated; replacing the adapter does not require pinning its old identity.
+See [wired selection](wired-interface-selection.md) for the closed policy and
+refusal conditions. The runtime network name is a choice;
 guest addresses, receiver addresses, bridge names and current generations are
 observations. They never become desired instance data. IPv6 remains outside the
 custom policy, not asserted blocked. A named socket range is referenced once by
