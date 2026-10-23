@@ -132,11 +132,18 @@ and [migration health](migration-health.md) remain mandatory. In particular:
 5. Every vital dashboard service must pass the baseline and post-step health
    gate during migration. Current parser fixtures cannot prove future health.
 
-A private evidence session retains the reviewed captures and a cleanup manifest.
-Temporary collectors, copied instrumentation and audit scratch outputs are
-removed after their reports are retained. Collection and replay must never leave
-an installed debug service, running probe, fake accessory, widened firewall rule
-or extra production logging behind.
+Local source captures, audit scratch outputs and private diagnostic receipts from
+these collection sessions were removed on 2026-10-24 at the operator's request.
+The committed sanitized fixtures and historical hashes remain; those hashes do
+not imply that the original bytes are still available for revalidation. The
+private instance records the current evidence availability. Fresh native
+qualification must collect fresh observations rather than rely on deleted files.
+
+For subsequent sessions, record retention and deletion explicitly in the private
+instance. Remove temporary collectors, copied instrumentation and audit scratch
+outputs according to that policy. Collection and replay must never leave an
+installed debug service, running probe, fake accessory, widened firewall rule or
+extra production logging behind.
 
 The [source review ledger](reviews/2026-10-09-recorded-evidence-audit.json) records
 47 production source/backend files and 707 reviewed named symbols with source
