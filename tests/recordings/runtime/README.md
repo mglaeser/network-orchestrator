@@ -28,3 +28,15 @@ Neither is a native mutation, root/launchd execution, crash/reboot, rollback,
 application health or hardware acceptance test. No qualification gate is changed.
 The process runner bounds process groups and inherited-pipe waits; a process that
 detaches from that group needs its native lifecycle owner's independent fence.
+
+The two `camera-native-*` recordings were collected separately on 23 October
+2026 on the same OS/build/runtime. They retain a projected native inspection
+with four fixed TCP records and one range descriptor of width 1024, plus a
+guest procfs automatic-port read. Names, addresses, start time and port numbers
+are replaced with synthetic values. The original inspection digest binds the
+retained projection, not omitted environment or application data. The private
+capture manifest separately binds the full inspection bytes, which were not
+retained. These recordings prove parser/descriptor behavior only; they do not
+prove forwarding, pairing, playable recordings or candidate qualification.
+`test_camera_recorded_boundary.py` replays the real readers and labels altered
+range, protocol, bind address and procfs responses as synthetic negative cases.

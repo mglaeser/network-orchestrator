@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.4.8 — native camera range preservation
+
+- Require declaration parity between a camera automatic range and one native TCP
+  publication using that same named range on both sides. Missing, partial, copied
+  or remapped ranges cannot satisfy the report.
+- Apply automatic-range and capacity gates to native publications as well as UDP
+  return paths. Add person-confirmed saved/playable recording acceptance for
+  cameras with automatic ranges; live-view and bridge health do not substitute.
+- Bind automatic allocator names and endpoints into version 3 resolved digests
+  for non-UDP-return transports and their dependents, including fixed ports; old
+  profile acceptance cannot survive an allocator-only capacity change. Unrelated
+  digests and the already range-bound UDP-return form retain version 2.
+- Add the closed `playable-recording` acceptance method to schema 1; no existing
+  document layout or canonical bytes change. Older readers reject the new method
+  and cannot evaluate plans that rely on it. New gates narrow qualification only.
+- Test native range CLI rendering, kernel-recipe approval binding, current guest
+  allocator drift and acceptance provenance. Document preservation of pairing,
+  mounts, fixed ports and the existing service owner during staged migration.
+- Extend the existing offline recording corpus with two sanitized 2026-10-23
+  native camera publication/guest-policy projections and explicit refusal
+  mutations. They establish parser boundaries, not candidate qualification.
+- Refresh only the development lock's certifi to 2026.10.19 and pip to 26.2.2
+  for [PYSEC-2026-4320](https://github.com/pypa/advisory-database/blob/main/vulns/certifi/PYSEC-2026-4320.yaml)
+  and the [PSF emSign notice](https://discuss.python.org/t/information-for-python-users-regarding-emudhra-emsign-ca-certificate-security-incident/109576).
+  pip vendors its own CA bundle, so updating certifi alone does not fix it.
+  Package hashes come from the reviewed upstream releases.
+- Update the development lock's setuptools to 84.1.0 for
+  [GHSA-xmj3-9gf7-h52w](https://github.com/pypa/setuptools/security/advisories/GHSA-xmj3-9gf7-h52w),
+  a Windows legacy-wheel namespace path escape. This does not imply macOS is
+  affected by that path; the strict dependency audit remains enabled without a
+  waiver. Runtime dependencies and all other development pins are unchanged.
+- The native-qualified matrix and activation gates remain unchanged. No runtime
+  upgrade, new forwarding owner or production migration is implied.
+
 ## 0.4.7 — status checkpoint collection deadline
 
 - Enforce the status-v2 collection deadline from the independently supplied

@@ -17,7 +17,7 @@ fixtures contain no executable instructions and never trigger native collection.
 | Corpus | Boundary replayed | What this cannot establish |
 |---|---|---|
 | `discovery/` | Browse callbacks, SRV/address/raw TXT parsing, import association and registration argv construction | Pairing, actual registration/withdrawal, launchd consent, shared application caches or receiver audio |
-| `runtime/` | Complete launchd inventory grammar, selected job/process records, projected container/network JSON and volume response decoding | Current process identity, root observer access, guest lifecycle, crash recovery or reboot |
+| `runtime/` | Complete launchd inventory grammar, selected job/process records, projected container/network JSON and volume response decoding; the 2026-10-23 extension replays a bounded native camera publication and effective guest allocator policy | Current process identity, full startup/enrollment parity, root observer access, guest lifecycle, playable clips, crash recovery or reboot |
 | `packet/` | Interface/route/socket parsing, missing neighbour and denied privileged-read behavior | Kernel hook order, PF state removal, packet translation, return traffic or real owner activation |
 | `preflight/` | Native macOS fact parsers, collection serialization and conservative host-report interpretation | Current security posture, unattended recovery, candidate-runtime compatibility or platform acceptance |
 | `wired/` (2026-10-12) | Sanitized physical-interface and hardware-port inventories; replacement and refusal cases use explicit synthetic mutations | Physical-LAN DNS replies, original-client identity, cable/reboot acceptance or owner promotion |
@@ -25,6 +25,19 @@ fixtures contain no executable instructions and never trigger native collection.
 The 2026-10-09 collection observed macOS 27.0.1 build 26A434 on ARM64 and Container CLI
 1.2.0. A recording from that runtime is not a qualification of the declared 1.5.0
 candidate. Hosted macOS CI is a third context and does not remove this mismatch.
+
+The 2026-10-23 extension adds two sanitized camera runtime projections to the
+55 earlier fixtures (57 total). The container definition projection retains the
+native bounded TCP publication descriptor shape; the guest-policy projection
+retains the observed automatic-range procfs output. Reserved-port settings and
+kernel arguments are not present in that projection and are not proved by it.
+Private identities and addresses are replaced and other definition fields are
+omitted as explicitly documented. The dedicated replay tests exercise those
+recorded boundaries and labelled synthetic drift/refusal mutations. They do not
+establish full definition enrollment, native framework ownership or that a
+recording played. The separately confirmed predecessor recording remains private
+operational acceptance, not candidate qualification. Earlier captures keep their
+original dates and limitations.
 
 Each JSON fixture contains a closed schema, capture date/context/tool/platform,
 original stream digests, explicitly described transformations/limitations and

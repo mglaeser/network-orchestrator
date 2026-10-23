@@ -46,11 +46,11 @@ refuses a selection in the automatic form (`instance.selection_types` returns
 policy's `types` exactly. A report's discovery row carries `service_types`
 only where the selection declares them.
 
-A transport row may declare `"source_scope": "any"`. It is the only value: a row without the member is LAN-scoped, and an explicit `"lan"` or `null` is refused, so each row has exactly one byte form and an instance written before the member existed keeps its bytes and digests. `any` is accepted only for a `host-port-redirect`, whose translation target is the host's own address behind its exact publication dependency; every other strategy is LAN-scoped. The resolved profile digest binds the member where it is declared, inside the unchanged version 2 envelope, and the report shows `source_scope` on that profile row only. `ROOT-HARD-BOUNDS` covers the setting as it covers every other root-admitted profile: no profile widens interface, IPv4 scope or admitted rule shape beyond what its policy declares and root admitted for it, and root admits an unrestricted source only with an acknowledgement of its own ([PF owner](pf-owner.md)).
+A transport row may declare `"source_scope": "any"`. It is the only value: a row without the member is LAN-scoped, and an explicit `"lan"` or `null` is refused, so each row has exactly one byte form and an instance written before the member existed keeps its bytes and digests. `any` is accepted only for a `host-port-redirect`, whose translation target is the host's own address behind its exact publication dependency; every other strategy is LAN-scoped. The resolved profile digest binds the member where it is declared, inside the resolved profile envelope, and the report shows `source_scope` on that profile row only. `ROOT-HARD-BOUNDS` covers the setting as it covers every other root-admitted profile: no profile widens interface, IPv4 scope or admitted rule shape beyond what its policy declares and root admitted for it, and root admits an unrestricted source only with an acknowledgement of its own ([PF owner](pf-owner.md)).
 
 A row with the setting also makes the requirement `ANY-SOURCE-INGRESS` applicable; an instance without one reports it as `not-applicable`. It is verified only by a retained record of the method `external-first-packet`, at tier 3 or above, for each such profile and bound to that profile's resolved digest: a first packet from a source outside the LAN prefix was answered through the rule. A LAN client proves nothing about this setting, so a `first-packet` record does not count for this requirement. That method keeps its one meaning, and such a profile needs it for `ROOT-HARD-BOUNDS` like every other root-admitted profile. A report cannot check where a packet came from: the record is the owner's attestation, as every acceptance record is. Like every native acceptance the row keeps its proving gate: until one such record per profile exists it reads `unverified`, and a signed deviation leaves it `not-fulfilled`. The record is bound to the release pin and to the profile's resolved digest, so a new release or a changed profile needs it again, as every native record does. The row's `source` is rule 2 of the October 2026 review, as for `ROOT-HARD-BOUNDS`: the rule whose bound this setting is the declared exception to ([review traceability](review-traceability.md)). That review predates the setting and did not ask for this capture; the accepted exception does.
 
-Resolved transport and discovery digest envelopes are version 2. They now bind the target workload's container name, owning account, runtime/platform context and supervision settings, including observation/read bounds and discovery timing, through each required transport dependency. Version 1 profile acceptance and owner-state digests require renewed evidence; renaming a target or changing its account, runtime, platform or supervision cannot reuse a previous profile's receipt or readiness.
+Resolved discovery and ordinary transport digest envelopes are version 2. They bind the target workload's container name, owning account, runtime/platform context and supervision settings, including observation/read bounds and discovery timing, through each required transport dependency. Version 1 profile acceptance and owner-state digests require renewed evidence; renaming a target or changing its account, runtime, platform or supervision cannot reuse a previous profile's receipt or readiness.
 
 `supervision.discovery_seconds` and `supervision.discovery_misses` record how
 often the site's discovery owner makes a pass and after how many consecutive
@@ -89,6 +89,28 @@ including owner, source hash and migration mode. A source or ownership change
 invalidates earlier whole-instance attestations even if rendered behavior has
 not changed. Only the acceptance ledger itself and informational deviations are
 excluded from that digest; version 1 receipts require renewed evidence.
+
+For transports of an automatic-range workload other than `guest-udp-range-forward`,
+0.4.8 uses resolved profile digest version 3 and additionally binds the automatic
+range's name and resolved endpoints. A dependent profile inherits version 3 when
+its reference set includes such a binding. This covers fixed publications as well
+as the dynamic publication: both consume the same guest allocator capacity.
+Existing UDP-return profiles already bind their mandatory exact range through
+`ports` and retain version 2; profiles unrelated to an automatic-range workload
+also retain their previous digest. Earlier acceptance/admissions for affected
+profiles cannot be reused, including when only the allocator changes. A new
+version 3 digest never grants native activation or authority.
+
+## Camera automatic ranges and acceptance
+
+[Native camera publications](native-camera-publications.md) describes the existing
+schema's camera workload, named automatic range, exact native TCP publication,
+kernel/init contract pins and preservation gates. Version 0.4.8 adds the closed
+`playable-recording` method to schema 1 without a data layout change. Existing
+documents retain their canonical bytes; older readers intentionally reject the
+new method. `CAMERA-RECORDING` is a new tier 5 gate for cameras with automatic
+ranges. Native range capacity also participates in `PORT-BUDGET`; neither gate
+qualifies an owner or changes a running service.
 
 ## The release pin
 

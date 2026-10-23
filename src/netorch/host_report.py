@@ -431,6 +431,18 @@ def _applicable(instance: Instance, requirement: Requirement) -> bool:
             strategy(item.strategy, item.version).gate == "bounded" for item in instance.transport
         ),
         "bounded-udp": "guest-udp-range-forward" in strategies,
+        "automatic-ports": any(
+            item.automatic_port_range is not None for item in instance.workloads
+        ),
+        "automatic-transport": any(
+            item.strategy != "guest-lan-alias"
+            and instance.workload(item.service).automatic_port_range is not None
+            for item in instance.transport
+        ),
+        "camera-automatic-ports": any(
+            item.application_profile == "camera" and item.automatic_port_range is not None
+            for item in instance.workloads
+        ),
         "exports": any(item.direction == "export" for item in instance.discovery),
         "imports": any(item.direction == "import" for item in instance.discovery),
         "media-audio": any(_has_return_path(instance, item) for item in instance.discovery),
@@ -463,6 +475,7 @@ def _acceptance(
         "any-source",
         "bounded",
         "bounded-udp",
+        "automatic-transport",
     }:
         relevant = {
             item.id
@@ -480,6 +493,11 @@ def _acceptance(
             or (
                 requirement.applicability == "bounded-udp"
                 and item.strategy == "guest-udp-range-forward"
+            )
+            or (
+                requirement.applicability == "automatic-transport"
+                and item.strategy != "guest-lan-alias"
+                and instance.workload(item.service).automatic_port_range is not None
             )
         }
     matched: set[str] = set()
@@ -542,7 +560,10 @@ def _acceptance(
                     )
                 ):
                     continue
-                if entry.method == "heard-audio" and proof["capture_context"] != "host-person":
+                if (
+                    entry.method in {"heard-audio", "playable-recording"}
+                    and proof["capture_context"] != "host-person"
+                ):
                     continue
                 if (
                     entry.method == "root-runtime-observer"
@@ -611,6 +632,28 @@ def _base_assessment(
         "EXIT-STRATEGIES",
         "CURRENT-OBSERVATIONS",
     }
+    if identifier == "PORT-RANGES":
+        for workload in instance.workloads:
+            if workload.application_profile != "camera" or workload.automatic_port_range is None:
+                continue
+            matching = [
+                profile
+                for profile in instance.transport
+                if profile.service == workload.id
+                and profile.strategy == "published-port"
+                and profile.protocol == "tcp"
+                and profile.ports is not None
+                and profile.ports.range == workload.automatic_port_range
+                and profile.target_ports is not None
+                and profile.target_ports.range == workload.automatic_port_range
+            ]
+            if len(matching) != 1:
+                return (
+                    "not-fulfilled",
+                    "A camera automatic range needs one native TCP publication using its "
+                    "same named range on both sides; "
+                    "guest runtime equality remains native evidence.",
+                )
     if identifier == "UNKNOWN-NO-RECOVERY" and not all(
         code is None or _unambiguous_start_status(code)
         for code in (

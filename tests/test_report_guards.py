@@ -695,3 +695,195 @@ def test_requirement_names_tests_that_exercise_its_statement(identifier: str) ->
     files = checked_in_test_files()
     named = requirement(identifier).proving_tests
     assert {file for name in named for file in files[name]} == PROVED_IN[identifier]
+
+
+def camera_range(data: dict[str, Any]) -> dict[str, Any]:
+    """A synthetic native TCP publication beside the unchanged UDP workload."""
+    changed = copy.deepcopy(data)
+    changed["workloads"][0].update(
+        application_profile="camera", automatic_port_range="camera-range"
+    )
+    changed["port_ranges"].append({"id": "camera-range", "first": 43000, "last": 43031})
+    changed["transport"].append(
+        {
+            "id": "camera-streams",
+            "service": "example-web",
+            "strategy": "published-port",
+            "version": 1,
+            "protocol": "tcp",
+            "ports": {"range": "camera-range"},
+            "target_ports": {"range": "camera-range"},
+            "dependencies": [],
+            "fallback_publication": None,
+        }
+    )
+    return changed
+
+
+def test_native_automatic_range_requires_its_own_budget_evidence(
+    data: dict[str, Any], tmp_path: Path
+) -> None:
+    declared = camera_range(data)
+    assert status(report(declared), "PORT-RANGES") == "fulfilled-verified"
+    attest(declared, tmp_path, "PORT-BUDGET", "port-budget", 3, "example-return")
+    attest(declared, tmp_path, "PORT-BUDGET", "port-budget", 3, "example-publication")
+    assert status(report(declared, platform(), evidence_directory=tmp_path), "PORT-BUDGET") == (
+        "unverified"
+    )
+    attest(declared, tmp_path, "PORT-BUDGET", "port-budget", 3, "camera-streams")
+    assert status(report(declared, platform(), evidence_directory=tmp_path), "PORT-BUDGET") == (
+        "fulfilled-verified"
+    )
+    # A wider native range needs new capacity evidence, even if its identity stays the same.
+    declared["port_ranges"][-1]["last"] += 1
+    assert status(report(declared, platform(), evidence_directory=tmp_path), "PORT-BUDGET") == (
+        "unverified"
+    )
+
+
+@pytest.mark.parametrize("fault", ["missing", "copied", "partial", "renumbered", "udp"])
+def test_camera_range_requires_one_exact_named_native_tcp_publication(
+    data: dict[str, Any], fault: str
+) -> None:
+    declared = camera_range(data)
+    publication = declared["transport"][-1]
+    if fault == "missing":
+        declared["transport"].pop()
+    elif fault == "copied":
+        publication["ports"] = publication["target_ports"] = {"first": 43000, "last": 43031}
+    elif fault == "partial":
+        publication["ports"] = publication["target_ports"] = {"first": 43000, "last": 43015}
+    elif fault == "renumbered":
+        publication["target_ports"] = {"first": 43100, "last": 43131}
+    else:
+        publication["protocol"] = "udp"
+    result = report(declared)
+    assert status(result, "PORT-RANGES") == "not-fulfilled"
+    assert not result["fully_served"]
+
+
+@pytest.mark.parametrize(
+    "method,context,result",
+    [
+        ("playable-recording", "host-person", "passed"),
+        ("application-connect", "host-person", "passed"),
+        ("playable-recording", "macos-userspace", "passed"),
+        ("playable-recording", "offline-fixture", "passed"),
+        ("playable-recording", "host-person", "failed"),
+    ],
+)
+def test_camera_recording_needs_current_person_confirmed_evidence(
+    data: dict[str, Any], tmp_path: Path, method: str, context: str, result: str
+) -> None:
+    declared = camera_range(data)
+    assert status(report(declared), "CAMERA-RECORDING") == "unverified"
+    path = attest(declared, tmp_path, "CAMERA-RECORDING", method, 5, context=context)
+    if result != "passed":
+        proof = json.loads(path.read_bytes())
+        proof["result"] = result
+        raw = canonical_bytes(proof) + b"\n"
+        new_hash = hashlib.sha256(raw).hexdigest()
+        (tmp_path / (new_hash + ".json")).write_bytes(raw)
+        declared["acceptance"][-1]["evidence_sha256"] = new_hash
+    expected = (
+        "fulfilled-verified"
+        if (method, context, result) == ("playable-recording", "host-person", "passed")
+        else "unverified"
+    )
+    assert status(
+        report(declared, platform(), evidence_directory=tmp_path), "CAMERA-RECORDING"
+    ) == (expected)
+    # A kernel/init/mount contract change invalidates the saved clip's acceptance.
+    declared["workloads"][0]["contract"]["sha256"] = "c" * 64
+    assert status(
+        report(declared, platform(), evidence_directory=tmp_path), "CAMERA-RECORDING"
+    ) == ("unverified")
+
+
+def test_camera_without_a_declared_automatic_range_does_not_infer_one(
+    data: dict[str, Any],
+) -> None:
+    data["workloads"][0]["application_profile"] = "camera"
+    assert status(report(data), "CAMERA-RECORDING") == "not-applicable"
+    assert parsed(data).workloads[0].automatic_port_range is None
+
+
+@pytest.mark.parametrize("change", ["resize", "rename", "reassign"])
+def test_fixed_publication_budget_invalidates_when_only_guest_allocator_changes(
+    data: dict[str, Any], tmp_path: Path, change: str
+) -> None:
+    # A generic workload with a fixed publication can consume the automatic
+    # range without publishing that range. Its capacity proof must still bind it.
+    data["workloads"][0]["automatic_port_range"] = "allocator-range"
+    data["port_ranges"].append({"id": "allocator-range", "first": 43000, "last": 43031})
+    before = parsed(data)
+    fixed = before.transport_profile("example-publication")
+    original_digest = resolved_profile_digest(before, fixed)
+    assert resolved_profile(before, fixed)["workload"]["automatic_port_range"] == {
+        "id": "allocator-range",
+        "first": 43000,
+        "last": 43031,
+    }
+    attest(data, tmp_path, "PORT-BUDGET", "port-budget", 3, "example-publication")
+    attest(data, tmp_path, "PORT-BUDGET", "port-budget", 3, "example-return")
+    assert status(report(data, platform(), evidence_directory=tmp_path), "PORT-BUDGET") == (
+        "fulfilled-verified"
+    )
+    if change == "resize":
+        data["port_ranges"][-1]["last"] = 43015
+    elif change == "rename":
+        data["port_ranges"][-1]["id"] = "renamed-range"
+        data["workloads"][0]["automatic_port_range"] = "renamed-range"
+    else:
+        data["port_ranges"].append({"id": "other-range", "first": 43100, "last": 43131})
+        data["workloads"][0]["automatic_port_range"] = "other-range"
+    after = parsed(data)
+    assert resolved_profile_digest(after, after.transport_profile(fixed.id)) != original_digest
+    assert resolved_profile_digest(after, after.transport_profile("example-return")) == (
+        resolved_profile_digest(before, before.transport_profile("example-return"))
+    )
+    for selection in before.discovery:
+        changed = next(item for item in after.discovery if item.id == selection.id)
+        equal = resolved_discovery_digest(before, selection) == resolved_discovery_digest(
+            after, changed
+        )
+        assert equal == (selection.id == "example-import")
+    assert status(report(data, platform(), evidence_directory=tmp_path), "PORT-BUDGET") == (
+        "unverified"
+    )
+
+
+def test_automatic_range_digest_uses_new_version_and_rejects_pre_binding_proof(
+    data: dict[str, Any], tmp_path: Path
+) -> None:
+    import netorch.instance as instance_module
+
+    data = camera_range(data)
+    # Reconstruct the previous algorithm independently from today's version 3
+    # envelope; the preserved old example digest tests are disjoint controls.
+    current = parsed(data)
+    profile = current.transport_profile("example-publication")
+    old = resolved_profile(current, profile)
+    del old["workload"]["automatic_port_range"]
+    old_digest = digest(
+        {
+            "resolved_profile_version": 2,
+            "profile": profile.id,
+            "references": {profile.id: old},
+            "names": resolved_names(current),
+            "framework": asdict(current.framework),
+            "supervision": instance_module._stated(
+                asdict(current.supervision), instance_module._OPTIONAL_SUPERVISION
+            ),
+            "account": asdict(current.host.account),
+            "runtime": asdict(current.host.runtime),
+            "platform": asdict(current.host.platform),
+        }
+    )
+    assert old_digest != resolved_profile_digest(current, profile)
+    for identifier in ("example-return", "camera-streams"):
+        attest(data, tmp_path, "PORT-BUDGET", "port-budget", 3, identifier)
+    attest(data, tmp_path, "PORT-BUDGET", "port-budget", 3, profile.id, contract_sha256=old_digest)
+    assert status(report(data, platform(), evidence_directory=tmp_path), "PORT-BUDGET") == (
+        "unverified"
+    )

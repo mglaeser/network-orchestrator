@@ -1292,6 +1292,7 @@
               "cold-application-scan",
               "receiver-change",
               "heard-audio",
+              "playable-recording",
               "dns-client-identity",
               "unattended-reboot",
               "restore-rehearsal",

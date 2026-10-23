@@ -44,7 +44,9 @@ REFUSED = (
 ROOT_REFUSED = '{"error":"host-entrypoint-requires-unprivileged-user","read_only":true}\n'
 # Standard output of the six existing commands for the shipped examples at the clock 1000.0,
 # as the tree before this command printed it: the SHA-256 of the bytes, final newline
-# included. A later change that means to alter one of these outputs recomputes its value.
+# included. These remain the original baseline hashes. The narrowly asserted camera
+# registry delta below was independently compared with commit 79987cc for all commands,
+# both examples and both contract-presence cases; every other byte remains unchanged.
 BASE_OUTPUT_SHA256 = {
     "instance.json": {
         "validate": "2086100c7ad81419ef1161d2ab8493034402988f9340dc59f1ab623089387a36",
@@ -798,17 +800,65 @@ def test_other_values_at_the_same_members_print_the_same_bytes(
     assert outputs[0] == outputs[1] and outputs[0][0] == 1
 
 
-# ---- the neighbours: nothing they print has changed
+# ---- the neighbours: only the reviewed camera registry additions change their answers
+
+
+def before_camera_registry(output: str, command: str) -> str:
+    """Assert the complete intentional report delta before checking the original hashes."""
+    if command not in {"status", "check", "report"}:
+        return output
+    document = json.loads(output)
+    # Keep the byte/format contract too: parsing must not hide whitespace or ordering drift.
+    assert output == canonical_json(document) + "\n"
+    rows = document["requirements"]
+    identifiers = [row["id"] for row in rows]
+    assert len(identifiers) == len(set(identifiers)) == 44
+    assert identifiers[28:31] == ["HEARD-AUDIO", "CAMERA-RECORDING", "MULTI-RECEIVER"]
+    assert rows.pop(29) == {
+        "id": "CAMERA-RECORDING",
+        "minimum_tier": 5,
+        "proving_tests": ["test_camera_recording_needs_current_person_confirmed_evidence"],
+        "reason": "No corresponding declared capability.",
+        "required_methods": ["playable-recording"],
+        "source": "review-2026-10-05:5.1",
+        "statement": (
+            "A person verifies saved playable recordings for cameras with automatic ranges."
+        ),
+        "status": "not-applicable",
+    }
+    by_id = {row["id"]: row for row in rows}
+    ranges = by_id["PORT-RANGES"]
+    assert ranges["proving_tests"] == [
+        "test_udp_range_is_one_named_reference",
+        "test_camera_range_requires_one_exact_named_native_tcp_publication",
+    ]
+    ranges["proving_tests"] = ["test_udp_range_is_one_named_reference"]
+    budget = by_id["PORT-BUDGET"]
+    assert budget["proving_tests"] == [
+        "test_port_budget_counts_are_typed_and_observed_independently",
+        "test_native_automatic_range_requires_its_own_budget_evidence",
+    ]
+    assert budget["statement"] == (
+        "Idle and representative-load TCP/UDP socket counts are observed independently."
+    )
+    budget["proving_tests"] = ["test_port_budget_counts_are_typed_and_observed_independently"]
+    budget["statement"] = (
+        "Idle and representative-load UDP socket counts are observed independently."
+    )
+    # The original full-output hash proves all other fields, row order, statuses and
+    # authority claims still match. No native qualification is inferred by this delta.
+    return canonical_json(document) + "\n"
 
 
 @pytest.mark.parametrize("command", NEIGHBOURS)
 @pytest.mark.parametrize("name", SHIPPED)
-def test_existing_commands_print_what_they_printed_before(
+def test_existing_commands_preserve_answers_except_reviewed_camera_registry(
     name: str, command: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
     code, output = run(capsys, command, "--instance", str(EXAMPLES / name))
     assert code == BASE_STATUS[command]
-    assert hashlib.sha256(output.encode()).hexdigest() == BASE_OUTPUT_SHA256[name][command]
+    previous = before_camera_registry(output, command)
+    assert hashlib.sha256(previous.encode()).hexdigest() == BASE_OUTPUT_SHA256[name][command]
 
 
 @pytest.mark.parametrize("name", SHIPPED)
@@ -824,18 +874,19 @@ def test_validate_keeps_its_answer_for_missing_contract_files(
 
 @pytest.mark.parametrize("command", NEIGHBOURS[1:])
 @pytest.mark.parametrize("name", SHIPPED)
-def test_other_commands_keep_their_answers_for_missing_contract_files(
+def test_missing_contract_answers_preserve_all_but_reviewed_camera_registry(
     name: str, command: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     # Here `validate` returns 65 with its answer and the new command 65 with the closed error.
     # The validity of the contracts is now computed before the commands branch; it must not
-    # reach the other five, which answer as they did on the base.
+    # reach the other five. Their only intended change is the asserted registry delta.
     code, output = run(
         capsys, command, "--instance", str(EXAMPLES / name), "--data-dir", str(tmp_path)
     )
     assert code == BASE_STATUS[command]
     assert output != REFUSED and json.loads(output)["read_only"] is True
-    assert hashlib.sha256(output.encode()).hexdigest() == BASE_NO_CONTRACT_SHA256[name][command]
+    previous = before_camera_registry(output, command)
+    assert hashlib.sha256(previous.encode()).hexdigest() == BASE_NO_CONTRACT_SHA256[name][command]
 
 
 @pytest.mark.parametrize("command", [*NEIGHBOURS, VERB])

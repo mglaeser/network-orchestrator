@@ -360,6 +360,19 @@ def resolved_profile(instance: Instance, profile: Transport) -> dict[str, Any]:
             "id": workload.id,
             "name": workload.name,
             "contract_sha256": workload.contract.sha256,
+            # UDP return already binds this exact range as its mandatory ports.
+            # Other transports (including fixed publications) need an independent
+            # allocator binding: socket-budget evidence belongs to the whole guest.
+            **(
+                {}
+                if workload.automatic_port_range is None
+                or profile.strategy == "guest-udp-range-forward"
+                else {
+                    "automatic_port_range": asdict(
+                        instance.port_range(workload.automatic_port_range)
+                    )
+                }
+            ),
             # Its own deadlines replace site defaults the envelope binds as ``supervision``.
             **(
                 {}
@@ -391,7 +404,11 @@ def resolved_profile_digest(instance: Instance, profile: Transport) -> str:
             pending.append(value.fallback_publication)
     return digest(
         {
-            "resolved_profile_version": 2,
+            "resolved_profile_version": (
+                3
+                if any("automatic_port_range" in item["workload"] for item in references.values())
+                else 2
+            ),
             "profile": profile.id,
             "references": references,
             "names": resolved_names(instance),
