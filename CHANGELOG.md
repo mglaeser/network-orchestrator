@@ -21,8 +21,14 @@
 - Extend the existing offline recording corpus with two sanitized 2026-10-23
   native camera publication/guest-policy projections and explicit refusal
   mutations. They establish parser boundaries, not candidate qualification.
+- Refresh only the development lock's certifi to 2026.10.19 and pip to 26.2.2
+  for [PYSEC-2026-4320](https://github.com/pypa/advisory-database/blob/main/vulns/certifi/PYSEC-2026-4320.yaml)
+  and the [PSF emSign notice](https://discuss.python.org/t/information-for-python-users-regarding-emudhra-emsign-ca-certificate-security-incident/109576).
+  pip vendors its own CA bundle, so updating certifi alone does not fix it.
+  Package hashes come from the reviewed upstream releases; runtime dependencies
+  and every other development pin are unchanged.
 - The native-qualified matrix and activation gates remain unchanged. No runtime
-  or dependency upgrade, new forwarding owner or production migration is implied.
+  upgrade, new forwarding owner or production migration is implied.
 
 ## 0.4.7 — status checkpoint collection deadline
 
