@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.4.8 — native camera range preservation
+
+- Require declaration parity between a camera automatic range and one native TCP
+  publication using that same named range on both sides. Missing, partial, copied
+  or remapped ranges cannot satisfy the report.
+- Apply automatic-range and capacity gates to native publications as well as UDP
+  return paths. Add person-confirmed saved/playable recording acceptance for
+  cameras with automatic ranges; live-view and bridge health do not substitute.
+- Add the closed `playable-recording` acceptance method to schema 1; no existing
+  document layout or canonical bytes change. Older readers reject the new method
+  and cannot evaluate plans that rely on it. New gates narrow qualification only.
+- Test native range CLI rendering, kernel-recipe approval binding, current guest
+  allocator drift and acceptance provenance. Document preservation of pairing,
+  mounts, fixed ports and the existing service owner during staged migration.
+- Extend the existing offline recording corpus with two sanitized 2026-10-23
+  native camera publication/guest-policy projections and explicit refusal
+  mutations. They establish parser boundaries, not candidate qualification.
+- The native-qualified matrix and activation gates remain unchanged. No runtime
+  or dependency upgrade, new forwarding owner or production migration is implied.
+
 ## 0.4.7 — status checkpoint collection deadline
 
 - Enforce the status-v2 collection deadline from the independently supplied

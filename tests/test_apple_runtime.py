@@ -1130,3 +1130,64 @@ def test_derive_policy_cli_captures_private_content_without_replacing_source(
 def legacy_cli_conformance(monkeypatch):
     """Explicit CI-only seam for preserved owner internals; never qualification."""
     monkeypatch.setattr(runtime, "require_mutation_qualified", lambda _capability: None)
+
+
+@pytest.mark.parametrize("drift", [False, True])
+def test_native_tcp_publication_requires_observed_guest_allocator_parity(enrolled, drift):
+    from netorch.model import PortRange
+
+    config, settings, items = enrolled
+    ports = PortRange(45000, 45127)
+    config = replace(
+        config,
+        services=tuple(
+            replace(service, automatic_ports=ports) if service.id == "camera" else service
+            for service in config.services
+        ),
+    )
+    # Add a native range to the camera's complete enrolled vendor definition.
+    name = settings.contract("camera").name
+    template = next(p for p in config.profiles if p.service == "camera" and p.kind == "publication")
+    profile = replace(template, id="camera-streams", ports=ports, target_ports=ports)
+    config = replace(config, profiles=(*config.profiles, profile))
+    items[name]["configuration"]["publishedPorts"].append(
+        {
+            "hostAddress": config.scope(profile.scope).host_ipv4,
+            "hostPort": ports.first,
+            "containerPort": ports.first,
+            "count": ports.width,
+            "proto": "tcp",
+        }
+    )
+    settings = replace(
+        settings,
+        contracts=tuple(
+            replace(c, configuration_sha256=digest(items[name]["configuration"]))
+            if c.service == "camera"
+            else c
+            for c in settings.contracts
+        ),
+    )
+    config = replace(
+        config,
+        services=tuple(
+            replace(service, contract_sha256=contract_digest(settings.contract("camera")))
+            if service.id == "camera"
+            else service
+            for service in config.services
+        ),
+    )
+    runner = FakeRunner(settings, items)
+    runner.failure = "range" if drift else None
+    snapshot = runtime.observe_runtime(config, settings, runner, clock=lambda: 1000)
+    assert snapshot.services["camera"].state == ("unknown" if drift else "present")
+    assert snapshot.profiles["camera-streams"].state == ("unknown" if drift else "present")
+    assert any(
+        call[0][1:]
+        == ["exec", "--user", "0", name, "/bin/cat", "/proc/sys/net/ipv4/ip_local_port_range"]
+        for call in runner.calls
+    )
+    assert not any(
+        call[0][0] == settings.executable and call[0][1] in {"start", "stop", "create", "delete"}
+        for call in runner.calls
+    )

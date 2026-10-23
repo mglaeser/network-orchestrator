@@ -82,7 +82,7 @@ registry, not from the migration plan.
 | Discovery parity | `DISCOVERY-PUBLICATION`, `DISCOVERY-IMPORT`, `DISCOVERY-LEASES`, `IMPORT-VISIBILITY`, `CONSENT-IDENTITY`; source parity plus the prescribed `application-connect`, `cold-application-scan`/`receiver-change` and `local-network-consent` evidence | Automatic type enumeration or projected names differ, records lack provenance, expiry depends on scan completion, the actual job identity lacks consent proof, or a warm cache is the only application evidence |
 | Packet and address ownership | `ROOT-HARD-BOUNDS`, `BOUNDED-IDENTITY`, `UDP-FIRST-PACKET`, `ANY-SOURCE-INGRESS` where applicable; `first-packet`, `state-drain` and `external-first-packet` | Rule/state withdrawal is unproved, address generation changed, source scope differs, or a parser result is offered as packet evidence |
 | Port and coexistence limits | `PORT-RANGES`, `PORT-COLLISIONS`, `PORT-BUDGET`, `COEXISTENCE`, `RUNTIME-DNS`; declared/live range equality, `port-budget`, `rule-readback` and appropriate `darwin-cli` evidence | A range widens, a publication/listener collides, native DNS assumptions change, or foreign rules/listeners are affected |
-| Recovery and application results | `RESTORE-REHEARSAL`, `OWNER-ROLLBACK`, `BOOT-RECOVERY`, `DNS-CLIENT-IDENTITY`, `HEARD-AUDIO`, `MULTI-RECEIVER` as applicable | Recoverable material or a rehearsed restore is missing; DNS loses client identity; unattended recovery, actual sound or representative receiver capacity is unverified |
+| Recovery and application results | `RESTORE-REHEARSAL`, `OWNER-ROLLBACK`, `BOOT-RECOVERY`, `DNS-CLIENT-IDENTITY`, `HEARD-AUDIO`, `CAMERA-RECORDING`, `MULTI-RECEIVER` as applicable | Recoverable material or a rehearsed restore is missing; DNS loses client identity; unattended recovery, actual sound or representative receiver capacity is unverified |
 | Health and retirement procedure | Full [health contract](migration-health.md), `CURRENT-OBSERVATIONS`, `EXIT-STRATEGIES` and the runbook's reference checks | Any vital check is missing/stale/unknown/degraded, rollback cannot be completed within its declared envelope, or an old artifact still has a live/durable reference |
 
 Readiness is not improved by deleting an applicable requirement, removing an
@@ -166,6 +166,11 @@ temporary outage inside a transaction is logged as such; it is not a successful
 post-check. A step is complete only after the required services return healthy
 within their declared bounds. Existing degraded vital services block the start;
 they are not grandfathered in as successful baseline evidence.
+
+For cameras using a bounded native TCP publication, preserve the
+[existing camera publication contract](native-camera-publications.md), including
+its guest allocator and fixed ports. A green bridge or live view cannot stand in
+for a new saved playable recording. Do not duplicate native publications in PF.
 
 ## Evidence that must remain native
 

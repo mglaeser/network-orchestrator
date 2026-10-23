@@ -90,6 +90,17 @@ invalidates earlier whole-instance attestations even if rendered behavior has
 not changed. Only the acceptance ledger itself and informational deviations are
 excluded from that digest; version 1 receipts require renewed evidence.
 
+## Camera automatic ranges and acceptance
+
+[Native camera publications](native-camera-publications.md) describes the existing
+schema's camera workload, named automatic range, exact native TCP publication,
+kernel/init contract pins and preservation gates. Version 0.4.8 adds the closed
+`playable-recording` method to schema 1 without a data layout change. Existing
+documents retain their canonical bytes; older readers intentionally reject the
+new method. `CAMERA-RECORDING` is a new tier 5 gate for cameras with automatic
+ranges. Native range capacity also participates in `PORT-BUDGET`; neither gate
+qualifies an owner or changes a running service.
+
 ## The release pin
 
 `framework` names one release. Its values are copied in by the author of the instance; no command fetches or derives them. `schema_version` is the version of the instance schema. The other four come from the release:

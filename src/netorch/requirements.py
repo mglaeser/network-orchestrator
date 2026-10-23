@@ -137,10 +137,13 @@ REQUIREMENTS = (
         "PORT-RANGES",
         "Each automatic socket range is declared once and shared by exact reference.",
         "Rule9",
-        "bounded-udp",
+        "automatic-ports",
         ("schema-tests",),
         1,
-        ("test_udp_range_is_one_named_reference",),
+        (
+            "test_udp_range_is_one_named_reference",
+            "test_camera_range_requires_one_exact_named_native_tcp_publication",
+        ),
     ),
     _requirement(
         "PORT-COLLISIONS",
@@ -327,6 +330,15 @@ REQUIREMENTS = (
         ("test_receipt_never_proves_live_application",),
     ),
     _requirement(
+        "CAMERA-RECORDING",
+        "A person verifies saved playable recordings for cameras with automatic ranges.",
+        "5.1",
+        "camera-automatic-ports",
+        ("playable-recording",),
+        5,
+        ("test_camera_recording_needs_current_person_confirmed_evidence",),
+    ),
+    _requirement(
         "MULTI-RECEIVER",
         "Representative multiple receiver capacity is recorded without widening policy.",
         "Rule9",
@@ -421,12 +433,15 @@ REQUIREMENTS = (
     ),
     _requirement(
         "PORT-BUDGET",
-        "Idle and representative-load UDP socket counts are observed independently.",
+        "Idle and representative-load TCP/UDP socket counts are observed independently.",
         "Rule9",
-        "bounded-udp",
+        "automatic-transport",
         ("port-budget",),
         3,
-        ("test_port_budget_counts_are_typed_and_observed_independently",),
+        (
+            "test_port_budget_counts_are_typed_and_observed_independently",
+            "test_native_automatic_range_requires_its_own_budget_evidence",
+        ),
     ),
     _requirement(
         "RUNTIME-DNS",

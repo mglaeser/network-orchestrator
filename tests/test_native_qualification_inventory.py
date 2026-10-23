@@ -28,7 +28,13 @@ def test_every_native_requirement_has_a_scoped_procedure():
             + f", tier {item.minimum_tier}"
         )
         assert cells[2] == f"`{item.applicability}`"
-        if item.applicability in {"root-transport", "any-source", "bounded", "bounded-udp"}:
+        if item.applicability in {
+            "root-transport",
+            "any-source",
+            "bounded",
+            "bounded-udp",
+            "automatic-transport",
+        }:
             assert "One record per transport profile" in cells[6]
         elif item.applicability in {"exports", "imports", "discovery", "media-audio"}:
             assert "One record per discovery selection" in cells[6]
@@ -36,6 +42,7 @@ def test_every_native_requirement_has_a_scoped_procedure():
             assert "`profile` `null`" in cells[6]
         for method, context in (
             ("heard-audio", "host-person"),
+            ("playable-recording", "host-person"),
             ("local-network-consent", "user-launchagent"),
         ):
             if method in item.acceptance_methods:

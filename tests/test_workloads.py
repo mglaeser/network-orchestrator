@@ -1237,3 +1237,45 @@ def legacy_cli_conformance(monkeypatch):
     import netorch.workloads as module
 
     monkeypatch.setattr(module, "require_mutation_qualified", lambda _capability: None)
+
+
+def test_native_tcp_range_creation_preserves_kernel_recipe_and_invalidates_changed_approval(
+    tmp_path,
+):
+    from netorch.model import PortRange
+
+    config, settings, _fake, workloads, _store = fleet(tmp_path)
+    ports = PortRange(43000, 43031)
+    template = next(p for p in config.profiles if p.service == "camera" and p.kind == "publication")
+    publication = replace(template, id="camera-streams", ports=ports, target_ports=ports)
+    config = replace(config, profiles=(*config.profiles, publication))
+    recipe = replace(
+        next(item for item in workloads if item.service == "camera"),
+        options=(
+            Option("--kernel-arg", 'sysctl.net.ipv4.ip_local_port_range="43000 43031"'),
+            Option("--cap-add", "NET_ADMIN"),
+        ),
+        arguments=("/init",),
+    )
+    arguments = create_arguments(config, settings, recipe)
+    previous = create_arguments(replace(config, profiles=config.profiles[:-1]), settings, recipe)
+    fixed = [previous[i + 1] for i, arg in enumerate(previous) if arg == "--publish"]
+    publications = [arguments[i + 1] for i, arg in enumerate(arguments) if arg == "--publish"]
+    assert publications[:-1] == fixed
+    assert publications[-1] == "192.0.2.10:43000-43031:43000-43031/tcp"
+    assert all(not value.endswith("/udp") for value in publications)
+    assert arguments[arguments.index("--kernel-arg") + 1] == (
+        'sysctl.net.ipv4.ip_local_port_range="43000 43031"'
+    )
+    assert arguments[-1] == "/init"
+    original = provision_digest(config, settings, (recipe,))
+    assert provision_digest(config, settings, (replace(recipe, options=()),)) != original
+    changed = replace(
+        publication, ports=PortRange(43100, 43131), target_ports=PortRange(43100, 43131)
+    )
+    assert (
+        provision_digest(
+            replace(config, profiles=(*config.profiles[:-1], changed)), settings, (recipe,)
+        )
+        != original
+    )
