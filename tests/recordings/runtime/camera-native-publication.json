@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "id": "camera-native-publication",
+  "component": "apple-container",
+  "source": {
+    "kind": "sanitized-native-capture",
+    "captured_on": "2026-10-23",
+    "capture_context": "interactive-user",
+    "os_version": "27.0.1",
+    "os_build": "26A434",
+    "architecture": "arm64",
+    "tool": "container",
+    "tool_version": "1.2.0",
+    "original_stdout_sha256": "56e6ba58ff54442f6537adb3a341337a19089098601bbbfb09ff76be91725c5a",
+    "original_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "transformations": [
+      "Source capture identifier: camera-native-inspect-projection. Native inspection was projected to selected structural fields before retention; the original stream hash binds this projection.",
+      "Replaced container identity and hostname, IPv4/IPv6 attachment addresses, MAC and start time with synthetic values; retained native nested envelope, resources, state and publication grammar.",
+      "Replaced the four fixed ports and range start with synthetic ports while preserving protocols, equal host/guest mapping, five descriptor rows and range width 1024."
+    ],
+    "limitations": [
+      "This is a read-only predecessor observation, not candidate framework activation, packet delivery, application recording, reboot or hardware acceptance.",
+      "The inspect projection omits images, environment, commands, mounts, DNS and labels; it cannot establish full enrolled definition or init/kernel provenance.",
+      "The guest range read alone does not establish reservations, boot arguments, capacity, or safe exposure of every listener."
+    ]
+  },
+  "result": {
+    "status": "exited",
+    "returncode": 0,
+    "stdout": "[\n  {\n    \"id\": \"camera\",\n    \"configuration\": {\n      \"id\": \"camera\",\n      \"runtimeHandler\": \"container-runtime-linux\",\n      \"resources\": {\n        \"cpuOverhead\": 1,\n        \"cpus\": 4,\n        \"memoryInBytes\": 4294967296\n      },\n      \"platform\": {\n        \"architecture\": \"arm64\",\n        \"os\": \"linux\"\n      },\n      \"publishedPorts\": [\n        {\n          \"containerPort\": 8443,\n          \"count\": 1,\n          \"hostAddress\": \"192.0.2.10\",\n          \"hostPort\": 8443,\n          \"proto\": \"tcp\"\n        },\n        {\n          \"containerPort\": 8081,\n          \"count\": 1,\n          \"hostAddress\": \"192.0.2.10\",\n          \"hostPort\": 8081,\n          \"proto\": \"tcp\"\n        },\n        {\n          \"containerPort\": 32100,\n          \"count\": 1,\n          \"hostAddress\": \"192.0.2.10\",\n          \"hostPort\": 32100,\n          \"proto\": \"tcp\"\n        },\n        {\n          \"containerPort\": 32200,\n          \"count\": 1,\n          \"hostAddress\": \"192.0.2.10\",\n          \"hostPort\": 32200,\n          \"proto\": \"tcp\"\n        },\n        {\n          \"containerPort\": 42000,\n          \"count\": 1024,\n          \"hostAddress\": \"192.0.2.10\",\n          \"hostPort\": 42000,\n          \"proto\": \"tcp\"\n        }\n      ]\n    },\n    \"status\": {\n      \"networks\": [\n        {\n          \"hostname\": \"camera.dev.internal.\",\n          \"ipv4Address\": \"198.51.100.5/24\",\n          \"ipv4Gateway\": \"198.51.100.1\",\n          \"ipv6Address\": \"2001:db8:1::5/64\",\n          \"macAddress\": \"02:00:00:00:00:05\",\n          \"mtu\": 1280,\n          \"network\": \"default\",\n          \"variant\": \"reserved\"\n        }\n      ],\n      \"startedDate\": \"2026-10-23T20:00:00Z\",\n      \"state\": \"running\"\n    }\n  }\n]\n",
+    "stderr": "",
+    "stdout_sha256": "e907724e98f698a42db5d320949b8d1414d539339345ca59d12d98d98ac9c7f2",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "id": "camera-native-automatic-ports",
+  "component": "apple-container",
+  "source": {
+    "kind": "sanitized-native-capture",
+    "captured_on": "2026-10-23",
+    "capture_context": "interactive-user",
+    "os_version": "27.0.1",
+    "os_build": "26A434",
+    "architecture": "arm64",
+    "tool": "container",
+    "tool_version": "1.2.0",
+    "original_stdout_sha256": "7b204414fcbddedaaf382df851a9dd2fc9e90ed6122b6da317ef07270f8d8624",
+    "original_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "transformations": [
+      "Source capture identifier: camera-native-automatic-ports. Read-only guest procfs via the native runtime exec command.",
+      "Replaced both private policy endpoints with a synthetic range of the same width; native delimiter/newline bytes retained."
+    ],
+    "limitations": [
+      "This is a read-only predecessor observation, not candidate framework activation, packet delivery, application recording, reboot or hardware acceptance.",
+      "The inspect projection omits images, environment, commands, mounts, DNS and labels; it cannot establish full enrolled definition or init/kernel provenance.",
+      "The guest range read alone does not establish reservations, boot arguments, capacity, or safe exposure of every listener."
+    ]
+  },
+  "result": {
+    "status": "exited",
+    "returncode": 0,
+    "stdout": "42000\t43023\n",
+    "stderr": "",
+    "stdout_sha256": "3d93027306c1086107a6416cf135b676ab9920354ffaa187f5caf6a0eb4a0c41",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}
