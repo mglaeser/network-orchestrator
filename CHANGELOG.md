@@ -25,8 +25,12 @@
   for [PYSEC-2026-4320](https://github.com/pypa/advisory-database/blob/main/vulns/certifi/PYSEC-2026-4320.yaml)
   and the [PSF emSign notice](https://discuss.python.org/t/information-for-python-users-regarding-emudhra-emsign-ca-certificate-security-incident/109576).
   pip vendors its own CA bundle, so updating certifi alone does not fix it.
-  Package hashes come from the reviewed upstream releases; runtime dependencies
-  and every other development pin are unchanged.
+  Package hashes come from the reviewed upstream releases.
+- Update the development lock's setuptools to 84.1.0 for
+  [GHSA-xmj3-9gf7-h52w](https://github.com/pypa/setuptools/security/advisories/GHSA-xmj3-9gf7-h52w),
+  a Windows legacy-wheel namespace path escape. This does not imply macOS is
+  affected by that path; the strict dependency audit remains enabled without a
+  waiver. Runtime dependencies and all other development pins are unchanged.
 - The native-qualified matrix and activation gates remain unchanged. No runtime
   upgrade, new forwarding owner or production migration is implied.
 
