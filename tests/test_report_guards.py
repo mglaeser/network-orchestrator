@@ -806,3 +806,84 @@ def test_camera_without_a_declared_automatic_range_does_not_infer_one(
     data["workloads"][0]["application_profile"] = "camera"
     assert status(report(data), "CAMERA-RECORDING") == "not-applicable"
     assert parsed(data).workloads[0].automatic_port_range is None
+
+
+@pytest.mark.parametrize("change", ["resize", "rename", "reassign"])
+def test_fixed_publication_budget_invalidates_when_only_guest_allocator_changes(
+    data: dict[str, Any], tmp_path: Path, change: str
+) -> None:
+    # A generic workload with a fixed publication can consume the automatic
+    # range without publishing that range. Its capacity proof must still bind it.
+    data["workloads"][0]["automatic_port_range"] = "allocator-range"
+    data["port_ranges"].append({"id": "allocator-range", "first": 43000, "last": 43031})
+    before = parsed(data)
+    fixed = before.transport_profile("example-publication")
+    original_digest = resolved_profile_digest(before, fixed)
+    assert resolved_profile(before, fixed)["workload"]["automatic_port_range"] == {
+        "id": "allocator-range",
+        "first": 43000,
+        "last": 43031,
+    }
+    attest(data, tmp_path, "PORT-BUDGET", "port-budget", 3, "example-publication")
+    attest(data, tmp_path, "PORT-BUDGET", "port-budget", 3, "example-return")
+    assert status(report(data, platform(), evidence_directory=tmp_path), "PORT-BUDGET") == (
+        "fulfilled-verified"
+    )
+    if change == "resize":
+        data["port_ranges"][-1]["last"] = 43015
+    elif change == "rename":
+        data["port_ranges"][-1]["id"] = "renamed-range"
+        data["workloads"][0]["automatic_port_range"] = "renamed-range"
+    else:
+        data["port_ranges"].append({"id": "other-range", "first": 43100, "last": 43131})
+        data["workloads"][0]["automatic_port_range"] = "other-range"
+    after = parsed(data)
+    assert resolved_profile_digest(after, after.transport_profile(fixed.id)) != original_digest
+    assert resolved_profile_digest(after, after.transport_profile("example-return")) == (
+        resolved_profile_digest(before, before.transport_profile("example-return"))
+    )
+    for selection in before.discovery:
+        changed = next(item for item in after.discovery if item.id == selection.id)
+        equal = resolved_discovery_digest(before, selection) == resolved_discovery_digest(
+            after, changed
+        )
+        assert equal == (selection.id == "example-import")
+    assert status(report(data, platform(), evidence_directory=tmp_path), "PORT-BUDGET") == (
+        "unverified"
+    )
+
+
+def test_automatic_range_digest_uses_new_version_and_rejects_pre_binding_proof(
+    data: dict[str, Any], tmp_path: Path
+) -> None:
+    import netorch.instance as instance_module
+
+    data = camera_range(data)
+    # Reconstruct the previous algorithm independently from today's version 3
+    # envelope; the preserved old example digest tests are disjoint controls.
+    current = parsed(data)
+    profile = current.transport_profile("example-publication")
+    old = resolved_profile(current, profile)
+    del old["workload"]["automatic_port_range"]
+    old_digest = digest(
+        {
+            "resolved_profile_version": 2,
+            "profile": profile.id,
+            "references": {profile.id: old},
+            "names": resolved_names(current),
+            "framework": asdict(current.framework),
+            "supervision": instance_module._stated(
+                asdict(current.supervision), instance_module._OPTIONAL_SUPERVISION
+            ),
+            "account": asdict(current.host.account),
+            "runtime": asdict(current.host.runtime),
+            "platform": asdict(current.host.platform),
+        }
+    )
+    assert old_digest != resolved_profile_digest(current, profile)
+    for identifier in ("example-return", "camera-streams"):
+        attest(data, tmp_path, "PORT-BUDGET", "port-budget", 3, identifier)
+    attest(data, tmp_path, "PORT-BUDGET", "port-budget", 3, profile.id, contract_sha256=old_digest)
+    assert status(report(data, platform(), evidence_directory=tmp_path), "PORT-BUDGET") == (
+        "unverified"
+    )

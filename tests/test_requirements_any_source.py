@@ -205,9 +205,22 @@ def former_registry() -> tuple[Requirement, ...]:
     return tuple(
         replace(item, statement=FORMER_STATEMENT, proving_tests=FORMER_TESTS)
         if item.id == BOUNDS
+        else replace(
+            item,
+            applicability="bounded-udp",
+            proving_tests=("test_udp_range_is_one_named_reference",),
+        )
+        if item.id == "PORT-RANGES"
+        else replace(
+            item,
+            applicability="bounded-udp",
+            statement="Idle and representative-load UDP socket counts are observed independently.",
+            proving_tests=("test_port_budget_counts_are_typed_and_observed_independently",),
+        )
+        if item.id == "PORT-BUDGET"
         else item
         for item in REQUIREMENTS
-        if item.id != OUTSIDE
+        if item.id not in {OUTSIDE, "CAMERA-RECORDING"}
     )
 
 
@@ -392,12 +405,17 @@ def test_a_report_differs_from_the_base_only_in_the_two_registry_rows(
     assert hashlib.sha256(canonical_bytes(former)).hexdigest() == BASE_REPORT_SHA256[case]
     assert {key for key in current if current[key] != former[key]} == {"requirements"}
     rows = {item["id"]: item for item in current["requirements"]}
-    kept = [key for key in rows if key != OUTSIDE]
+    kept = [key for key in rows if key not in {OUTSIDE, "CAMERA-RECORDING"}]
     assert kept == [item["id"] for item in former["requirements"]]
     for before in former["requirements"]:
         after = rows[before["id"]]
         changed = {key for key in before if before[key] != after[key]}
-        assert changed == ({"statement", "proving_tests"} if before["id"] == BOUNDS else set())
+        expected_changes = {
+            BOUNDS: {"statement", "proving_tests"},
+            "PORT-RANGES": {"proving_tests"},
+            "PORT-BUDGET": {"statement", "proving_tests"},
+        }
+        assert changed == expected_changes.get(before["id"], set())
     assert set(rows[OUTSIDE]) == set(rows[BOUNDS])
     expected = UNPROVEN if case == "any-redirect" else NOT_APPLICABLE
     assert outcome(current, OUTSIDE) == expected
@@ -509,9 +527,9 @@ def test_the_method_counts_only_for_its_own_requirement(tmp_path: Path) -> None:
 # ---- a signed deviation
 
 
-def test_mandatory_gates_gain_the_outside_packet_and_nothing_else() -> None:
+def test_mandatory_gates_include_the_outside_packet_and_camera_recording() -> None:
     gates = set(MANDATORY_PROVING_GATES)
-    assert gates == BASE_GATES | {OUTSIDE}
+    assert gates == BASE_GATES | {OUTSIDE, "CAMERA-RECORDING"}
 
 
 def test_every_native_acceptance_keeps_its_proving_gate() -> None:
@@ -650,13 +668,15 @@ def test_fully_served_needs_the_outside_packet_itself(
         ("acceptance-evidence.schema.json", ("properties", "method")),
     ],
 )
-def test_both_enumerations_only_gain_the_method_as_their_last_value(
+def test_both_enumerations_have_only_the_explicit_method_additions(
     name: str, path: tuple[str, ...]
 ) -> None:
     node: Any = json.loads((EXAMPLES.parent / "schemas" / name).read_bytes())
     for key in path:
         node = node[key]
-    assert node == {"enum": [*BASE_METHODS, METHOD]}
+    methods = [*BASE_METHODS, METHOD]
+    methods.insert(methods.index("heard-audio") + 1, "playable-recording")
+    assert node == {"enum": methods}
 
 
 def test_an_instance_acceptance_row_may_name_the_method(tmp_path: Path) -> None:

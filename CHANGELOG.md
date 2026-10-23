@@ -8,6 +8,10 @@
 - Apply automatic-range and capacity gates to native publications as well as UDP
   return paths. Add person-confirmed saved/playable recording acceptance for
   cameras with automatic ranges; live-view and bridge health do not substitute.
+- Bind automatic allocator names and endpoints into version 3 resolved digests
+  for non-UDP-return transports and their dependents, including fixed ports; old
+  profile acceptance cannot survive an allocator-only capacity change. Unrelated
+  digests and the already range-bound UDP-return form retain version 2.
 - Add the closed `playable-recording` acceptance method to schema 1; no existing
   document layout or canonical bytes change. Older readers reject the new method
   and cannot evaluate plans that rely on it. New gates narrow qualification only.

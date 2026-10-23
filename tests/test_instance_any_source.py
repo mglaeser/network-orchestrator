@@ -37,10 +37,9 @@ PUBLICATION = "example-publication"
 
 # Taken from the release before the setting existed (examples of that release). The two
 # `report_sha256` values are the exception: a report prints the requirements registry, and
-# they were taken again when its text changed, last for the sentence and the proving tests
-# of ROOT-HARD-BOUNDS and the row ANY-SOURCE-INGRESS. They still show that the report of an
-# instance without the setting is one fixed document. That it differs from the earlier one
-# in those two rows only is proved where the registry changed
+# they were taken again when its text changed, last for the 0.4.8 camera/range gates.
+# An instance without the setting still has one fixed report document. Only the
+# explicitly changed registry rows differ, as proved where the registry changed
 # (tests/test_requirements_any_source.py).
 BASE = {
     "instance.json": {
@@ -57,7 +56,7 @@ BASE = {
             "example-export": "a87cb58580aef982e565caa79bb489da0f3996ac5e1c3c45709c3811c6f1ff86",
             "example-import": "3a399f2f69074be0231e436d0902815936a10c506b77ec7c6cdf609e002c7af3",
         },
-        "report_sha256": "35f1c4d0880e87f3fa6633d959d26f3cc9a1b89f95c9cee8ff251a32b3f742c0",
+        "report_sha256": "41fda539cd473d502abc4ae1789c1019b851294b77fd9faedfd95d67a8cdfe33",
     },
     "instance-structural.json": {
         "file_sha256": "3656fa2b945b829525f03508b145c6993c7adfcd89bc83c7559f0b3086bf449a",
@@ -71,7 +70,7 @@ BASE = {
         "discovery": {
             "example-export": "397d48b2f0097fe344366050efc7ff1ffa9e9178445189ed3d8819c3c766e54d",
         },
-        "report_sha256": "ce8dca08c4ae8bfb7ff22d81b6ad4d26a73b110e6f4e90240e8e0ef93f06c1f1",
+        "report_sha256": "761d9871eef1b3687dd54697adab4c6bd8930baa2a2c66a00f079828a1a7c68f",
     },
 }
 
